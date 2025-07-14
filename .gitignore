@@ -1,0 +1,77 @@
+# .gitignore para Proyecto Backend Elite Club Gym
+# Como desarrollador, excluyo estos archivos del control de versiones por seguridad y buenas prácticas
+
+# Variables de entorno - CRÍTICO: Nunca subir credenciales de producción
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Dependencias de Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Logs del sistema - Los mantengo locales para debugging
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+lerna-debug.log*
+
+# Archivos de coverage de pruebas
+coverage/
+*.lcov
+
+# Archivos temporales del sistema
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Archivos de IDE - Configuraciones personales del desarrollador
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de build y distribución
+dist/
+build/
+out/
+
+# Archivos de cache
+.cache/
+.npm
+.eslintcache
+
+# Archivos de testing
+.nyc_output
+
+# Archivos de backup de base de datos (si genero dumps locales)
+*.sql
+*.backup
+*.dump
+
+# Archivos temporales de imágenes durante desarrollo
+temp_images/
+uploads/temp/
+
+# Certificados SSL locales (si los uso en desarrollo)
+*.pem
+*.key
+*.crt
+
+# Archivos de configuración local específicos
+config/local.js
+config/development.local.js
+
+# Archivos de documentación generada automáticamente
+docs/api/
+api-docs/generated/
