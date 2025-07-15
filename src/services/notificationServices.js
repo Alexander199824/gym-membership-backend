@@ -4,15 +4,34 @@ const twilio = require('twilio');
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransport({ // CORREGIDO: createTransport (sin 'er')
-      host: process.env.EMAIL_HOST,
-      port: process.env.EMAIL_PORT,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+    // Verificar que las credenciales de email sean válidas
+    const hasValidEmailConfig = 
+      process.env.EMAIL_HOST &&
+      process.env.EMAIL_USER &&
+      process.env.EMAIL_PASS &&
+      process.env.EMAIL_USER !== 'your-gym-email@gmail.com' && // No es placeholder
+      process.env.EMAIL_PASS !== 'your_app_specific_password'; // No es placeholder
+
+    if (hasValidEmailConfig) {
+      try {
+        this.transporter = nodemailer.createTransporter({
+          host: process.env.EMAIL_HOST,
+          port: process.env.EMAIL_PORT || 587,
+          secure: false, // true for 465, false for other ports
+          auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS
+          }
+        });
+        console.log('✅ Transporter de email inicializado correctamente');
+      } catch (error) {
+        console.warn('⚠️ Error al inicializar email transporter:', error.message);
+        this.transporter = null;
       }
-    });
+    } else {
+      console.warn('⚠️ Email no configurado correctamente - Las notificaciones por email no funcionarán');
+      this.transporter = null;
+    }
   }
 
   async sendEmail({ to, subject, html, text }) {
@@ -22,8 +41,13 @@ class EmailService {
         return { success: false, message: 'Email deshabilitado' };
       }
 
+      if (!this.transporter) {
+        console.log('📧 Transporter de email no disponible');
+        return { success: false, message: 'Email no configurado correctamente' };
+      }
+
       const mailOptions = {
-        from: process.env.EMAIL_FROM,
+        from: process.env.EMAIL_FROM || '"Gym System" <noreply@gym.com>',
         to,
         subject,
         html,
@@ -151,13 +175,29 @@ class EmailService {
 
 class WhatsAppService {
   constructor() {
-    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-      this.client = twilio(
-        process.env.TWILIO_ACCOUNT_SID,
-        process.env.TWILIO_AUTH_TOKEN
-      );
+    // Verificar que las credenciales sean válidas, no solo que existan
+    const hasValidCredentials = 
+      process.env.TWILIO_ACCOUNT_SID && 
+      process.env.TWILIO_AUTH_TOKEN &&
+      process.env.TWILIO_ACCOUNT_SID.startsWith('AC') && // Validación específica de Twilio
+      process.env.TWILIO_ACCOUNT_SID !== 'your_twilio_account_sid'; // No es placeholder
+
+    if (hasValidCredentials) {
+      try {
+        this.client = twilio(
+          process.env.TWILIO_ACCOUNT_SID,
+          process.env.TWILIO_AUTH_TOKEN
+        );
+        console.log('✅ Cliente de Twilio inicializado correctamente');
+      } catch (error) {
+        console.warn('⚠️ Error al inicializar Twilio:', error.message);
+        this.client = null;
+      }
     } else {
-      console.warn('⚠️ Twilio no configurado - WhatsApp no funcionará');
+      console.warn('⚠️ Twilio no configurado correctamente - WhatsApp no funcionará');
+      if (process.env.TWILIO_ACCOUNT_SID && !process.env.TWILIO_ACCOUNT_SID.startsWith('AC')) {
+        console.warn('   TWILIO_ACCOUNT_SID debe comenzar con "AC"');
+      }
       this.client = null;
     }
   }
@@ -170,15 +210,15 @@ class WhatsAppService {
       }
 
       if (!this.client) {
-        console.log('📱 Cliente de Twilio no configurado');
-        return { success: false, message: 'Cliente de Twilio no configurado' };
+        console.log('📱 Cliente de Twilio no disponible');
+        return { success: false, message: 'Cliente de Twilio no configurado correctamente' };
       }
 
       // Formatear número de teléfono
       const formattedTo = this.formatPhoneNumber(to);
       
       const result = await this.client.messages.create({
-        from: process.env.TWILIO_WHATSAPP_FROM,
+        from: process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886',
         to: `whatsapp:${formattedTo}`,
         body: message
       });

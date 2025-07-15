@@ -9,9 +9,39 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
 const { uploadLimiter } = require('../middleware/rateLimiter');
-const { uploadTransferProof } = require('../config/cloudinary');
 
 const router = express.Router();
+
+// Verificar si Cloudinary está configurado
+const hasCloudinary = 
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET &&
+  process.env.CLOUDINARY_CLOUD_NAME !== 'your_cloudinary_cloud_name';
+
+// Importar configuración de upload solo si está disponible
+let uploadTransferProof;
+if (hasCloudinary) {
+  try {
+    const { uploadTransferProof: cloudinaryUpload } = require('../config/cloudinary');
+    uploadTransferProof = cloudinaryUpload;
+  } catch (error) {
+    console.warn('⚠️ Error al importar configuración de Cloudinary para pagos');
+    uploadTransferProof = null;
+  }
+}
+
+// Middleware alternativo si no hay Cloudinary
+if (!uploadTransferProof) {
+  uploadTransferProof = {
+    single: () => (req, res, next) => {
+      return res.status(503).json({
+        success: false,
+        message: 'Servicio de archivos no configurado. Los comprobantes no se pueden subir en este momento.'
+      });
+    }
+  };
+}
 
 // Obtener todos los pagos
 router.get('/', 

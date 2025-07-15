@@ -10,9 +10,32 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken } = require('../middleware/auth');
 const { authLimiter, uploadLimiter } = require('../middleware/rateLimiter');
-const { uploadProfileImage } = require('../config/cloudinary');
 
 const router = express.Router();
+
+// Verificar si Cloudinary está configurado
+const hasCloudinary = 
+  process.env.CLOUDINARY_CLOUD_NAME &&
+  process.env.CLOUDINARY_API_KEY &&
+  process.env.CLOUDINARY_API_SECRET &&
+  process.env.CLOUDINARY_CLOUD_NAME !== 'your_cloudinary_cloud_name';
+
+// Importar configuración de upload solo si está disponible
+let uploadProfileImage;
+if (hasCloudinary) {
+  const { uploadProfileImage: cloudinaryUpload } = require('../config/cloudinary');
+  uploadProfileImage = cloudinaryUpload;
+} else {
+  // Middleware que rechaza uploads si Cloudinary no está configurado
+  uploadProfileImage = {
+    single: () => (req, res, next) => {
+      return res.status(503).json({
+        success: false,
+        message: 'Servicio de imágenes no configurado. Contacta al administrador.'
+      });
+    }
+  };
+}
 
 // Registro de usuario
 router.post('/register', 
@@ -30,15 +53,38 @@ router.post('/login',
   authController.login
 );
 
-// Google OAuth
-router.get('/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
+// Google OAuth (solo si está configurado)
+const hasGoogleOAuth = passport.availableStrategies?.google;
 
-router.get('/google/callback',
-  passport.authenticate('google', { failureRedirect: '/auth/error' }),
-  authController.googleCallback
-);
+if (hasGoogleOAuth) {
+  console.log('✅ Habilitando rutas de Google OAuth');
+  
+  router.get('/google',
+    passport.authenticate('google', { scope: ['profile', 'email'] })
+  );
+
+  router.get('/google/callback',
+    passport.authenticate('google', { failureRedirect: '/auth/error' }),
+    authController.googleCallback
+  );
+} else {
+  console.warn('⚠️ Rutas de Google OAuth deshabilitadas');
+  
+  // Rutas alternativas que informan que Google OAuth no está disponible
+  router.get('/google', (req, res) => {
+    res.status(503).json({
+      success: false,
+      message: 'Google OAuth no configurado en este servidor'
+    });
+  });
+
+  router.get('/google/callback', (req, res) => {
+    res.status(503).json({
+      success: false,
+      message: 'Google OAuth no configurado en este servidor'
+    });
+  });
+}
 
 // Obtener perfil del usuario actual
 router.get('/profile', 
@@ -78,5 +124,18 @@ router.post('/logout',
   authenticateToken,
   authController.logout
 );
+
+// Información sobre servicios disponibles
+router.get('/services', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      googleOAuth: hasGoogleOAuth,
+      imageUpload: hasCloudinary,
+      emailNotifications: process.env.NOTIFICATION_EMAIL_ENABLED === 'true',
+      whatsappNotifications: process.env.NOTIFICATION_WHATSAPP_ENABLED === 'true'
+    }
+  });
+});
 
 module.exports = router;
