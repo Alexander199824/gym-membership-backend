@@ -2,6 +2,7 @@
 const app = require('./app');
 const { testConnection, initializeDatabase } = require('./config/database');
 const notificationScheduler = require('./services/notificationScheduler');
+const { runSeeds } = require('./config/seeds'); // Agregar esta línea
 
 class Server {
   constructor() {
@@ -25,6 +26,10 @@ class Server {
 
       // Inicializar modelos y relaciones
       require('./models');
+
+      // Ejecutar seeds (AGREGAR AQUÍ DENTRO DE LA FUNCIÓN ASYNC)
+      console.log('🌱 Ejecutando seeds...');
+      await runSeeds();
 
       // Iniciar programador de notificaciones
       if (process.env.NODE_ENV !== 'test') {
@@ -85,6 +90,11 @@ class Server {
 
     if (!process.env.GOOGLE_CLIENT_ID) {
       console.warn('⚠️ Google OAuth no configurado - El login con Google no funcionará');
+    }
+
+    // Verificar credenciales de admin
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+      console.warn('⚠️ Credenciales de admin no configuradas - Se usarán valores por defecto');
     }
   }
 

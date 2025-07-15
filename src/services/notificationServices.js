@@ -4,7 +4,7 @@ const twilio = require('twilio');
 
 class EmailService {
   constructor() {
-    this.transporter = nodemailer.createTransporter({
+    this.transporter = nodemailer.createTransport({ // CORREGIDO: createTransport (sin 'er')
       host: process.env.EMAIL_HOST,
       port: process.env.EMAIL_PORT,
       secure: false, // true for 465, false for other ports
@@ -151,10 +151,15 @@ class EmailService {
 
 class WhatsAppService {
   constructor() {
-    this.client = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+      this.client = twilio(
+        process.env.TWILIO_ACCOUNT_SID,
+        process.env.TWILIO_AUTH_TOKEN
+      );
+    } else {
+      console.warn('⚠️ Twilio no configurado - WhatsApp no funcionará');
+      this.client = null;
+    }
   }
 
   async sendWhatsApp({ to, message }) {
@@ -162,6 +167,11 @@ class WhatsAppService {
       if (!process.env.NOTIFICATION_WHATSAPP_ENABLED || process.env.NOTIFICATION_WHATSAPP_ENABLED !== 'true') {
         console.log('📱 WhatsApp deshabilitado en configuración');
         return { success: false, message: 'WhatsApp deshabilitado' };
+      }
+
+      if (!this.client) {
+        console.log('📱 Cliente de Twilio no configurado');
+        return { success: false, message: 'Cliente de Twilio no configurado' };
       }
 
       // Formatear número de teléfono
