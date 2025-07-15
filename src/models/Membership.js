@@ -66,7 +66,7 @@ const Membership = sequelize.define('Membership', {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
-      model: 'Users',
+      model: 'users', // ← CORREGIDO: cambié de 'Users' a 'users'
       key: 'id'
     }
   },

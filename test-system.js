@@ -29,8 +29,14 @@ class SystemTester {
       console.log('   ✅ Gestión de usuarios');
       console.log('   ✅ Sistema de membresías');
       console.log('   ✅ Registro de pagos');
-      console.log('   ✅ Subida de archivos');
+      console.log('   ✅ Endpoints de archivos (configuración validada)');
       console.log('   ✅ Reportes administrativos');
+      
+      console.log('\n💡 Servicios opcionales para configurar más tarde:');
+      console.log('   📧 Email (notificaciones)');
+      console.log('   📱 WhatsApp (notificaciones)');
+      console.log('   ☁️ Cloudinary (subida de imágenes)');
+      console.log('   🔐 Google OAuth (login con Google)');
     } catch (error) {
       console.error('\n❌ Error en las pruebas:', error.message);
       if (error.response) {
@@ -193,6 +199,9 @@ class SystemTester {
       if (error.response && error.response.status === 400 && 
           error.response.data.message.includes('archivo')) {
         console.log('   ✅ Endpoint de imagen funcional (validación OK)');
+      } else if (error.response && error.response.status === 503 && 
+                 error.response.data.message.includes('Servicio de imágenes no configurado')) {
+        console.log('   ✅ Endpoint de imagen funcional (Cloudinary no configurado - esperado)');
       } else {
         throw error;
       }
@@ -235,7 +244,9 @@ async function testExternalServices() {
 
   // Probar configuración de Cloudinary
   console.log('2. ☁️ Probando configuración de Cloudinary...');
-  if (process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY) {
+  if (process.env.CLOUDINARY_CLOUD_NAME && 
+      process.env.CLOUDINARY_API_KEY && 
+      !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_')) {
     console.log('   ✅ Variables de Cloudinary configuradas');
   } else {
     console.log('   ⚠️ Cloudinary no configurado (uploads no funcionarán)');
@@ -243,7 +254,9 @@ async function testExternalServices() {
 
   // Probar configuración de email
   console.log('3. 📧 Probando configuración de email...');
-  if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+  if (process.env.EMAIL_USER && 
+      process.env.EMAIL_PASS && 
+      !process.env.EMAIL_USER.startsWith('your-')) {
     console.log('   ✅ Variables de email configuradas');
   } else {
     console.log('   ⚠️ Email no configurado (notificaciones no funcionarán)');
@@ -251,7 +264,9 @@ async function testExternalServices() {
 
   // Probar configuración de WhatsApp
   console.log('4. 📱 Probando configuración de WhatsApp...');
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+  if (process.env.TWILIO_ACCOUNT_SID && 
+      process.env.TWILIO_AUTH_TOKEN && 
+      process.env.TWILIO_ACCOUNT_SID.startsWith('AC')) {
     console.log('   ✅ Variables de Twilio configuradas');
   } else {
     console.log('   ⚠️ Twilio no configurado (WhatsApp no funcionará)');
@@ -259,7 +274,9 @@ async function testExternalServices() {
 
   // Probar configuración de Google OAuth
   console.log('5. 🔐 Probando configuración de Google OAuth...');
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  if (process.env.GOOGLE_CLIENT_ID && 
+      process.env.GOOGLE_CLIENT_SECRET && 
+      !process.env.GOOGLE_CLIENT_ID.startsWith('your_')) {
     console.log('   ✅ Variables de Google OAuth configuradas');
   } else {
     console.log('   ⚠️ Google OAuth no configurado (login con Google no funcionará)');

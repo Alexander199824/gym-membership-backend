@@ -8,9 +8,10 @@ const Payment = sequelize.define('Payment', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
+  // ✅ CORREGIDO: Permitir pagos sin usuario registrado
   userId: {
     type: DataTypes.UUID,
-    allowNull: false,
+    allowNull: true, // ← Cambiar a true para pagos anónimos
     references: {
       model: 'users',
       key: 'id'
@@ -20,7 +21,7 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.UUID,
     allowNull: true, // Puede ser null para pagos por día
     references: {
-      model: 'Memberships',
+      model: 'memberships',
       key: 'id'
     }
   },
@@ -44,6 +45,12 @@ const Payment = sequelize.define('Payment', {
     allowNull: false,
     defaultValue: 'completed'
   },
+  // ✅ NUEVO: Información del cliente anónimo
+  anonymousClientInfo: {
+    type: DataTypes.JSONB,
+    allowNull: true,
+    // Estructura: { name: 'Juan Pérez', phone: '+502...', notes: 'Cliente ocasional' }
+  },
   // Para pagos por transferencia
   transferProof: {
     type: DataTypes.TEXT,
@@ -57,7 +64,7 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   },
@@ -88,15 +95,26 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.UUID,
     allowNull: false,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   },
-  // Para pagos por día en lote
+  // ✅ MEJORADO: Para múltiples pagos por día
   dailyPaymentCount: {
     type: DataTypes.INTEGER,
     allowNull: true,
-    defaultValue: 1
+    defaultValue: 1,
+    validate: {
+      min: 1
+    }
+  },
+  // ✅ NUEVO: Precio unitario para pagos múltiples
+  unitPrice: {
+    type: DataTypes.DECIMAL(10, 2),
+    allowNull: true,
+    validate: {
+      min: 0
+    }
   },
   // Fecha del pago (puede ser diferente a createdAt)
   paymentDate: {
@@ -116,7 +134,45 @@ const Payment = sequelize.define('Payment', {
     { fields: ['registeredBy'] },
     { fields: ['paymentDate'] },
     { fields: ['transferValidated'] }
-  ]
+  ],
+  // ✅ VALIDACIONES PERSONALIZADAS
+  validate: {
+    membershipRequiresUser() {
+      if (this.paymentType === 'membership' && !this.userId) {
+        throw new Error('Los pagos de membresía requieren un usuario registrado');
+      }
+    },
+    membershipRequiresMembershipId() {
+      if (this.paymentType === 'membership' && !this.membershipId) {
+        throw new Error('Los pagos de membresía requieren un ID de membresía');
+      }
+    },
+    dailyPaymentsValidation() {
+      if ((this.paymentType === 'daily' || this.paymentType === 'bulk_daily') && !this.userId && !this.anonymousClientInfo) {
+        throw new Error('Los pagos diarios sin usuario requieren información del cliente (anonymousClientInfo)');
+      }
+    },
+    bulkPaymentValidation() {
+      if (this.paymentType === 'bulk_daily' && (!this.dailyPaymentCount || this.dailyPaymentCount < 2)) {
+        throw new Error('Los pagos en lote deben tener al menos 2 entradas');
+      }
+    }
+  },
+  // ✅ HOOKS para calcular automáticamente valores
+  hooks: {
+    beforeValidate: (payment) => {
+      // Si es bulk_daily, calcular unitPrice automáticamente
+      if (payment.paymentType === 'bulk_daily' && payment.amount && payment.dailyPaymentCount) {
+        payment.unitPrice = (payment.amount / payment.dailyPaymentCount).toFixed(2);
+      }
+      
+      // Si es daily simple, dailyPaymentCount = 1
+      if (payment.paymentType === 'daily') {
+        payment.dailyPaymentCount = 1;
+        payment.unitPrice = payment.amount;
+      }
+    }
+  }
 });
 
 // Métodos de instancia
@@ -132,7 +188,40 @@ Payment.prototype.needsValidation = function() {
   return this.paymentMethod === 'transfer' && !this.transferValidated;
 };
 
-// Métodos estáticos
+Payment.prototype.getClientName = function() {
+  if (this.user) {
+    return this.user.getFullName();
+  }
+  if (this.anonymousClientInfo && this.anonymousClientInfo.name) {
+    return this.anonymousClientInfo.name;
+  }
+  return 'Cliente anónimo';
+};
+
+Payment.prototype.getClientInfo = function() {
+  if (this.user) {
+    return {
+      type: 'registered',
+      name: this.user.getFullName(),
+      email: this.user.email,
+      phone: this.user.phone
+    };
+  }
+  if (this.anonymousClientInfo) {
+    return {
+      type: 'anonymous',
+      name: this.anonymousClientInfo.name || 'Anónimo',
+      phone: this.anonymousClientInfo.phone || null,
+      notes: this.anonymousClientInfo.notes || null
+    };
+  }
+  return {
+    type: 'unknown',
+    name: 'Cliente anónimo'
+  };
+};
+
+// Métodos estáticos existentes...
 Payment.findPendingTransfers = function() {
   return this.findAll({
     where: {
@@ -140,7 +229,7 @@ Payment.findPendingTransfers = function() {
       transferValidated: false,
       status: 'pending'
     },
-    include: ['User'],
+    include: ['user'],
     order: [['createdAt', 'ASC']]
   });
 };
@@ -168,31 +257,38 @@ Payment.findByDateRange = function(startDate, endDate, paymentType = null) {
   
   return this.findAll({
     where,
-    include: ['User'],
+    include: ['user'],
     order: [['paymentDate', 'DESC']]
   });
 };
 
-Payment.getTotalIncomeByPeriod = async function(startDate, endDate, groupBy = 'day') {
-  const dateFormat = groupBy === 'day' ? '%Y-%m-%d' : 
-                    groupBy === 'week' ? '%Y-%u' : 
-                    groupBy === 'month' ? '%Y-%m' : '%Y';
-  
-  return await this.findAll({
-    attributes: [
-      [sequelize.fn('DATE_TRUNC', groupBy, sequelize.col('paymentDate')), 'period'],
-      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
-      [sequelize.fn('COUNT', sequelize.col('id')), 'totalPayments']
-    ],
+// ✅ NUEVO: Método para obtener estadísticas de pagos diarios
+Payment.getDailyPaymentStats = async function(startDate, endDate) {
+  const dailyPayments = await this.findAll({
     where: {
+      paymentType: ['daily', 'bulk_daily'],
+      status: 'completed',
       paymentDate: {
         [sequelize.Sequelize.Op.between]: [startDate, endDate]
-      },
-      status: 'completed'
+      }
     },
-    group: [sequelize.fn('DATE_TRUNC', groupBy, sequelize.col('paymentDate'))],
-    order: [[sequelize.fn('DATE_TRUNC', groupBy, sequelize.col('paymentDate')), 'ASC']]
+    attributes: [
+      [sequelize.fn('DATE', sequelize.col('paymentDate')), 'date'],
+      [sequelize.fn('SUM', sequelize.col('dailyPaymentCount')), 'totalEntries'],
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('COUNT', sequelize.col('id')), 'totalTransactions']
+    ],
+    group: [sequelize.fn('DATE', sequelize.col('paymentDate'))],
+    order: [[sequelize.fn('DATE', sequelize.col('paymentDate')), 'DESC']]
   });
+
+  return dailyPayments.map(payment => ({
+    date: payment.dataValues.date,
+    totalEntries: parseInt(payment.dataValues.totalEntries),
+    totalAmount: parseFloat(payment.dataValues.totalAmount),
+    totalTransactions: parseInt(payment.dataValues.totalTransactions),
+    averagePerEntry: parseFloat(payment.dataValues.totalAmount) / parseInt(payment.dataValues.totalEntries)
+  }));
 };
 
 module.exports = Payment;

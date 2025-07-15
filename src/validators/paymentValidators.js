@@ -2,9 +2,9 @@
 const { body, param } = require('express-validator');
 
 const createPaymentValidator = [
+  // ✅ CORREGIDO: userId ahora es opcional
   body('userId')
-    .notEmpty()
-    .withMessage('ID de usuario es requerido')
+    .optional()
     .isUUID()
     .withMessage('ID de usuario inválido'),
     
@@ -24,6 +24,30 @@ const createPaymentValidator = [
     .optional()
     .isUUID()
     .withMessage('ID de membresía inválido'),
+
+  // ✅ NUEVO: Validación para información de cliente anónimo
+  body('anonymousClientInfo')
+    .optional()
+    .isObject()
+    .withMessage('La información del cliente anónimo debe ser un objeto'),
+    
+  body('anonymousClientInfo.name')
+    .if(body('userId').not().exists())
+    .if(body('anonymousClientInfo').exists())
+    .notEmpty()
+    .withMessage('El nombre es requerido para clientes anónimos'),
+    
+  // ✅ VALIDACIÓN: Pagos de membresía requieren usuario
+  body('userId')
+    .if(body('paymentType').equals('membership'))
+    .notEmpty()
+    .withMessage('Los pagos de membresía requieren un usuario registrado'),
+
+  // ✅ VALIDACIÓN: Pagos bulk_daily requieren dailyPaymentCount > 1
+  body('dailyPaymentCount')
+    .if(body('paymentType').equals('bulk_daily'))
+    .isInt({ min: 2 })
+    .withMessage('Los pagos en lote deben tener al menos 2 entradas'),
     
   body('description')
     .optional()

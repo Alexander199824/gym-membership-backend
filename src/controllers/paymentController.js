@@ -7,6 +7,9 @@ class PaymentController {
   constructor() {
     this.emailService = new EmailService();
     this.whatsappService = new WhatsAppService();
+    
+    // ✅ CORRECCIÓN: Bindear métodos al contexto de la clase
+    this.sendPaymentNotifications = this.sendPaymentNotifications.bind(this);
   }
 
   // Crear nuevo pago
@@ -62,7 +65,12 @@ class PaymentController {
 
       // Si es pago completado, enviar notificaciones
       if (payment.status === 'completed') {
-        await this.sendPaymentNotifications(payment, user);
+        // ✅ CORRECCIÓN: Usar try-catch para las notificaciones para que no bloqueen el proceso
+        try {
+          await this.sendPaymentNotifications(payment, user);
+        } catch (notificationError) {
+          console.warn('⚠️ Error al enviar notificaciones de pago (no crítico):', notificationError.message);
+        }
       }
 
       // Incluir datos relacionados en la respuesta
@@ -317,7 +325,11 @@ class PaymentController {
 
       // Si se aprobó, enviar notificaciones y activar membresía
       if (approved) {
-        await this.sendPaymentNotifications(payment, payment.user);
+        try {
+          await this.sendPaymentNotifications(payment, payment.user);
+        } catch (notificationError) {
+          console.warn('⚠️ Error al enviar notificaciones (no crítico):', notificationError.message);
+        }
         
         // Si es pago de membresía, activarla/renovarla
         if (payment.paymentType === 'membership' && payment.membership) {
@@ -576,32 +588,47 @@ class PaymentController {
     }
   }
 
-  // Enviar notificaciones de pago
+  // ✅ CORRECCIÓN: Método de notificaciones mejorado
   async sendPaymentNotifications(payment, user) {
     try {
+      // Verificar que los servicios estén disponibles
+      if (!this.emailService || !this.whatsappService) {
+        console.warn('⚠️ Servicios de notificación no disponibles');
+        return;
+      }
+
       const preferences = user.notificationPreferences || {};
 
       // Enviar email de confirmación
       if (preferences.email !== false && user.email) {
-        const emailTemplate = this.emailService.generatePaymentConfirmationEmail(user, payment);
-        await this.emailService.sendEmail({
-          to: user.email,
-          subject: emailTemplate.subject,
-          html: emailTemplate.html,
-          text: emailTemplate.text
-        });
+        try {
+          const emailTemplate = this.emailService.generatePaymentConfirmationEmail(user, payment);
+          await this.emailService.sendEmail({
+            to: user.email,
+            subject: emailTemplate.subject,
+            html: emailTemplate.html,
+            text: emailTemplate.text
+          });
+        } catch (emailError) {
+          console.warn('⚠️ Error al enviar email de confirmación:', emailError.message);
+        }
       }
 
       // Enviar WhatsApp de confirmación
       if (preferences.whatsapp !== false && user.whatsapp) {
-        const message = this.whatsappService.generatePaymentConfirmationMessage(user, payment);
-        await this.whatsappService.sendWhatsApp({
-          to: user.whatsapp,
-          message
-        });
+        try {
+          const message = this.whatsappService.generatePaymentConfirmationMessage(user, payment);
+          await this.whatsappService.sendWhatsApp({
+            to: user.whatsapp,
+            message
+          });
+        } catch (whatsappError) {
+          console.warn('⚠️ Error al enviar WhatsApp de confirmación:', whatsappError.message);
+        }
       }
     } catch (error) {
-      console.error('Error al enviar notificaciones de pago:', error);
+      console.error('⚠️ Error general al enviar notificaciones de pago:', error.message);
+      // No lanzar el error para que no interrumpa el proceso principal
     }
   }
 }

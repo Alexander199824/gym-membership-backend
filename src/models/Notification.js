@@ -65,7 +65,7 @@ const Notification = sequelize.define('Notification', {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
-      model: 'Memberships',
+      model: 'memberships', // ← CORREGIDO: cambié de 'Memberships' a 'memberships'
       key: 'id'
     }
   },
@@ -73,7 +73,7 @@ const Notification = sequelize.define('Notification', {
     type: DataTypes.UUID,
     allowNull: true,
     references: {
-      model: 'Payments',
+      model: 'payments', // ← CORREGIDO: cambié de 'Payments' a 'payments'
       key: 'id'
     }
   }

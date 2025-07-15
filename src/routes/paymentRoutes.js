@@ -19,7 +19,6 @@ const hasCloudinary =
   process.env.CLOUDINARY_API_SECRET &&
   process.env.CLOUDINARY_CLOUD_NAME !== 'your_cloudinary_cloud_name';
 
-// Importar configuración de upload solo si está disponible
 let uploadTransferProof;
 if (hasCloudinary) {
   try {
@@ -31,7 +30,6 @@ if (hasCloudinary) {
   }
 }
 
-// Middleware alternativo si no hay Cloudinary
 if (!uploadTransferProof) {
   uploadTransferProof = {
     single: () => (req, res, next) => {
