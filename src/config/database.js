@@ -74,6 +74,7 @@ const updateEnvFile = (key, value) => {
 };
 
 // Función para eliminar TODAS las tablas de la base de datos
+// Función para eliminar TODAS las tablas de la base de datos
 const dropAllTables = async () => {
   try {
     console.log('🗑️ ELIMINANDO TODAS LAS TABLAS DE LA BASE DE DATOS...');
@@ -97,22 +98,113 @@ const dropAllTables = async () => {
       console.log(`   📄 ${table.table_name}`);
     });
 
-    // Deshabilitar foreign key checks temporalmente
-    console.log('🔧 Deshabilitando foreign key constraints...');
-    await sequelize.query('SET session_replication_role = replica;');
-
-    // Eliminar todas las tablas una por una
-    for (const table of tables) {
-      try {
-        await sequelize.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE;`);
-        console.log(`   ✅ ${table.table_name} eliminada`);
-      } catch (error) {
-        console.log(`   ⚠️ Error al eliminar ${table.table_name}: ${error.message.split('\n')[0]}`);
-      }
+    // Verificar si tenemos permisos de superusuario
+    let hasSuperuserPrivileges = false;
+    try {
+      await sequelize.query('SET session_replication_role = replica;');
+      hasSuperuserPrivileges = true;
+      await sequelize.query('SET session_replication_role = DEFAULT;');
+      console.log('✅ Permisos de superusuario detectados');
+    } catch (error) {
+      console.log('⚠️ Sin permisos de superusuario, usando método alternativo');
     }
 
-    // Rehabilitar foreign key checks
-    await sequelize.query('SET session_replication_role = DEFAULT;');
+    // Método con permisos de superusuario
+    if (hasSuperuserPrivileges) {
+      console.log('🔧 Deshabilitando foreign key constraints...');
+      await sequelize.query('SET session_replication_role = replica;');
+
+      // Eliminar todas las tablas una por una
+      for (const table of tables) {
+        try {
+          await sequelize.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE;`);
+          console.log(`   ✅ ${table.table_name} eliminada`);
+        } catch (error) {
+          console.log(`   ⚠️ Error al eliminar ${table.table_name}: ${error.message.split('\n')[0]}`);
+        }
+      }
+
+      // Rehabilitar foreign key checks
+      await sequelize.query('SET session_replication_role = DEFAULT;');
+    } else {
+      // Método alternativo sin permisos de superusuario
+      console.log('🔄 Eliminando tablas en múltiples pasadas...');
+      
+      let remainingTables = [...tables];
+      let attempt = 0;
+      const maxAttempts = 10;
+
+      while (remainingTables.length > 0 && attempt < maxAttempts) {
+        attempt++;
+        console.log(`🔄 Pasada ${attempt}/${maxAttempts}...`);
+        
+        const initialCount = remainingTables.length;
+        
+        // Intentar eliminar cada tabla
+        for (let i = remainingTables.length - 1; i >= 0; i--) {
+          const table = remainingTables[i];
+          try {
+            await sequelize.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE;`);
+            console.log(`   ✅ ${table.table_name} eliminada`);
+            remainingTables.splice(i, 1);
+          } catch (error) {
+            if (error.message.includes('violates foreign key constraint') || 
+                error.message.includes('depends on')) {
+              console.log(`   ⏳ ${table.table_name} pendiente (dependencias)`);
+            } else {
+              console.log(`   ⚠️ ${table.table_name}: ${error.message.split('\n')[0]}`);
+              // Remover de la lista para evitar bucle infinito
+              remainingTables.splice(i, 1);
+            }
+          }
+        }
+        
+        // Si no se eliminó ninguna tabla en esta pasada, intentar forzar
+        if (remainingTables.length === initialCount && remainingTables.length > 0) {
+          console.log(`🔧 Forzando eliminación de ${remainingTables.length} tablas restantes...`);
+          
+          for (let i = remainingTables.length - 1; i >= 0; i--) {
+            const table = remainingTables[i];
+            try {
+              // Primero intentar eliminar foreign keys específicos
+              const [constraints] = await sequelize.query(`
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = '${table.table_name}' 
+                AND constraint_type = 'FOREIGN KEY';
+              `);
+
+              for (const constraint of constraints) {
+                try {
+                  await sequelize.query(`
+                    ALTER TABLE "${table.table_name}" 
+                    DROP CONSTRAINT IF EXISTS "${constraint.constraint_name}" CASCADE;
+                  `);
+                } catch (e) {
+                  // Ignorar errores al eliminar constraints
+                }
+              }
+
+              // Ahora intentar eliminar la tabla
+              await sequelize.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE;`);
+              console.log(`   ✅ ${table.table_name} eliminada (forzado)`);
+              remainingTables.splice(i, 1);
+            } catch (error) {
+              console.log(`   ❌ ${table.table_name}: No se pudo eliminar`);
+              remainingTables.splice(i, 1); // Remover para evitar bucle infinito
+            }
+          }
+          break; // Salir del bucle while
+        }
+      }
+
+      if (remainingTables.length > 0) {
+        console.log(`⚠️ ${remainingTables.length} tablas no se pudieron eliminar:`);
+        remainingTables.forEach(table => {
+          console.log(`   📄 ${table.table_name}`);
+        });
+      }
+    }
 
     // Eliminar todos los tipos ENUM personalizados
     console.log('🔧 Eliminando tipos ENUM personalizados...');
@@ -150,26 +242,35 @@ const dropAllTables = async () => {
       }
     }
 
-    // Eliminar todas las funciones personalizadas (opcional)
-    console.log('⚙️ Eliminando funciones personalizadas...');
-    const [functions] = await sequelize.query(`
-      SELECT routine_name 
-      FROM information_schema.routines 
-      WHERE routine_schema = 'public' 
-      AND routine_type = 'FUNCTION';
+    // Verificar estado final
+    const [finalCheck] = await sequelize.query(`
+      SELECT COUNT(*) as count
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
     `);
 
-    for (const func of functions) {
-      try {
-        await sequelize.query(`DROP FUNCTION IF EXISTS "${func.routine_name}" CASCADE;`);
-        console.log(`   ✅ Función ${func.routine_name} eliminada`);
-      } catch (error) {
-        // Ignorar errores de funciones del sistema
-      }
+    const finalCount = parseInt(finalCheck[0].count);
+    
+    if (finalCount === 0) {
+      console.log('✅ TODAS LAS TABLAS Y OBJETOS ELIMINADOS EXITOSAMENTE');
+      return true;
+    } else {
+      console.log(`⚠️ ${finalCount} tablas no se pudieron eliminar completamente`);
+      
+      // Mostrar las tablas que quedaron
+      const [remainingTablesCheck] = await sequelize.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+      `);
+      
+      console.log('📋 Tablas restantes:');
+      remainingTablesCheck.forEach(table => {
+        console.log(`   📄 ${table.table_name}`);
+      });
+      
+      return true; // Continuar de todas formas
     }
-
-    console.log('✅ TODAS LAS TABLAS Y OBJETOS ELIMINADOS EXITOSAMENTE');
-    return true;
 
   } catch (error) {
     console.error('❌ Error al eliminar todas las tablas:', error.message);

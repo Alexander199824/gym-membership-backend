@@ -12,7 +12,7 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.UUID,
     allowNull: false,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   },

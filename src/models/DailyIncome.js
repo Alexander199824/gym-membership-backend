@@ -39,7 +39,7 @@ const DailyIncome = sequelize.define('DailyIncome', {
     type: DataTypes.UUID,
     allowNull: false,
     references: {
-      model: 'Users',
+      model: 'users',
       key: 'id'
     }
   }
