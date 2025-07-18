@@ -1,9 +1,21 @@
-// src/models/index.js
+// src/models/index.js - CORREGIDO: Todas las importaciones necesarias
 const User = require('./User');
 const Membership = require('./Membership');
 const Payment = require('./Payment');
 const DailyIncome = require('./DailyIncome');
 const Notification = require('./Notification');
+
+// ✅ AGREGAR: Importaciones de modelos del gimnasio que faltaban
+const GymConfiguration = require('./GymConfiguration');
+const GymContactInfo = require('./GymContactInfo');
+const GymHours = require('./GymHours');
+const GymStatistics = require('./GymStatistics');
+const GymServices = require('./GymServices');
+const MembershipPlans = require('./MembershipPlans');
+const FinancialMovements = require('./FinancialMovements');
+const UserSchedulePreferences = require('./UserSchedulePreferences');
+
+// ✅ Modelos de tienda
 const StoreCategory = require('./StoreCategory');
 const StoreBrand = require('./StoreBrand');
 const StoreProduct = require('./StoreProduct');
@@ -11,6 +23,8 @@ const StoreProductImage = require('./StoreProductImage');
 const StoreOrder = require('./StoreOrder');
 const StoreOrderItem = require('./StoreOrderItem');
 const StoreCart = require('./StoreCart');
+
+// ✅ RELACIONES EXISTENTES (User, Membership, Payment, etc.)
 
 // Relaciones User - Membership (Un usuario puede tener múltiples membresías)
 User.hasMany(Membership, { foreignKey: 'userId', as: 'memberships' });
@@ -56,6 +70,18 @@ Notification.belongsTo(Membership, { foreignKey: 'membershipId', as: 'membership
 Payment.hasMany(Notification, { foreignKey: 'paymentId', as: 'notifications' });
 Notification.belongsTo(Payment, { foreignKey: 'paymentId', as: 'payment' });
 
+// ✅ RELACIONES DE MODELOS NUEVOS
+
+// User - FinancialMovements
+User.hasMany(FinancialMovements, { foreignKey: 'registeredBy', as: 'financialMovements' });
+FinancialMovements.belongsTo(User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
+
+// User - UserSchedulePreferences
+User.hasMany(UserSchedulePreferences, { foreignKey: 'userId', as: 'schedulePreferences' });
+UserSchedulePreferences.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// ✅ RELACIONES DE TIENDA
+
 // StoreCategory - StoreProduct
 StoreCategory.hasMany(StoreProduct, { foreignKey: 'categoryId', as: 'products' });
 StoreProduct.belongsTo(StoreCategory, { foreignKey: 'categoryId', as: 'category' });
@@ -92,14 +118,16 @@ StoreCart.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 StoreProduct.hasMany(StoreCart, { foreignKey: 'productId', as: 'cartItems' });
 StoreCart.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
 
-// ✅ ACTUALIZAR la exportación final
+// ✅ EXPORTACIÓN CORREGIDA - Todos los modelos importados
 module.exports = {
-  // Modelos existentes
+  // Modelos principales
   User,
   Membership,
   Payment,
   DailyIncome,
   Notification,
+  
+  // Modelos del gimnasio
   GymConfiguration,
   GymContactInfo,
   GymHours,
@@ -109,7 +137,7 @@ module.exports = {
   FinancialMovements,
   UserSchedulePreferences,
   
-  // ✅ Nuevos modelos de tienda
+  // Modelos de tienda
   StoreCategory,
   StoreBrand,
   StoreProduct,
@@ -118,4 +146,3 @@ module.exports = {
   StoreOrderItem,
   StoreCart
 };
-
