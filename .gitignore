@@ -75,3 +75,5 @@ config/development.local.js
 # Archivos de documentación generada automáticamente
 docs/api/
 api-docs/generated/
+
+.env

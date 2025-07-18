@@ -226,39 +226,63 @@ class AuthController {
     }
   }
 
-  // Subir imagen de perfil
-  async uploadProfileImage(req, res) {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: 'No se recibió ningún archivo'
-        });
-      }
+ // ✅ REEMPLAZAR el método uploadProfileImage existente en authController.js
 
-      const user = req.user;
-      
-      // Si ya tenía imagen, la nueva reemplaza automáticamente en Cloudinary
-      user.profileImage = req.file.path;
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'Imagen de perfil actualizada exitosamente',
-        data: {
-          profileImage: user.profileImage
-        }
-      });
-    } catch (error) {
-      console.error('Error al subir imagen:', error);
-      res.status(500).json({
+async uploadProfileImage(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-        message: 'Error al subir imagen de perfil',
-        error: error.message
+        message: 'No se recibió ningún archivo'
       });
     }
-  }
 
+    const user = req.user;
+    const oldProfileImage = user.profileImage;
+    
+    // ✅ Actualizar URL de la imagen de perfil
+    user.profileImage = req.file.path || req.file.location;
+    await user.save();
+
+    // ✅ Si tenía imagen anterior y Cloudinary está configurado, intentar eliminarla
+    if (oldProfileImage && process.env.CLOUDINARY_CLOUD_NAME) {
+      try {
+        const { deleteFile } = require('../config/cloudinary');
+        
+        // ✅ Extraer public_id de la URL de Cloudinary
+        const publicIdMatch = oldProfileImage.match(/\/([^\/]+)\.[^\.]+$/);
+        if (publicIdMatch) {
+          const publicId = `gym/profile-images/${publicIdMatch[1]}`;
+          await deleteFile(publicId);
+        }
+      } catch (deleteError) {
+        console.warn('⚠️ No se pudo eliminar imagen anterior:', deleteError.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Imagen de perfil actualizada exitosamente',
+      data: {
+        profileImage: user.profileImage,
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          profileImage: user.profileImage
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al subir imagen de perfil:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al subir imagen de perfil',
+      error: error.message
+    });
+  }
+}
   // Cambiar contraseña
   async changePassword(req, res) {
     try {

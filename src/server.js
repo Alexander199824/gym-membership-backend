@@ -1,4 +1,4 @@
-// src/server.js
+// src/server.js - COMPLETO con todas las mejoras
 const app = require('./app');
 const { 
   testConnection, 
@@ -18,39 +18,42 @@ class Server {
 
   async start() {
     try {
-      console.log('🚀 Iniciando Gym Management System API...');
+      console.log('🚀 Iniciando Elite Fitness Club Management System...');
       console.log('🌍 Entorno:', process.env.NODE_ENV || 'development');
 
-      // Verificar variables de entorno críticas
+      // ✅ Verificar variables de entorno críticas
       this.checkEnvironmentVariables();
 
-      // Probar conexión a la base de datos
+      // ✅ Probar conexión a la base de datos
       await testConnection();
 
-      // Mostrar estado actual de la base de datos
+      // ✅ Mostrar estado actual de la base de datos
       await this.showDatabaseStatus();
 
-      // Inicializar base de datos (con reset automático si es necesario)
+      // ✅ Inicializar base de datos (con reset automático si es necesario)
       await initializeDatabase();
 
-      // Inicializar modelos y relaciones
+      // ✅ Inicializar modelos y relaciones
       require('./models');
 
-      // Ejecutar seeds
+      // ✅ Verificar e inicializar datos del gimnasio
+      await this.initializeGymData();
+
+      // ✅ Ejecutar seeds
       await this.runSeedsWithErrorHandling();
 
-      // Mostrar estado final de la base de datos
+      // ✅ Mostrar estado final de la base de datos
       await this.showFinalDatabaseStatus();
 
-      // Iniciar programador de notificaciones
+      // ✅ Iniciar programador de notificaciones
       if (process.env.NODE_ENV !== 'test') {
         this.startNotificationScheduler();
       }
 
-      // Iniciar servidor HTTP
+      // ✅ Iniciar servidor HTTP
       await this.startHttpServer();
 
-      // Configurar graceful shutdown
+      // ✅ Configurar graceful shutdown
       this.setupGracefulShutdown();
 
     } catch (error) {
@@ -105,8 +108,86 @@ class Server {
       } else {
         console.log('   ⚠️ Instalación del sistema incompleta');
       }
+
+      // ✅ Mostrar nuevas tablas instaladas
+      try {
+        const { sequelize } = require('./config/database');
+        const [tables] = await sequelize.query(`
+          SELECT table_name 
+          FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name LIKE 'gym_%' OR table_name LIKE 'store_%'
+          ORDER BY table_name;
+        `);
+
+        if (tables.length > 0) {
+          console.log('\n📋 Nuevas tablas del sistema Elite Fitness:');
+          tables.forEach(table => {
+            const emoji = table.table_name.startsWith('gym_') ? '🏢' : 
+                         table.table_name.startsWith('store_') ? '🛍️' : '📊';
+            console.log(`   ${emoji} ${table.table_name}`);
+          });
+        }
+      } catch (error) {
+        // Ignorar errores de consulta de tablas
+      }
     } catch (error) {
       console.log('   ⚠️ Error al verificar estado final:', error.message);
+    }
+  }
+
+  async initializeGymData() {
+    try {
+      console.log('🏢 Verificando configuración del gimnasio...');
+      
+      const { 
+        GymConfiguration,
+        GymContactInfo, 
+        GymHours,
+        GymStatistics,
+        GymServices,
+        MembershipPlans,
+        StoreCategory,
+        StoreBrand
+      } = require('./models');
+
+      // ✅ Verificar si el sistema ya está configurado
+      const config = await GymConfiguration.findOne();
+      
+      if (!config) {
+        console.log('🔄 Primera instalación detectada, inicializando datos del gimnasio...');
+        
+        await Promise.all([
+          GymConfiguration.getConfig(),
+          GymContactInfo.getContactInfo(),
+          GymHours.getWeeklySchedule(),
+          GymStatistics.seedDefaultStats(),
+          GymServices.seedDefaultServices(),
+          MembershipPlans.seedDefaultPlans()
+        ]);
+        
+        console.log('   ✅ Configuración básica del gimnasio inicializada');
+      } else {
+        console.log('   ✅ Configuración del gimnasio ya existe');
+      }
+
+      // ✅ Verificar datos de tienda
+      const categoryCount = await StoreCategory.count();
+      if (categoryCount === 0) {
+        console.log('🛍️ Inicializando datos de tienda...');
+        
+        await Promise.all([
+          StoreCategory.seedDefaultCategories(),
+          StoreBrand.seedDefaultBrands()
+        ]);
+        
+        console.log('   ✅ Datos básicos de tienda inicializados');
+      } else {
+        console.log('   ✅ Datos de tienda ya existen');
+      }
+      
+    } catch (error) {
+      console.warn('⚠️ Error al verificar configuración del gimnasio (no crítico):', error.message);
     }
   }
 
@@ -137,16 +218,26 @@ class Server {
         if (error) {
           reject(error);
         } else {
-          console.log('\n🎯 ¡SERVIDOR INICIADO EXITOSAMENTE!');
+          console.log('\n🎯 ¡ELITE FITNESS CLUB INICIADO EXITOSAMENTE!');
           console.log(`✅ URL: http://${this.host}:${this.port}`);
           console.log(`📚 Health Check: http://${this.host}:${this.port}/api/health`);
+          console.log(`🌐 Endpoints: http://${this.host}:${this.port}/api/endpoints`);
           console.log('\n📱 Endpoints principales:');
           console.log(`   🔐 Auth: http://${this.host}:${this.port}/api/auth`);
           console.log(`   👥 Users: http://${this.host}:${this.port}/api/users`);
           console.log(`   🎫 Memberships: http://${this.host}:${this.port}/api/memberships`);
           console.log(`   💰 Payments: http://${this.host}:${this.port}/api/payments`);
-          console.log('\n🎉 Sistema listo para recibir peticiones');
-          console.log('\n💡 Para hacer reset completo: Cambia RESET_DATABASE=true y reinicia');
+          console.log(`   🏢 Gym Config: http://${this.host}:${this.port}/api/gym`);
+          console.log(`   🛍️ Store: http://${this.host}:${this.port}/api/store`);
+          console.log(`   📊 Dashboard: http://${this.host}:${this.port}/api/dashboard`);
+          console.log(`   💸 Financial: http://${this.host}:${this.port}/api/financial`);
+          console.log('\n🎉 Sistema completo listo para recibir peticiones');
+          console.log('\n💡 Para testing completo ejecuta:');
+          console.log('   npm run test:enhanced  (sistema general)');
+          console.log('   npm run test:store     (sistema de tienda)');
+          console.log('\n🧹 Para limpiar datos de prueba:');
+          console.log('   POST /api/data-cleanup/clean-test-users');
+          console.log('\n🔄 Para reset completo: Cambia RESET_DATABASE=true y reinicia');
           resolve();
         }
       });
@@ -171,31 +262,39 @@ class Server {
       process.exit(1);
     }
 
-    // Mostrar estado de RESET_DATABASE
+    // ✅ Mostrar estado de RESET_DATABASE
     if (process.env.RESET_DATABASE === 'true') {
       console.log('🚨 MODO RESET ACTIVADO: Se eliminará toda la base de datos');
     } else {
       console.log('✅ Modo normal: Se mantendrán los datos existentes');
     }
 
-    // Warnings para servicios opcionales (resumidos)
-    const disabledServices = [];
-    if (!process.env.CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_')) {
-      disabledServices.push('Cloudinary');
-    }
-    if (!process.env.EMAIL_USER || process.env.EMAIL_USER.startsWith('your_')) {
-      disabledServices.push('Email');
-    }
-    if (!process.env.TWILIO_ACCOUNT_SID || process.env.TWILIO_ACCOUNT_SID.startsWith('your_')) {
-      disabledServices.push('WhatsApp');
-    }
-    if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID.startsWith('your_')) {
-      disabledServices.push('Google OAuth');
+    // ✅ Warnings para servicios opcionales (resumidos)
+    const serviceStatus = {
+      cloudinary: process.env.CLOUDINARY_CLOUD_NAME && !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_') ? 'Configurado' : 'Pendiente',
+      email: process.env.EMAIL_USER && !process.env.EMAIL_USER.startsWith('your_') ? 'Configurado' : 'Pendiente',
+      whatsapp: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID.startsWith('AC') ? 'Configurado' : 'Pendiente',
+      googleOAuth: process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.startsWith('your_') ? 'Configurado' : 'Pendiente'
+    };
+
+    const pendingServices = Object.entries(serviceStatus)
+      .filter(([service, status]) => status === 'Pendiente')
+      .map(([service]) => service);
+
+    if (pendingServices.length > 0) {
+      console.log(`⚠️ Servicios opcionales pendientes: ${pendingServices.join(', ')}`);
+      console.log('💡 Se pueden configurar más tarde para funcionalidades completas');
+    } else {
+      console.log('✅ Todos los servicios opcionales están configurados');
     }
 
-    if (disabledServices.length > 0) {
-      console.log(`⚠️ Servicios deshabilitados: ${disabledServices.join(', ')}`);
-      console.log('💡 Se pueden habilitar más tarde en las fases finales');
+    // ✅ Mostrar servicios configurados
+    const configuredServices = Object.entries(serviceStatus)
+      .filter(([service, status]) => status === 'Configurado')
+      .map(([service]) => service);
+
+    if (configuredServices.length > 0) {
+      console.log(`🟢 Servicios configurados: ${configuredServices.join(', ')}`);
     }
   }
 
@@ -216,7 +315,7 @@ class Server {
           }
           
           await closeConnection();
-          console.log('👋 ¡Hasta luego!');
+          console.log('👋 Elite Fitness Club cerrado correctamente. ¡Hasta luego!');
           process.exit(0);
         } catch (error) {
           console.error('❌ Error durante el cierre:', error.message);
@@ -236,7 +335,7 @@ class Server {
   }
 }
 
-// Iniciar servidor si este archivo se ejecuta directamente
+// ✅ Iniciar servidor si este archivo se ejecuta directamente
 if (require.main === module) {
   new Server().start();
 }

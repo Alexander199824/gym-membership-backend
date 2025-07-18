@@ -4,6 +4,13 @@ const Membership = require('./Membership');
 const Payment = require('./Payment');
 const DailyIncome = require('./DailyIncome');
 const Notification = require('./Notification');
+const StoreCategory = require('./StoreCategory');
+const StoreBrand = require('./StoreBrand');
+const StoreProduct = require('./StoreProduct');
+const StoreProductImage = require('./StoreProductImage');
+const StoreOrder = require('./StoreOrder');
+const StoreOrderItem = require('./StoreOrderItem');
+const StoreCart = require('./StoreCart');
 
 // Relaciones User - Membership (Un usuario puede tener múltiples membresías)
 User.hasMany(Membership, { foreignKey: 'userId', as: 'memberships' });
@@ -49,10 +56,66 @@ Notification.belongsTo(Membership, { foreignKey: 'membershipId', as: 'membership
 Payment.hasMany(Notification, { foreignKey: 'paymentId', as: 'notifications' });
 Notification.belongsTo(Payment, { foreignKey: 'paymentId', as: 'payment' });
 
+// StoreCategory - StoreProduct
+StoreCategory.hasMany(StoreProduct, { foreignKey: 'categoryId', as: 'products' });
+StoreProduct.belongsTo(StoreCategory, { foreignKey: 'categoryId', as: 'category' });
+
+// StoreBrand - StoreProduct
+StoreBrand.hasMany(StoreProduct, { foreignKey: 'brandId', as: 'products' });
+StoreProduct.belongsTo(StoreBrand, { foreignKey: 'brandId', as: 'brand' });
+
+// StoreProduct - StoreProductImage
+StoreProduct.hasMany(StoreProductImage, { foreignKey: 'productId', as: 'images' });
+StoreProductImage.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+
+// User - StoreOrder
+User.hasMany(StoreOrder, { foreignKey: 'userId', as: 'storeOrders' });
+StoreOrder.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// User - StoreOrder (procesado por)
+User.hasMany(StoreOrder, { foreignKey: 'processedBy', as: 'processedOrders' });
+StoreOrder.belongsTo(User, { foreignKey: 'processedBy', as: 'processor' });
+
+// StoreOrder - StoreOrderItem
+StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'orderId', as: 'items' });
+StoreOrderItem.belongsTo(StoreOrder, { foreignKey: 'orderId', as: 'order' });
+
+// StoreProduct - StoreOrderItem
+StoreProduct.hasMany(StoreOrderItem, { foreignKey: 'productId', as: 'orderItems' });
+StoreOrderItem.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+
+// User - StoreCart
+User.hasMany(StoreCart, { foreignKey: 'userId', as: 'cartItems' });
+StoreCart.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+
+// StoreProduct - StoreCart
+StoreProduct.hasMany(StoreCart, { foreignKey: 'productId', as: 'cartItems' });
+StoreCart.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+
+// ✅ ACTUALIZAR la exportación final
 module.exports = {
+  // Modelos existentes
   User,
   Membership,
   Payment,
   DailyIncome,
-  Notification
+  Notification,
+  GymConfiguration,
+  GymContactInfo,
+  GymHours,
+  GymStatistics,
+  GymServices,
+  MembershipPlans,
+  FinancialMovements,
+  UserSchedulePreferences,
+  
+  // ✅ Nuevos modelos de tienda
+  StoreCategory,
+  StoreBrand,
+  StoreProduct,
+  StoreProductImage,
+  StoreOrder,
+  StoreOrderItem,
+  StoreCart
 };
+

@@ -1,5 +1,5 @@
-// src/controllers/paymentController.js
-const { Payment, User, Membership, DailyIncome } = require('../models');
+// src/controllers/paymentController.js - COMPLETO con todas las mejoras
+const { Payment, User, Membership, DailyIncome, StoreOrder, FinancialMovements } = require('../models');
 const { Op } = require('sequelize');
 const { EmailService, WhatsAppService } = require('../services/notificationServices');
 
@@ -8,11 +8,11 @@ class PaymentController {
     this.emailService = new EmailService();
     this.whatsappService = new WhatsAppService();
     
-    // ✅ CORRECCIÓN: Bindear métodos al contexto de la clase
+    // ✅ Bindear métodos al contexto de la clase
     this.sendPaymentNotifications = this.sendPaymentNotifications.bind(this);
   }
 
-  // Crear nuevo pago
+  // ✅ Crear nuevo pago
   async createPayment(req, res) {
     try {
       const {
@@ -24,19 +24,22 @@ class PaymentController {
         description,
         notes,
         dailyPaymentCount = 1,
-        paymentDate
+        paymentDate,
+        anonymousClientInfo
       } = req.body;
 
-      // Verificar que el usuario existe
-      const user = await User.findByPk(userId);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: 'Usuario no encontrado'
-        });
+      // ✅ Verificar que el usuario existe (si se proporciona)
+      if (userId) {
+        const user = await User.findByPk(userId);
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: 'Usuario no encontrado'
+          });
+        }
       }
 
-      // Si es pago de membresía, verificar que la membresía existe
+      // ✅ Si es pago de membresía, verificar que la membresía existe
       if (paymentType === 'membership' && membershipId) {
         const membership = await Membership.findByPk(membershipId);
         if (!membership) {
@@ -48,13 +51,14 @@ class PaymentController {
       }
 
       const paymentData = {
-        userId,
+        userId: userId || null,
         membershipId: paymentType === 'membership' ? membershipId : null,
         amount,
         paymentMethod,
         paymentType,
         description,
         notes,
+        anonymousClientInfo: userId ? null : anonymousClientInfo,
         registeredBy: req.user.id,
         dailyPaymentCount: paymentType === 'bulk_daily' ? dailyPaymentCount : 1,
         paymentDate: paymentDate || new Date(),
@@ -63,17 +67,26 @@ class PaymentController {
 
       const payment = await Payment.create(paymentData);
 
-      // Si es pago completado, enviar notificaciones
+      // ✅ Si es pago completado, crear movimiento financiero automáticamente
       if (payment.status === 'completed') {
-        // ✅ CORRECCIÓN: Usar try-catch para las notificaciones para que no bloqueen el proceso
         try {
-          await this.sendPaymentNotifications(payment, user);
-        } catch (notificationError) {
-          console.warn('⚠️ Error al enviar notificaciones de pago (no crítico):', notificationError.message);
+          await FinancialMovements.createFromAnyPayment(payment);
+        } catch (financialError) {
+          console.warn('⚠️ Error al crear movimiento financiero (no crítico):', financialError.message);
+        }
+
+        // ✅ Enviar notificaciones si hay usuario
+        if (userId) {
+          try {
+            const user = await User.findByPk(userId);
+            await this.sendPaymentNotifications(payment, user);
+          } catch (notificationError) {
+            console.warn('⚠️ Error al enviar notificaciones de pago (no crítico):', notificationError.message);
+          }
         }
       }
 
-      // Incluir datos relacionados en la respuesta
+      // ✅ Incluir datos relacionados en la respuesta
       const paymentWithDetails = await Payment.findByPk(payment.id, {
         include: [
           { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
@@ -97,7 +110,7 @@ class PaymentController {
     }
   }
 
-  // Obtener todos los pagos con filtros
+  // ✅ Obtener todos los pagos con filtros
   async getPayments(req, res) {
     try {
       const {
@@ -114,13 +127,13 @@ class PaymentController {
       const offset = (page - 1) * limit;
       const where = {};
 
-      // Aplicar filtros
+      // ✅ Aplicar filtros
       if (userId) where.userId = userId;
       if (paymentMethod) where.paymentMethod = paymentMethod;
       if (paymentType) where.paymentType = paymentType;
       if (status) where.status = status;
 
-      // Filtro por rango de fechas
+      // ✅ Filtro por rango de fechas
       if (startDate || endDate) {
         where.paymentDate = {};
         if (startDate) where.paymentDate[Op.gte] = new Date(startDate);
@@ -174,7 +187,7 @@ class PaymentController {
     }
   }
 
-  // Obtener pago por ID
+  // ✅ Obtener pago por ID
   async getPaymentById(req, res) {
     try {
       const { id } = req.params;
@@ -221,7 +234,7 @@ class PaymentController {
     }
   }
 
-  // Subir comprobante de transferencia
+  // ✅ Subir comprobante de transferencia
   async uploadTransferProof(req, res) {
     try {
       const { id } = req.params;
@@ -241,7 +254,7 @@ class PaymentController {
         });
       }
 
-      // Verificar que es un pago por transferencia
+      // ✅ Verificar que es un pago por transferencia
       if (payment.paymentMethod !== 'transfer') {
         return res.status(400).json({
           success: false,
@@ -249,7 +262,7 @@ class PaymentController {
         });
       }
 
-      // Verificar permisos (usuario propietario o staff)
+      // ✅ Verificar permisos (usuario propietario o staff)
       if (req.user.role === 'cliente' && payment.userId !== req.user.id) {
         return res.status(403).json({
           success: false,
@@ -278,7 +291,7 @@ class PaymentController {
     }
   }
 
-  // Validar transferencia (solo admin)
+  // ✅ Validar transferencia (solo admin)
   async validateTransfer(req, res) {
     try {
       const { id } = req.params;
@@ -309,7 +322,7 @@ class PaymentController {
         });
       }
 
-      // Actualizar el pago
+      // ✅ Actualizar el pago
       payment.transferValidated = true;
       payment.transferValidatedBy = req.user.id;
       payment.transferValidatedAt = new Date();
@@ -323,15 +336,25 @@ class PaymentController {
 
       await payment.save();
 
-      // Si se aprobó, enviar notificaciones y activar membresía
+      // ✅ Si se aprobó, enviar notificaciones y crear movimiento financiero
       if (approved) {
+        // Crear movimiento financiero
         try {
-          await this.sendPaymentNotifications(payment, payment.user);
-        } catch (notificationError) {
-          console.warn('⚠️ Error al enviar notificaciones (no crítico):', notificationError.message);
+          await FinancialMovements.createFromAnyPayment(payment);
+        } catch (financialError) {
+          console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+        }
+
+        // Enviar notificaciones
+        if (payment.user) {
+          try {
+            await this.sendPaymentNotifications(payment, payment.user);
+          } catch (notificationError) {
+            console.warn('⚠️ Error al enviar notificaciones (no crítico):', notificationError.message);
+          }
         }
         
-        // Si es pago de membresía, activarla/renovarla
+        // ✅ Si es pago de membresía, activarla/renovarla
         if (payment.paymentType === 'membership' && payment.membership) {
           const membership = payment.membership;
           membership.status = 'active';
@@ -362,7 +385,7 @@ class PaymentController {
     }
   }
 
-  // Obtener transferencias pendientes
+  // ✅ Obtener transferencias pendientes
   async getPendingTransfers(req, res) {
     try {
       if (!['admin', 'colaborador'].includes(req.user.role)) {
@@ -412,7 +435,7 @@ class PaymentController {
     }
   }
 
-  // Registrar ingresos diarios totales
+  // ✅ Registrar ingresos diarios totales
   async registerDailyIncome(req, res) {
     try {
       const {
@@ -423,7 +446,7 @@ class PaymentController {
         notes
       } = req.body;
 
-      // Verificar si ya existe registro para esa fecha
+      // ✅ Verificar si ya existe registro para esa fecha
       const existingIncome = await DailyIncome.findOne({
         where: { date }
       });
@@ -459,7 +482,271 @@ class PaymentController {
     }
   }
 
-  // Obtener reportes de pagos
+  // ✅ NUEVO: Crear pago desde orden de tienda
+  async createPaymentFromOrder(req, res) {
+    try {
+      const { orderId } = req.body;
+
+      // ✅ Buscar la orden
+      const order = await StoreOrder.findByPk(orderId, {
+        include: ['user', 'items']
+      });
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Orden no encontrada'
+        });
+      }
+
+      // ✅ Solo crear pago si no existe ya
+      const existingPayment = await Payment.findOne({
+        where: { 
+          referenceId: orderId,
+          referenceType: 'store_order'
+        }
+      });
+
+      if (existingPayment) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ya existe un pago para esta orden'
+        });
+      }
+
+      // ✅ Determinar tipo de pago según método
+      let paymentType, status;
+      switch (order.paymentMethod) {
+        case 'cash_on_delivery':
+          paymentType = 'store_cash_delivery';
+          status = 'completed';
+          break;
+        case 'card_on_delivery':
+          paymentType = 'store_card_delivery';
+          status = 'completed';
+          break;
+        case 'online_card':
+          paymentType = 'store_online';
+          status = 'completed';
+          break;
+        case 'transfer':
+          paymentType = 'store_transfer';
+          status = 'pending';
+          break;
+        default:
+          paymentType = 'store_other';
+          status = 'completed';
+      }
+
+      // ✅ Crear el pago
+      const paymentData = {
+        userId: order.userId,
+        amount: order.totalAmount,
+        paymentMethod: order.paymentMethod === 'cash_on_delivery' ? 'cash' : 
+                      order.paymentMethod === 'card_on_delivery' ? 'card' :
+                      order.paymentMethod === 'online_card' ? 'card' : 'transfer',
+        paymentType,
+        description: `Pago de productos - Orden ${order.orderNumber}`,
+        notes: `Items: ${order.items.map(item => item.productName).join(', ')}`,
+        referenceId: orderId,
+        referenceType: 'store_order',
+        registeredBy: req.user.id,
+        status
+      };
+
+      const payment = await Payment.create(paymentData);
+
+      // ✅ Crear movimiento financiero automáticamente
+      if (payment.status === 'completed') {
+        try {
+          await FinancialMovements.create({
+            type: 'income',
+            category: 'products_sale',
+            description: `Venta de productos - Orden ${order.orderNumber}`,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            referenceId: payment.id,
+            referenceType: 'payment',
+            registeredBy: req.user.id
+          });
+        } catch (financialError) {
+          console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+        }
+      }
+
+      res.status(201).json({
+        success: true,
+        message: 'Pago de productos registrado exitosamente',
+        data: { payment }
+      });
+    } catch (error) {
+      console.error('Error al crear pago desde orden:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al registrar pago de productos',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ MEJORADO: Reportes de pagos incluyendo productos
+  async getEnhancedPaymentReports(req, res) {
+    try {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo los administradores pueden ver reportes'
+        });
+      }
+
+      const { period = 'month', startDate, endDate } = req.query;
+
+      let dateRange = {};
+      const now = new Date();
+
+      // ✅ Definir rango de fechas
+      switch (period) {
+        case 'today':
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          dateRange = { [Op.between]: [today, tomorrow] };
+          break;
+        case 'week':
+          const weekAgo = new Date();
+          weekAgo.setDate(weekAgo.getDate() - 7);
+          dateRange = { [Op.gte]: weekAgo };
+          break;
+        case 'month':
+          const monthAgo = new Date();
+          monthAgo.setMonth(monthAgo.getMonth() - 1);
+          dateRange = { [Op.gte]: monthAgo };
+          break;
+        case 'custom':
+          if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            dateRange = { [Op.between]: [start, end] };
+          }
+          break;
+      }
+
+      // ✅ Ingresos por fuente (membresías vs productos vs diarios)
+      const incomeBySource = await Payment.findAll({
+        attributes: [
+          [Payment.sequelize.literal(`
+            CASE 
+              WHEN payment_type IN ('membership') THEN 'Membresías'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'Productos'
+              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
+              ELSE 'Otros'
+            END
+          `), 'source'],
+          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+        ],
+        where: {
+          status: 'completed',
+          paymentDate: dateRange
+        },
+        group: [Payment.sequelize.literal(`
+          CASE 
+            WHEN payment_type IN ('membership') THEN 'Membresías'
+            WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'Productos'
+            WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
+            ELSE 'Otros'
+          END
+        `)]
+      });
+
+      // ✅ Métodos de pago más utilizados
+      const paymentMethodStats = await Payment.findAll({
+        attributes: [
+          'paymentMethod',
+          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+        ],
+        where: {
+          status: 'completed',
+          paymentDate: dateRange
+        },
+        group: ['paymentMethod']
+      });
+
+      // ✅ Total general
+      const totalIncome = await Payment.sum('amount', {
+        where: {
+          status: 'completed',
+          paymentDate: dateRange
+        }
+      });
+
+      // ✅ Tendencia diaria (últimos 30 días)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      const dailyTrend = await Payment.findAll({
+        attributes: [
+          [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
+          [Payment.sequelize.literal(`
+            CASE 
+              WHEN payment_type IN ('membership') THEN 'memberships'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'products'
+              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+              ELSE 'other'
+            END
+          `), 'source'],
+          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
+        ],
+        where: {
+          status: 'completed',
+          paymentDate: { [Op.gte]: thirtyDaysAgo }
+        },
+        group: [
+          Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
+          Payment.sequelize.literal(`
+            CASE 
+              WHEN payment_type IN ('membership') THEN 'memberships'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'products'
+              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+              ELSE 'other'
+            END
+          `)
+        ],
+        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
+      });
+
+      res.json({
+        success: true,
+        data: {
+          totalIncome: totalIncome || 0,
+          incomeBySource: incomeBySource.map(item => ({
+            source: item.dataValues.source,
+            total: parseFloat(item.dataValues.total),
+            count: parseInt(item.dataValues.count),
+            percentage: totalIncome ? ((parseFloat(item.dataValues.total) / totalIncome) * 100).toFixed(1) : 0
+          })),
+          paymentMethodStats: paymentMethodStats.map(item => ({
+            method: item.paymentMethod,
+            total: parseFloat(item.dataValues.total),
+            count: parseInt(item.dataValues.count)
+          })),
+          dailyTrend: this.organizeDailyTrend(dailyTrend)
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener reportes mejorados:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener reportes',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ Obtener reportes de pagos (método original mantenido por compatibilidad)
   async getPaymentReports(req, res) {
     try {
       if (req.user.role !== 'admin') {
@@ -474,7 +761,7 @@ class PaymentController {
       let dateRange = {};
       const now = new Date();
 
-      // Definir rango de fechas según el período
+      // ✅ Definir rango de fechas según el período
       switch (period) {
         case 'today':
           const today = new Date();
@@ -506,7 +793,7 @@ class PaymentController {
           break;
       }
 
-      // Total de ingresos
+      // ✅ Total de ingresos
       const totalIncome = await Payment.sum('amount', {
         where: {
           status: 'completed',
@@ -514,7 +801,7 @@ class PaymentController {
         }
       });
 
-      // Ingresos por tipo de pago
+      // ✅ Ingresos por tipo de pago
       const incomeByType = await Payment.findAll({
         attributes: [
           'paymentType',
@@ -528,7 +815,7 @@ class PaymentController {
         group: ['paymentType']
       });
 
-      // Ingresos por método de pago
+      // ✅ Ingresos por método de pago
       const incomeByMethod = await Payment.findAll({
         attributes: [
           'paymentMethod',
@@ -542,7 +829,7 @@ class PaymentController {
         group: ['paymentMethod']
       });
 
-      // Pagos por día (últimos 30 días para gráficas)
+      // ✅ Pagos por día (últimos 30 días para gráficas)
       const dailyPayments = await Payment.findAll({
         attributes: [
           [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
@@ -588,10 +875,30 @@ class PaymentController {
     }
   }
 
-  // ✅ CORRECCIÓN: Método de notificaciones mejorado
+  // ✅ Método auxiliar para organizar tendencia diaria
+  organizeDailyTrend(dailyData) {
+    const organized = {};
+    
+    dailyData.forEach(item => {
+      const date = item.dataValues.date;
+      const source = item.dataValues.source;
+      const total = parseFloat(item.dataValues.total);
+      
+      if (!organized[date]) {
+        organized[date] = { date, memberships: 0, products: 0, daily: 0, other: 0, total: 0 };
+      }
+      
+      organized[date][source] = total;
+      organized[date].total += total;
+    });
+    
+    return Object.values(organized).sort((a, b) => new Date(a.date) - new Date(b.date));
+  }
+
+  // ✅ Método de notificaciones mejorado
   async sendPaymentNotifications(payment, user) {
     try {
-      // Verificar que los servicios estén disponibles
+      // ✅ Verificar que los servicios estén disponibles
       if (!this.emailService || !this.whatsappService) {
         console.warn('⚠️ Servicios de notificación no disponibles');
         return;
@@ -599,7 +906,7 @@ class PaymentController {
 
       const preferences = user.notificationPreferences || {};
 
-      // Enviar email de confirmación
+      // ✅ Enviar email de confirmación
       if (preferences.email !== false && user.email) {
         try {
           const emailTemplate = this.emailService.generatePaymentConfirmationEmail(user, payment);
@@ -614,7 +921,7 @@ class PaymentController {
         }
       }
 
-      // Enviar WhatsApp de confirmación
+      // ✅ Enviar WhatsApp de confirmación
       if (preferences.whatsapp !== false && user.whatsapp) {
         try {
           const message = this.whatsappService.generatePaymentConfirmationMessage(user, payment);

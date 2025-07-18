@@ -62,6 +62,8 @@ router.get('/reports',
   paymentController.getPaymentReports
 );
 
+
+
 // Crear nuevo pago
 router.post('/', 
   authenticateToken,
@@ -102,6 +104,19 @@ router.post('/:id/validate-transfer',
   validateTransferValidator,
   handleValidationErrors,
   paymentController.validateTransfer
+);
+
+router.post('/from-order', 
+  authenticateToken, 
+  requireStaff,
+  paymentController.createPaymentFromOrder
+);
+
+// ✅ Reportes mejorados (reemplazar ruta existente)
+router.get('/reports/enhanced', 
+  authenticateToken, 
+  requireAdmin,
+  paymentController.getEnhancedPaymentReports
 );
 
 module.exports = router;

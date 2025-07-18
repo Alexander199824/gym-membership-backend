@@ -1,5 +1,14 @@
-// src/config/seeds.js
-const { User } = require('../models');
+// src/config/seeds.js 
+const { 
+  User, 
+  GymConfiguration,
+  GymContactInfo,
+  GymHours,
+  GymStatistics,
+  GymServices,
+  MembershipPlans,
+  UserSchedulePreferences
+} = require('../models');
 
 const createInitialAdmin = async () => {
   try {
@@ -38,11 +47,47 @@ const createInitialAdmin = async () => {
   }
 };
 
+const createGymConfiguration = async () => {
+  try {
+    console.log('🏢 Inicializando configuración del gimnasio...');
+    
+    // ✅ Crear configuración básica
+    await GymConfiguration.getConfig();
+    console.log('   ✅ Configuración básica creada');
+    
+    // ✅ Crear información de contacto
+    await GymContactInfo.getContactInfo();
+    console.log('   ✅ Información de contacto creada');
+    
+    // ✅ Crear horarios
+    await GymHours.getWeeklySchedule();
+    console.log('   ✅ Horarios semanales creados');
+    
+    // ✅ Crear estadísticas por defecto
+    await GymStatistics.seedDefaultStats();
+    console.log('   ✅ Estadísticas por defecto creadas');
+    
+    // ✅ Crear servicios por defecto
+    await GymServices.seedDefaultServices();
+    console.log('   ✅ Servicios por defecto creados');
+    
+    // ✅ Crear planes de membresía por defecto
+    await MembershipPlans.seedDefaultPlans();
+    console.log('   ✅ Planes de membresía por defecto creados');
+    
+    console.log('✅ Configuración del gimnasio completada');
+    
+  } catch (error) {
+    console.error('❌ Error al crear configuración del gimnasio:', error.message);
+    throw error;
+  }
+};
+
 const createSampleData = async () => {
   try {
     console.log('📊 Verificando datos de ejemplo...');
     
-    // Crear colaborador de ejemplo si no existe
+    // ✅ Crear colaborador de ejemplo si no existe
     const collaboratorExists = await User.findOne({ where: { role: 'colaborador' } });
     
     if (!collaboratorExists) {
@@ -63,7 +108,7 @@ const createSampleData = async () => {
       console.log('✅ Colaborador creado:', collaborator.email);
     }
     
-    // Crear cliente de ejemplo si no existe
+    // ✅ Crear cliente de ejemplo si no existe
     const clientExists = await User.findOne({ where: { role: 'cliente' } });
     
     if (!clientExists) {
@@ -88,6 +133,14 @@ const createSampleData = async () => {
       });
       
       console.log('✅ Cliente creado:', client.email);
+      
+      // ✅ Crear horarios por defecto para el cliente de ejemplo
+      try {
+        await UserSchedulePreferences.createDefaultSchedule(client.id);
+        console.log('   ✅ Horarios por defecto creados para el cliente');
+      } catch (scheduleError) {
+        console.warn('   ⚠️ Error al crear horarios por defecto (no crítico):', scheduleError.message);
+      }
     }
     
   } catch (error) {
@@ -96,19 +149,62 @@ const createSampleData = async () => {
   }
 };
 
+
+
+const createStoreData = async () => {
+  try {
+    console.log('🛍️ Inicializando datos de tienda...');
+    
+    const { StoreCategory, StoreBrand, StoreProduct } = require('../models');
+    
+    // ✅ Crear categorías por defecto
+    await StoreCategory.seedDefaultCategories();
+    console.log('   ✅ Categorías de tienda creadas');
+    
+    // ✅ Crear marcas por defecto
+    await StoreBrand.seedDefaultBrands();
+    console.log('   ✅ Marcas de productos creadas');
+    
+    // ✅ Crear productos de ejemplo
+    await StoreProduct.seedSampleProducts();
+    console.log('   ✅ Productos de ejemplo creados');
+    
+    console.log('✅ Datos de tienda inicializados');
+    
+  } catch (error) {
+    console.error('❌ Error al inicializar datos de tienda:', error.message);
+    // No lanzar error para que no interrumpa el servidor
+  }
+};
+
+// ✅ MODIFICAR la función runSeeds existente:
 const runSeeds = async () => {
   try {
-    console.log('🌱 Iniciando proceso de seeding...');
+    console.log('🌱 Iniciando proceso de seeding completo...');
     
-    // Crear admin (crítico)
+    // ✅ 1. Crear configuración del gimnasio (crítico)
+    await createGymConfiguration();
+    
+    // ✅ 2. Crear admin (crítico)
     await createInitialAdmin();
     
-    // Crear datos de ejemplo (opcional)
-    if (process.env.CREATE_SAMPLE_DATA === 'true') {
+    // ✅ 3. Crear datos de tienda (nuevo)
+    await createStoreData();
+    
+    // ✅ 4. Crear datos de ejemplo (opcional)
+    if (process.env.CREATE_SAMPLE_DATA !== 'false') {
       await createSampleData();
     }
     
     console.log('✅ Proceso de seeding completado exitosamente');
+    console.log('\n🎯 Sistema Elite Fitness Club listo para usar:');
+    console.log('   🏢 Configuración del gimnasio: ✅');
+    console.log('   👤 Usuario administrador: ✅');
+    console.log('   🛍️ Sistema de tienda: ✅');
+    console.log('   📊 Datos de ejemplo: ✅');
+    console.log('   🎨 Tema personalizable: ✅');
+    console.log('   📅 Sistema de horarios: ✅');
+    console.log('   💰 Sistema financiero: ✅');
     
   } catch (error) {
     console.error('❌ Error en el proceso de seeding:', error.message);
@@ -116,8 +212,14 @@ const runSeeds = async () => {
   }
 };
 
+
+
+// ✅ ACTUALIZAR exports
 module.exports = { 
   runSeeds, 
   createInitialAdmin, 
-  createSampleData 
+  createGymConfiguration,
+  createSampleData,
+  createStoreData  // ← NUEVO
 };
+
