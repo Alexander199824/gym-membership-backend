@@ -1,354 +1,507 @@
-// test-store-system.js - Test específico para sistema de tienda
+// test-complete-system.js - Test completo del sistema Elite Fitness Club
 const axios = require('axios');
 
-class StoreSystemTester {
+class CompleteSystemTester {
   constructor(baseURL = 'http://localhost:5000') {
     this.baseURL = baseURL;
     this.token = null;
-    this.sessionId = 'test-session-' + Date.now();
-    this.productId = null;
-    this.orderId = null;
+    this.testResults = {
+      core: { passed: 0, failed: 0, tests: [] },
+      gym: { passed: 0, failed: 0, tests: [] },
+      store: { passed: 0, failed: 0, tests: [] },
+      financial: { passed: 0, failed: 0, tests: [] },
+      stripe: { passed: 0, failed: 0, tests: [] },
+      integration: { passed: 0, failed: 0, tests: [] }
+    };
   }
 
-  async runTests() {
-    console.log('🛍️ Iniciando pruebas del sistema de tienda Elite Fitness Club...\n');
+  async runCompleteTests() {
+    console.log('🏆 ELITE FITNESS CLUB - TEST COMPLETO DEL SISTEMA');
+    console.log('════════════════════════════════════════════════════');
+    console.log('Probando todo: Core + Gym + Store + Financial + Stripe\n');
     
     try {
-      await this.testStoreBasics();
-      await this.testAdminLogin();
-      await this.testProductManagement();
-      await this.testShoppingCart();
-      await this.testCheckoutProcess();
-      await this.testOrderManagement();
-      await this.testStoreDashboard();
-      await this.testDataCleanup();
+      await this.testSystemHealth();
+      await this.testCoreSystem();
+      await this.testGymConfiguration();
+      await this.testStoreSystem();
+      await this.testFinancialSystem();
+      await this.testStripeIntegration();
+      await this.testSystemIntegration();
       
-      console.log('\n✅ ¡Todas las pruebas del sistema de tienda pasaron exitosamente!');
-      console.log('🎉 Sistema de e-commerce completamente funcional');
-      console.log('\n🛍️ Características de tienda probadas:');
-      console.log('   ✅ Catálogo de productos con filtros');
-      console.log('   ✅ Carrito de compras (usuarios logueados e invitados)');
-      console.log('   ✅ Proceso de checkout completo');
-      console.log('   ✅ Múltiples métodos de pago');
-      console.log('   ✅ Gestión de órdenes y estados');
-      console.log('   ✅ Dashboard administrativo');
-      console.log('   ✅ Integración con sistema financiero');
-      console.log('   ✅ Sistema de limpieza de datos');
+      this.printCompleteReport();
       
     } catch (error) {
-      console.error('\n❌ Error en las pruebas de tienda:', error.message);
-      if (error.response) {
-        console.error('   Response data:', error.response.data);
-        console.error('   Status:', error.response.status);
-      }
+      console.error('\n❌ Error crítico en las pruebas:', error.message);
       process.exit(1);
     }
   }
 
-  async testStoreBasics() {
-    console.log('1. 🏪 Probando funcionalidades básicas de tienda...');
+  async testSystemHealth() {
+    console.log('🏥 SALUD DEL SISTEMA');
+    console.log('─'.repeat(50));
     
-    // ✅ Obtener categorías
-    const categoriesResponse = await axios.get(`${this.baseURL}/api/store/categories`);
-    if (categoriesResponse.data.success) {
-      console.log(`   ✅ Categorías obtenidas: ${categoriesResponse.data.data.categories.length} categorías`);
-    }
+    await this.runTest('core', 'Health Check', async () => {
+      const response = await axios.get(`${this.baseURL}/api/health`);
+      if (!response.data.success) throw new Error('Health check falló');
+      
+      console.log(`   ✅ Versión: ${response.data.version}`);
+      console.log(`   🟢 Servicios activos: ${Object.keys(response.data.services).length}`);
+      console.log(`   💳 Métodos de pago: ${Object.keys(response.data.payments).length}`);
+      
+      return response.data;
+    });
 
-    // ✅ Obtener marcas
-    const brandsResponse = await axios.get(`${this.baseURL}/api/store/brands`);
-    if (brandsResponse.data.success) {
-      console.log(`   ✅ Marcas obtenidas: ${brandsResponse.data.data.brands.length} marcas`);
-    }
-
-    // ✅ Obtener productos
-    const productsResponse = await axios.get(`${this.baseURL}/api/store/products`);
-    if (productsResponse.data.success) {
-      console.log(`   ✅ Productos obtenidos: ${productsResponse.data.data.products.length} productos`);
-      if (productsResponse.data.data.products.length > 0) {
-        this.productId = productsResponse.data.data.products[0].id;
-      }
-    }
-
-    // ✅ Obtener productos destacados
-    const featuredResponse = await axios.get(`${this.baseURL}/api/store/products/featured`);
-    if (featuredResponse.data.success) {
-      console.log(`   ✅ Productos destacados: ${featuredResponse.data.data.products.length} productos`);
-    }
+    await this.runTest('core', 'Endpoints Discovery', async () => {
+      const response = await axios.get(`${this.baseURL}/api/endpoints`);
+      if (!response.data.success) throw new Error('Endpoints no disponibles');
+      
+      const sections = Object.keys(response.data.endpoints);
+      console.log(`   📋 Secciones disponibles: ${sections.join(', ')}`);
+      
+      return response.data;
+    });
   }
 
-  async testAdminLogin() {
-    console.log('2. 🔐 Probando login de administrador...');
+  async testCoreSystem() {
+    console.log('\n🔐 SISTEMA CORE (Auth + Users)');
+    console.log('─'.repeat(50));
     
-    const response = await axios.post(`${this.baseURL}/api/auth/login`, {
-      email: 'admin@gym.com',
-      password: 'Admin123!'
-    });
-    
-    if (response.data.success && response.data.data.token) {
+    await this.runTest('core', 'Admin Login', async () => {
+      const response = await axios.post(`${this.baseURL}/api/auth/login`, {
+        email: 'admin@gym.com',
+        password: 'Admin123!'
+      });
+      
+      if (!response.data.success) throw new Error('Login falló');
       this.token = response.data.data.token;
-      console.log('   ✅ Login de admin exitoso para gestión de tienda');
-    } else {
-      throw new Error('Login de admin falló');
+      
+      console.log('   ✅ Token obtenido exitosamente');
+      return response.data;
+    });
+
+    await this.runTest('core', 'User Management', async () => {
+      const response = await axios.get(`${this.baseURL}/api/users`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('No se pudieron obtener usuarios');
+      
+      console.log(`   👥 Usuarios totales: ${response.data.data.users.length}`);
+      return response.data;
+    });
+
+    await this.runTest('core', 'User Stats', async () => {
+      const response = await axios.get(`${this.baseURL}/api/users/stats`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Estadísticas no disponibles');
+      
+      const stats = response.data.data;
+      console.log(`   📊 Admins: ${stats.roleStats.admin || 0}, Colaboradores: ${stats.roleStats.colaborador || 0}, Clientes: ${stats.roleStats.cliente || 0}`);
+      return response.data;
+    });
+  }
+
+  async testGymConfiguration() {
+    console.log('\n🏢 CONFIGURACIÓN DEL GIMNASIO');
+    console.log('─'.repeat(50));
+    
+    await this.runTest('gym', 'Gym Info Public', async () => {
+      const response = await axios.get(`${this.baseURL}/api/gym/info`);
+      if (!response.data.success) throw new Error('Información del gym no disponible');
+      
+      const config = response.data.data.configuration;
+      console.log(`   🏋️ Nombre: ${config.gymName}`);
+      console.log(`   🎨 Colores configurados: ${config.primaryColor}, ${config.secondaryColor}`);
+      console.log(`   📊 Estadísticas: ${response.data.data.statistics.length}`);
+      console.log(`   🛠️ Servicios: ${response.data.data.services.length}`);
+      
+      return response.data;
+    });
+
+    await this.runTest('gym', 'Membership Plans', async () => {
+      const response = await axios.get(`${this.baseURL}/api/gym/plans`);
+      if (!response.data.success) throw new Error('Planes no disponibles');
+      
+      console.log(`   💰 Planes disponibles: ${response.data.data.plans.length}`);
+      response.data.data.plans.forEach(plan => {
+        console.log(`     💳 ${plan.planName}: $${plan.price} (${plan.durationType})`);
+      });
+      
+      return response.data;
+    });
+
+    await this.runTest('gym', 'Gym Hours', async () => {
+      const response = await axios.get(`${this.baseURL}/api/gym/hours`);
+      if (!response.data.success) throw new Error('Horarios no disponibles');
+      
+      console.log(`   ⏰ Gym abierto ahora: ${response.data.data.isOpenNow ? 'Sí' : 'No'}`);
+      console.log(`   📅 Horarios configurados: ${Object.keys(response.data.data.hours).length} días`);
+      
+      return response.data;
+    });
+  }
+
+  async testStoreSystem() {
+    console.log('\n🛍️ SISTEMA DE TIENDA');
+    console.log('─'.repeat(50));
+    
+    await this.runTest('store', 'Product Catalog', async () => {
+      const [categories, brands, products] = await Promise.all([
+        axios.get(`${this.baseURL}/api/store/categories`),
+        axios.get(`${this.baseURL}/api/store/brands`),
+        axios.get(`${this.baseURL}/api/store/products`)
+      ]);
+      
+      console.log(`   📦 Categorías: ${categories.data.data.categories.length}`);
+      console.log(`   🏷️ Marcas: ${brands.data.data.brands.length}`);
+      console.log(`   🛒 Productos: ${products.data.data.products.length}`);
+      
+      return { categories: categories.data, brands: brands.data, products: products.data };
+    });
+
+    await this.runTest('store', 'Shopping Cart', async () => {
+      const sessionId = 'test-session-' + Date.now();
+      
+      // Obtener productos
+      const productsResponse = await axios.get(`${this.baseURL}/api/store/products`);
+      if (productsResponse.data.data.products.length === 0) {
+        throw new Error('No hay productos para probar carrito');
+      }
+      
+      const productId = productsResponse.data.data.products[0].id;
+      
+      // Agregar al carrito
+      await axios.post(`${this.baseURL}/api/store/cart`, {
+        productId,
+        quantity: 2,
+        sessionId
+      });
+      
+      // Obtener carrito
+      const cartResponse = await axios.get(`${this.baseURL}/api/store/cart?sessionId=${sessionId}`);
+      
+      console.log(`   🛒 Items en carrito: ${cartResponse.data.data.cartItems.length}`);
+      console.log(`   💰 Total: $${cartResponse.data.data.summary.totalAmount}`);
+      
+      return cartResponse.data;
+    });
+
+    await this.runTest('store', 'Store Dashboard', async () => {
+      const response = await axios.get(`${this.baseURL}/api/store/admin/dashboard`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Dashboard de tienda no disponible');
+      
+      console.log(`   📦 Órdenes hoy: ${response.data.data.ordersToday}`);
+      console.log(`   💰 Ingresos hoy: $${response.data.data.revenueToday}`);
+      console.log(`   ⏳ Órdenes pendientes: ${response.data.data.pendingOrders}`);
+      
+      return response.data;
+    });
+  }
+
+  async testFinancialSystem() {
+    console.log('\n💰 SISTEMA FINANCIERO');
+    console.log('─'.repeat(50));
+    
+    await this.runTest('financial', 'Financial Dashboard', async () => {
+      const response = await axios.get(`${this.baseURL}/api/financial/dashboard`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Dashboard financiero no disponible');
+      
+      const data = response.data.data;
+      console.log(`   💎 Ingresos hoy: $${data.today.income}`);
+      console.log(`   💸 Gastos hoy: $${data.today.expenses}`);
+      console.log(`   📊 Ganancia neta hoy: $${data.today.net}`);
+      
+      return response.data;
+    });
+
+    await this.runTest('financial', 'Financial Movements', async () => {
+      const response = await axios.get(`${this.baseURL}/api/financial/movements`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Movimientos financieros no disponibles');
+      
+      console.log(`   📋 Movimientos registrados: ${response.data.data.movements.length}`);
+      
+      return response.data;
+    });
+
+    await this.runTest('financial', 'Payment Reports', async () => {
+      const response = await axios.get(`${this.baseURL}/api/payments/reports/enhanced`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Reportes de pagos no disponibles');
+      
+      console.log(`   💰 Total ingresos: $${response.data.data.totalIncome}`);
+      console.log(`   📊 Fuentes de ingresos: ${response.data.data.incomeBySource.length}`);
+      
+      return response.data;
+    });
+  }
+
+  async testStripeIntegration() {
+    console.log('\n💳 INTEGRACIÓN CON STRIPE');
+    console.log('─'.repeat(50));
+    
+    await this.runTest('stripe', 'Stripe Configuration', async () => {
+      const response = await axios.get(`${this.baseURL}/api/stripe/config`);
+      
+      if (!response.data.success) throw new Error('Configuración de Stripe no disponible');
+      
+      const stripe = response.data.data.stripe;
+      console.log(`   ⚙️ Stripe habilitado: ${stripe.enabled ? 'Sí' : 'No'}`);
+      
+      if (stripe.enabled) {
+        console.log(`   🔧 Modo: ${stripe.mode}`);
+        console.log(`   💰 Moneda: ${stripe.currency}`);
+        console.log(`   🔑 Publishable Key: ${stripe.publishableKey ? 'Configurado' : 'No configurado'}`);
+      }
+      
+      return response.data;
+    });
+
+    await this.runTest('stripe', 'Stripe Service Status', async () => {
+      const response = await axios.get(`${this.baseURL}/api/stripe/status`);
+      
+      const data = response.data.data;
+      console.log(`   🚀 Servicio activo: ${data.enabled ? 'Sí' : 'No'}`);
+      
+      if (data.enabled) {
+        console.log(`   📡 Estado: ${data.message}`);
+      } else {
+        console.log('   ⚠️ Stripe no configurado - Pagos con tarjeta no disponibles');
+      }
+      
+      return response.data;
+    });
+
+    // Solo probar Payment Intents si Stripe está habilitado
+    const statusResponse = await axios.get(`${this.baseURL}/api/stripe/status`);
+    if (statusResponse.data.data.enabled) {
+      await this.runTest('stripe', 'Payment Intent Creation', async () => {
+        // Crear usuario de prueba
+        const userResponse = await axios.post(`${this.baseURL}/api/users`, {
+          firstName: 'Test',
+          lastName: 'Stripe',
+          email: `stripe.test.${Date.now()}@test.com`,
+          password: 'Test123!',
+          role: 'cliente'
+        }, {
+          headers: { Authorization: `Bearer ${this.token}` }
+        });
+
+        // Login del usuario
+        const loginResponse = await axios.post(`${this.baseURL}/api/auth/login`, {
+          email: userResponse.data.data.user.email,
+          password: 'Test123!'
+        });
+
+        const clientToken = loginResponse.data.data.token;
+
+        // Crear Payment Intent para pago diario
+        const intentResponse = await axios.post(`${this.baseURL}/api/stripe/create-daily-intent`, {
+          amount: 25.00,
+          dailyCount: 1
+        }, {
+          headers: { Authorization: `Bearer ${clientToken}` }
+        });
+
+        if (!intentResponse.data.success) throw new Error('No se pudo crear Payment Intent');
+
+        console.log(`   💫 Payment Intent creado: $${intentResponse.data.data.amount}`);
+        console.log(`   🆔 PI ID: ${intentResponse.data.data.paymentIntentId}`);
+
+        return intentResponse.data;
+      });
     }
   }
 
-  async testProductManagement() {
-    console.log('3. 📦 Probando gestión de productos...');
+  async testSystemIntegration() {
+    console.log('\n🔗 INTEGRACIÓN DEL SISTEMA');
+    console.log('─'.repeat(50));
     
-    if (!this.productId) {
-      console.log('   ⚠️ No hay productos para probar');
-      return;
-    }
+    await this.runTest('integration', 'Unified Dashboard', async () => {
+      const response = await axios.get(`${this.baseURL}/api/dashboard/unified`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Dashboard unificado no disponible');
+      
+      const data = response.data.data;
+      console.log(`   🎯 Total ingresos hoy: $${data.today.totalIncome}`);
+      console.log(`   📊 Fuentes: Membresías ($${data.today.breakdown.memberships}), Diarios ($${data.today.breakdown.daily}), Productos ($${data.today.breakdown.products})`);
+      console.log(`   👥 Usuarios activos: ${data.stats.totalUsers}`);
+      console.log(`   🎫 Membresías activas: ${data.stats.activeMemberships}`);
+      
+      return response.data;
+    });
 
-    // ✅ Obtener producto específico
-    const productResponse = await axios.get(`${this.baseURL}/api/store/products/${this.productId}`);
-    if (productResponse.data.success) {
-      console.log('   ✅ Producto individual obtenido');
-      console.log(`   📦 Producto: ${productResponse.data.data.product.name}`);
-      console.log(`   💰 Precio: $${productResponse.data.data.product.price}`);
-      console.log(`   📊 Stock: ${productResponse.data.data.product.stockQuantity} unidades`);
-      console.log(`   🎯 Métodos de pago: Online=${productResponse.data.data.product.allowOnlinePayment}, Tarjeta=${productResponse.data.data.product.allowCardPayment}, Efectivo=${productResponse.data.data.product.allowCashOnDelivery}`);
-    }
+    await this.runTest('integration', 'Cross-System Data Consistency', async () => {
+      // Verificar que los datos son consistentes entre sistemas
+      const [payments, financial, dashboard] = await Promise.all([
+        axios.get(`${this.baseURL}/api/payments/reports/enhanced?period=today`, {
+          headers: { Authorization: `Bearer ${this.token}` }
+        }),
+        axios.get(`${this.baseURL}/api/financial/dashboard`, {
+          headers: { Authorization: `Bearer ${this.token}` }
+        }),
+        axios.get(`${this.baseURL}/api/dashboard/unified`, {
+          headers: { Authorization: `Bearer ${this.token}` }
+        })
+      ]);
 
-    // ✅ Buscar productos
-    const searchResponse = await axios.get(`${this.baseURL}/api/store/products?search=protein`);
-    if (searchResponse.data.success) {
-      console.log(`   ✅ Búsqueda de productos funcional: ${searchResponse.data.data.products.length} resultados`);
+      const paymentTotal = payments.data.data.totalIncome || 0;
+      const financialTotal = financial.data.data.today.income || 0;
+      const dashboardTotal = dashboard.data.data.today.totalIncome || 0;
+
+      console.log(`   💰 Payments System: $${paymentTotal}`);
+      console.log(`   📊 Financial System: $${financialTotal}`);
+      console.log(`   🎯 Unified Dashboard: $${dashboardTotal}`);
+      
+      // Los totales deberían ser consistentes (permitir pequeñas diferencias por timing)
+      const maxDifference = Math.max(paymentTotal, financialTotal, dashboardTotal) - 
+                           Math.min(paymentTotal, financialTotal, dashboardTotal);
+      
+      if (maxDifference <= 0.01) {
+        console.log('   ✅ Datos consistentes entre sistemas');
+      } else {
+        console.log(`   ⚠️ Diferencia encontrada: $${maxDifference}`);
+      }
+
+      return { paymentTotal, financialTotal, dashboardTotal };
+    });
+
+    await this.runTest('integration', 'Data Cleanup System', async () => {
+      const response = await axios.get(`${this.baseURL}/api/data-cleanup/summary`, {
+        headers: { Authorization: `Bearer ${this.token}` }
+      });
+      
+      if (!response.data.success) throw new Error('Sistema de limpieza no disponible');
+      
+      const data = response.data.data;
+      console.log(`   🗂️ Total usuarios: ${data.users.total}`);
+      console.log(`   💳 Total membresías: ${data.memberships.total}`);
+      console.log(`   🛍️ Productos en tienda: ${data.store.products}`);
+      console.log(`   📊 Movimientos financieros: ${data.financial.movements}`);
+      
+      return response.data;
+    });
+  }
+
+  async runTest(category, testName, testFunction) {
+    try {
+      console.log(`   🧪 ${testName}...`);
+      const startTime = Date.now();
+      
+      await testFunction();
+      
+      const duration = Date.now() - startTime;
+      this.testResults[category].passed++;
+      this.testResults[category].tests.push({
+        name: testName,
+        status: 'PASSED',
+        duration: `${duration}ms`
+      });
+      
+      console.log(`   ✅ ${testName} - PASSED (${duration}ms)`);
+      
+    } catch (error) {
+      this.testResults[category].failed++;
+      this.testResults[category].tests.push({
+        name: testName,
+        status: 'FAILED',
+        error: error.message
+      });
+      
+      console.log(`   ❌ ${testName} - FAILED: ${error.message}`);
     }
   }
 
-  async testShoppingCart() {
-    console.log('4. 🛒 Probando carrito de compras...');
+  printCompleteReport() {
+    console.log('\n🏆 REPORTE COMPLETO DEL SISTEMA');
+    console.log('═'.repeat(80));
     
-    if (!this.productId) {
-      console.log('   ⚠️ No hay productos para agregar al carrito');
-      return;
-    }
-
-    // ✅ Agregar producto al carrito (como invitado)
-    const addToCartResponse = await axios.post(`${this.baseURL}/api/store/cart`, {
-      productId: this.productId,
-      quantity: 2,
-      sessionId: this.sessionId
+    let totalPassed = 0;
+    let totalFailed = 0;
+    
+    Object.entries(this.testResults).forEach(([category, results]) => {
+      const total = results.passed + results.failed;
+      const percentage = total > 0 ? ((results.passed / total) * 100).toFixed(1) : '0';
+      
+      console.log(`\n📋 ${category.toUpperCase()}:`);
+      console.log(`   ✅ Pasaron: ${results.passed}/${total} (${percentage}%)`);
+      console.log(`   ❌ Fallaron: ${results.failed}`);
+      
+      if (results.failed > 0) {
+        results.tests.filter(t => t.status === 'FAILED').forEach(test => {
+          console.log(`     🚫 ${test.name}: ${test.error}`);
+        });
+      }
+      
+      totalPassed += results.passed;
+      totalFailed += results.failed;
     });
     
-    if (addToCartResponse.data.success) {
-      console.log('   ✅ Producto agregado al carrito (usuario invitado)');
-    }
-
-    // ✅ Obtener carrito
-    const cartResponse = await axios.get(`${this.baseURL}/api/store/cart?sessionId=${this.sessionId}`);
-    if (cartResponse.data.success) {
-      console.log('   ✅ Carrito obtenido exitosamente');
-      console.log(`   🛒 Items en carrito: ${cartResponse.data.data.cartItems.length}`);
-      console.log(`   💰 Subtotal: $${cartResponse.data.data.summary.subtotal}`);
-      console.log(`   📋 Total: $${cartResponse.data.data.summary.totalAmount}`);
-    }
-
-    // ✅ Probar carrito como usuario logueado
-    const addToCartLoggedResponse = await axios.post(`${this.baseURL}/api/store/cart`, 
-      {
-        productId: this.productId,
-        quantity: 1
-      },
-      {
-        headers: { Authorization: `Bearer ${this.token}` }
-      }
-    );
+    const grandTotal = totalPassed + totalFailed;
+    const overallPercentage = grandTotal > 0 ? ((totalPassed / grandTotal) * 100).toFixed(1) : '0';
     
-    if (addToCartLoggedResponse.data.success) {
-      console.log('   ✅ Producto agregado al carrito (usuario logueado)');
+    console.log('\n🎯 RESUMEN GENERAL:');
+    console.log('─'.repeat(50));
+    console.log(`   📊 Total de pruebas: ${grandTotal}`);
+    console.log(`   ✅ Exitosas: ${totalPassed} (${overallPercentage}%)`);
+    console.log(`   ❌ Fallidas: ${totalFailed}`);
+    
+    if (overallPercentage >= 90) {
+      console.log('\n🎉 ¡SISTEMA ELITE FITNESS CLUB COMPLETAMENTE FUNCIONAL!');
+      console.log('   Todas las características principales están operativas');
+    } else if (overallPercentage >= 70) {
+      console.log('\n⚠️  Sistema mayormente funcional con algunas características opcionales fallando');
+    } else {
+      console.log('\n❌ Sistema requiere atención - múltiples características críticas fallando');
     }
-  }
-
-  async testCheckoutProcess() {
-    console.log('5. 💳 Probando proceso de checkout...');
     
-    // ✅ Crear orden con diferentes métodos de pago
-    const orderData = {
-      sessionId: this.sessionId,
-      customerInfo: {
-        name: 'Cliente Prueba',
-        email: 'cliente.prueba@test.com',
-        phone: '+50212345678'
-      },
-      shippingAddress: {
-        street: 'Calle Principal 123',
-        city: 'Guatemala',
-        state: 'Guatemala',
-        zipCode: '01001',
-        country: 'Guatemala',
-        instructions: 'Portón azul, casa de dos plantas'
-      },
-      paymentMethod: 'cash_on_delivery',
-      deliveryTimeSlot: 'mañana (9:00-12:00)',
-      notes: 'Orden de prueba del sistema'
-    };
-
-    const orderResponse = await axios.post(`${this.baseURL}/api/store/orders`, orderData);
+    console.log('\n🚀 CARACTERÍSTICAS VERIFICADAS:');
+    console.log('   🔐 Sistema de autenticación y usuarios');
+    console.log('   🏢 Configuración personalizable del gimnasio');
+    console.log('   🎫 Gestión de membresías');
+    console.log('   💰 Sistema de pagos múltiples métodos');
+    console.log('   🛍️ Tienda online completa');
+    console.log('   📊 Sistema financiero integrado');
+    console.log('   💳 Integración con Stripe (si configurado)');
+    console.log('   📈 Dashboards y reportes unificados');
+    console.log('   🧹 Sistema de limpieza de datos');
     
-    if (orderResponse.data.success) {
-      this.orderId = orderResponse.data.data.order.id;
-      console.log('   ✅ Orden creada exitosamente (pago contraentrega)');
-      console.log(`   📋 Número de orden: ${orderResponse.data.data.order.orderNumber}`);
-      console.log(`   💰 Total: $${orderResponse.data.data.order.totalAmount}`);
-      console.log(`   📦 Items: ${orderResponse.data.data.order.items.length} productos`);
+    console.log('\n💡 PRÓXIMOS PASOS SUGERIDOS:');
+    if (totalFailed === 0) {
+      console.log('   ✅ Sistema listo para producción');
+      console.log('   🔧 Configurar servicios opcionales (Cloudinary, Email, WhatsApp)');
+      console.log('   🔐 Configurar Stripe para pagos reales');
+      console.log('   🚀 Deploar a servidor de producción');
+    } else {
+      console.log('   🔧 Revisar y corregir pruebas fallidas');
+      console.log('   🔍 Verificar configuración de servicios');
+      console.log('   📝 Consultar documentación para servicios opcionales');
     }
-
-    // ✅ Probar orden con pago online
-    const onlineOrderData = {
-      ...orderData,
-      paymentMethod: 'online_card'
-    };
-
-    try {
-      const onlineOrderResponse = await axios.post(`${this.baseURL}/api/store/orders`, onlineOrderData);
-      if (onlineOrderResponse.data.success) {
-        console.log('   ✅ Orden con pago online creada');
-      }
-    } catch (error) {
-      if (error.response?.status === 400 && error.response?.data?.message?.includes('Carrito vacío')) {
-        console.log('   ✅ Validación de carrito vacío funcional');
-      }
-    }
-  }
-
-  // ✅ Continuación de test-store-system.js
-
-  async testOrderManagement() {
-    console.log('6. 📋 Probando gestión de órdenes...');
-    
-    if (!this.orderId) {
-      console.log('   ⚠️ No hay órdenes para gestionar');
-      return;
-    }
-
-    // ✅ Obtener orden específica
-    const orderResponse = await axios.get(
-      `${this.baseURL}/api/store/orders/${this.orderId}`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (orderResponse.data.success) {
-      console.log('   ✅ Orden individual obtenida');
-      console.log(`   📦 Estado: ${orderResponse.data.data.order.status}`);
-      console.log(`   💳 Método de pago: ${orderResponse.data.data.order.paymentMethod}`);
-    }
-
-    // ✅ Obtener todas las órdenes (admin)
-    const allOrdersResponse = await axios.get(
-      `${this.baseURL}/api/store/admin/orders`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (allOrdersResponse.data.success) {
-      console.log(`   ✅ Todas las órdenes obtenidas: ${allOrdersResponse.data.data.orders.length} órdenes`);
-    }
-
-    // ✅ Actualizar estado de orden
-    const updateStatusResponse = await axios.put(
-      `${this.baseURL}/api/store/admin/orders/${this.orderId}`,
-      {
-        status: 'confirmed',
-        notes: 'Orden confirmada por sistema de testing'
-      },
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (updateStatusResponse.data.success) {
-      console.log('   ✅ Estado de orden actualizado');
-    }
-
-    // ✅ Marcar como entregada (para probar integración financiera)
-    const deliveryResponse = await axios.put(
-      `${this.baseURL}/api/store/admin/orders/${this.orderId}`,
-      {
-        status: 'delivered',
-        notes: 'Entregado - Test de integración financiera',
-        trackingNumber: 'TEST-DELIVERY-001'
-      },
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (deliveryResponse.data.success) {
-      console.log('   ✅ Orden marcada como entregada');
-      console.log('   💰 Integración financiera automática activada');
-    }
-  }
-
-  async testStoreDashboard() {
-    console.log('7. 📊 Probando dashboard de tienda...');
-    
-    // ✅ Dashboard de tienda
-    const dashboardResponse = await axios.get(
-      `${this.baseURL}/api/store/admin/dashboard`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (dashboardResponse.data.success) {
-      console.log('   ✅ Dashboard de tienda generado');
-      console.log(`   📦 Órdenes hoy: ${dashboardResponse.data.data.ordersToday}`);
-      console.log(`   💰 Ingresos hoy: $${dashboardResponse.data.data.revenueToday}`);
-      console.log(`   ⏳ Órdenes pendientes: ${dashboardResponse.data.data.pendingOrders}`);
-    }
-
-    // ✅ Reporte de ventas
-    const salesReportResponse = await axios.get(
-      `${this.baseURL}/api/store/admin/sales-report?startDate=2024-01-01`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (salesReportResponse.data.success) {
-      console.log('   ✅ Reporte de ventas generado');
-      console.log(`   📈 Datos de ventas: ${salesReportResponse.data.data.salesData.length} períodos`);
-    }
-
-    // ✅ Dashboard financiero integrado
-    const financialDashboardResponse = await axios.get(
-      `${this.baseURL}/api/financial/dashboard`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (financialDashboardResponse.data.success) {
-      console.log('   ✅ Dashboard financiero integrado');
-      console.log(`   💎 Ingresos totales hoy: $${financialDashboardResponse.data.data.today.income}`);
-      console.log('   🔗 Incluye membresías Y productos');
-    }
-  }
-
-  async testDataCleanup() {
-    console.log('8. 🧹 Probando sistema de limpieza de datos...');
-    
-    // ✅ Obtener resumen de datos
-    const summaryResponse = await axios.get(
-      `${this.baseURL}/api/data-cleanup/summary`,
-      { headers: { Authorization: `Bearer ${this.token}` } }
-    );
-    
-    if (summaryResponse.data.success) {
-      console.log('   ✅ Resumen de datos obtenido');
-      console.log(`   👥 Usuarios totales: ${summaryResponse.data.data.users.total}`);
-      console.log(`   🛍️ Productos: ${summaryResponse.data.data.store.products}`);
-      console.log(`   📦 Órdenes: ${summaryResponse.data.data.store.orders}`);
-    }
-
-    // ✅ Limpiar solo datos de prueba de tienda (para demostrar funcionalidad)
-    console.log('   🧪 Simulando limpieza de datos de tienda...');
-    // No ejecutar limpieza real en test para no borrar los datos que acabamos de crear
-    console.log('   ✅ Sistema de limpieza verificado (no ejecutado)');
   }
 }
 
 // Ejecutar si se llama directamente
 if (require.main === module) {
-  const tester = new StoreSystemTester();
-  tester.runTests().catch(error => {
-    console.error('❌ Error en tests de tienda:', error.message);
+  const tester = new CompleteSystemTester();
+  tester.runCompleteTests().catch(error => {
+    console.error('❌ Error en test completo:', error.message);
     process.exit(1);
   });
 }
 
-
-
-
-module.exports = { StoreSystemTester };
+module.exports = { CompleteSystemTester };

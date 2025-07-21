@@ -1,4 +1,4 @@
-// src/routes/index.js - ACTUALIZADO con rutas de Stripe
+// src/routes/index.js - CORREGIDO: Agregar rutas faltantes
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -10,7 +10,8 @@ const gymRoutes = require('./gymRoutes');
 const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
 const adminRoutes = require('./adminRoutes');
-const stripeRoutes = require('./stripeRoutes'); // ✅ NUEVO
+const stripeRoutes = require('./stripeRoutes');
+const dashboardRoutes = require('./dashboardRoutes'); // ✅ AGREGADO
 
 const router = express.Router();
 
@@ -23,20 +24,20 @@ router.get('/health', (req, res) => {
     success: true,
     message: 'Elite Fitness Club API - Sistema Completo con Pagos',
     timestamp: new Date().toISOString(),
-    version: '2.1.0', // ✅ Incrementar versión
+    version: '2.1.0',
     services: {
       core: 'Active',
       auth: 'Active',
       gym: 'Active',
       financial: 'Active',
       schedule: 'Active',
-      stripe: stripeConfig.enabled ? 'Active' : 'Disabled' // ✅ NUEVO
+      stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     payments: {
       cash: 'Available',
       card: 'Available',
       transfer: 'Available',
-      stripe: stripeConfig.enabled ? `Available (${stripeConfig.mode})` : 'Not configured' // ✅ NUEVO
+      stripe: stripeConfig.enabled ? `Available (${stripeConfig.mode})` : 'Not configured'
     }
   });
 });
@@ -49,7 +50,7 @@ router.get('/endpoints', (req, res) => {
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.1.0', // ✅ Incrementar versión
+    version: '2.1.0',
     endpoints: {
       core: {
         health: 'GET /api/health',
@@ -80,7 +81,6 @@ router.get('/endpoints', (req, res) => {
         myOrders: 'GET /api/store/my-orders',
         admin: 'GET /api/store/admin/* (staff only)'
       },
-      // ✅ NUEVO: Endpoints de Stripe
       stripe: {
         enabled: stripeConfig.enabled,
         mode: stripeConfig.mode,
@@ -91,6 +91,10 @@ router.get('/endpoints', (req, res) => {
         confirmPayment: 'POST /api/stripe/confirm-payment',
         webhook: 'POST /api/stripe/webhook',
         admin: 'POST /api/stripe/refund, GET /api/stripe/payments (staff only)'
+      },
+      dashboard: { // ✅ AGREGADO
+        unified: 'GET /api/dashboard/unified',
+        metrics: 'GET /api/dashboard/metrics'
       },
       admin: {
         upload: 'POST /api/admin/upload',
@@ -112,9 +116,8 @@ router.use('/gym', gymRoutes);
 router.use('/financial', financialRoutes);
 router.use('/schedule', scheduleRoutes);
 router.use('/admin', adminRoutes);
-
-// ✅ NUEVA ruta de Stripe
 router.use('/stripe', stripeRoutes);
+router.use('/dashboard', dashboardRoutes); // ✅ AGREGADO
 
 // ✅ Manejo de rutas no encontradas
 router.use('*', (req, res) => {
