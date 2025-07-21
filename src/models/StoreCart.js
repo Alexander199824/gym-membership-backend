@@ -58,8 +58,6 @@ const StoreCart = sequelize.define('StoreCart', {
 }, {
   tableName: 'store_cart_items',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['user_id'] },
     { fields: ['session_id'] },

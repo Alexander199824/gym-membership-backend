@@ -85,8 +85,6 @@ const FinancialMovements = sequelize.define('FinancialMovements', {
 }, {
   tableName: 'financial_movements',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['type'] },
     { fields: ['category'] },
@@ -191,6 +189,43 @@ FinancialMovements.createFromPayment = async function(payment) {
     type: 'income',
     category: categoryMap[payment.paymentType] || 'other_income',
     description: `Pago de ${payment.paymentType === 'membership' ? 'membresía' : 'entrada diaria'} - ${payment.getClientName()}`,
+    amount: payment.amount,
+    movementDate: payment.paymentDate,
+    paymentMethod: payment.paymentMethod,
+    referenceId: payment.id,
+    referenceType: 'payment',
+    registeredBy: payment.registeredBy
+  });
+};
+
+// ✅ NUEVO: Método para crear movimiento desde cualquier tipo de pago
+FinancialMovements.createFromAnyPayment = async function(payment) {
+  const categoryMap = {
+    'membership': 'membership_payment',
+    'daily': 'daily_payment',
+    'bulk_daily': 'daily_payment',
+    'store_cash_delivery': 'products_sale',
+    'store_card_delivery': 'products_sale',
+    'store_online': 'products_sale',
+    'store_transfer': 'products_sale',
+    'store_other': 'products_sale'
+  };
+  
+  const descriptionMap = {
+    'membership': 'Pago de membresía',
+    'daily': 'Pago de entrada diaria',
+    'bulk_daily': 'Pago de entradas diarias múltiples',
+    'store_cash_delivery': 'Venta de productos - Efectivo contraentrega',
+    'store_card_delivery': 'Venta de productos - Tarjeta contraentrega',
+    'store_online': 'Venta de productos - Pago online',
+    'store_transfer': 'Venta de productos - Transferencia',
+    'store_other': 'Venta de productos - Otro método'
+  };
+  
+  return await this.create({
+    type: 'income',
+    category: categoryMap[payment.paymentType] || 'other_income',
+    description: `${descriptionMap[payment.paymentType] || 'Pago'} - ${payment.getClientName()}`,
     amount: payment.amount,
     movementDate: payment.paymentDate,
     paymentMethod: payment.paymentMethod,

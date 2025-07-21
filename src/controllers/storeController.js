@@ -703,118 +703,116 @@ class StoreController {
     }
   }
 
- // ✅ REEMPLAZAR el método updateOrderStatus en storeController.js
+  // Actualizar estado de orden (MEJORADO)
+  async updateOrderStatus(req, res) {
+    try {
+      const { id } = req.params;
+      const { status, notes, trackingNumber } = req.body;
 
-// Actualizar estado de orden (MEJORADO)
-async updateOrderStatus(req, res) {
-  try {
-    const { id } = req.params;
-    const { status, notes, trackingNumber } = req.body;
+      const order = await StoreOrder.findByPk(id);
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Orden no encontrada'
+        });
+      }
 
-    const order = await StoreOrder.findByPk(id);
-    if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Orden no encontrada'
-      });
-    }
-
-    // ✅ Actualizar orden
-    order.status = status;
-    order.processedBy = req.user.id;
-    if (notes) order.notes = notes;
-    if (trackingNumber) order.trackingNumber = trackingNumber;
-    
-    if (status === 'delivered') {
-      order.deliveryDate = new Date();
-      order.paymentStatus = 'paid';
+      // ✅ Actualizar orden
+      order.status = status;
+      order.processedBy = req.user.id;
+      if (notes) order.notes = notes;
+      if (trackingNumber) order.trackingNumber = trackingNumber;
       
-      // ✅ NUEVO: Crear pago automáticamente al entregar
-      const { Payment } = require('../models');
-      
-      // Verificar si ya existe pago
-      const existingPayment = await Payment.findOne({
-        where: { 
-          referenceId: order.id,
-          referenceType: 'store_order'
-        }
-      });
-
-      if (!existingPayment) {
-        // ✅ Determinar tipo de pago
-        let paymentType, paymentMethod;
-        switch (order.paymentMethod) {
-          case 'cash_on_delivery':
-            paymentType = 'store_cash_delivery';
-            paymentMethod = 'cash';
-            break;
-          case 'card_on_delivery':
-            paymentType = 'store_card_delivery';
-            paymentMethod = 'card';
-            break;
-          case 'online_card':
-            paymentType = 'store_online';
-            paymentMethod = 'card';
-            break;
-          case 'transfer':
-            paymentType = 'store_transfer';
-            paymentMethod = 'transfer';
-            break;
-          default:
-            paymentType = 'store_other';
-            paymentMethod = 'cash';
-        }
-
-        // ✅ Crear pago
-        const payment = await Payment.create({
-          userId: order.userId,
-          amount: order.totalAmount,
-          paymentMethod,
-          paymentType,
-          description: `Venta de productos - Orden ${order.orderNumber}`,
-          notes: `Entrega completada - ${order.items?.length || 0} productos`,
-          referenceId: order.id,
-          referenceType: 'store_order',
-          registeredBy: req.user.id,
-          status: 'completed',
-          paymentDate: new Date()
+      if (status === 'delivered') {
+        order.deliveryDate = new Date();
+        order.paymentStatus = 'paid';
+        
+        // ✅ NUEVO: Crear pago automáticamente al entregar
+        const { Payment } = require('../models');
+        
+        // Verificar si ya existe pago
+        const existingPayment = await Payment.findOne({
+          where: { 
+            referenceId: order.id,
+            referenceType: 'store_order'
+          }
         });
 
-        // ✅ Crear movimiento financiero
-        try {
-          await FinancialMovements.create({
-            type: 'income',
-            category: 'products_sale',
-            description: `Venta de productos - Orden ${order.orderNumber}`,
+        if (!existingPayment) {
+          // ✅ Determinar tipo de pago
+          let paymentType, paymentMethod;
+          switch (order.paymentMethod) {
+            case 'cash_on_delivery':
+              paymentType = 'store_cash_delivery';
+              paymentMethod = 'cash';
+              break;
+            case 'card_on_delivery':
+              paymentType = 'store_card_delivery';
+              paymentMethod = 'card';
+              break;
+            case 'online_card':
+              paymentType = 'store_online';
+              paymentMethod = 'card';
+              break;
+            case 'transfer':
+              paymentType = 'store_transfer';
+              paymentMethod = 'transfer';
+              break;
+            default:
+              paymentType = 'store_other';
+              paymentMethod = 'cash';
+          }
+
+          // ✅ Crear pago
+          const payment = await Payment.create({
+            userId: order.userId,
             amount: order.totalAmount,
             paymentMethod,
-            referenceId: payment.id,
-            referenceType: 'payment',
-            registeredBy: req.user.id
+            paymentType,
+            description: `Venta de productos - Orden ${order.orderNumber}`,
+            notes: `Entrega completada - ${order.items?.length || 0} productos`,
+            referenceId: order.id,
+            referenceType: 'store_order',
+            registeredBy: req.user.id,
+            status: 'completed',
+            paymentDate: new Date()
           });
-          console.log(`✅ Movimiento financiero creado para orden ${order.orderNumber}`);
-        } catch (financialError) {
-          console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+
+          // ✅ Crear movimiento financiero
+          try {
+            await FinancialMovements.create({
+              type: 'income',
+              category: 'products_sale',
+              description: `Venta de productos - Orden ${order.orderNumber}`,
+              amount: order.totalAmount,
+              paymentMethod,
+              referenceId: payment.id,
+              referenceType: 'payment',
+              registeredBy: req.user.id
+            });
+            console.log(`✅ Movimiento financiero creado para orden ${order.orderNumber}`);
+          } catch (financialError) {
+            console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+          }
         }
       }
+
+      await order.save();
+
+      res.json({
+        success: true,
+        message: 'Estado de orden actualizado exitosamente',
+        data: { order }
+      });
+    } catch (error) {
+      console.error('Error al actualizar orden:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al actualizar orden',
+        error: error.message
+      });
     }
-
-    await order.save();
-
-    res.json({
-      success: true,
-      message: 'Estado de orden actualizado exitosamente',
-      data: { order }
-    });
-  } catch (error) {
-    console.error('Error al actualizar orden:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar orden',
-      error: error.message
-    });
   }
-}
 
   // Dashboard de tienda
   async getStoreDashboard(req, res) {
@@ -848,7 +846,7 @@ async updateOrderStatus(req, res) {
         }),
         StoreProduct.count({
           where: {
-            stockQuantity: { [Op.lte]: sequelize.col('min_stock') },
+            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('minStock') },
             isActive: true
           }
         }),

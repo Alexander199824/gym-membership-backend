@@ -1,4 +1,4 @@
-// src/models/index.js - CORREGIDO: Todas las importaciones necesarias
+// src/models/index.js  Todas las importaciones necesarias
 const User = require('./User');
 const Membership = require('./Membership');
 const Payment = require('./Payment');

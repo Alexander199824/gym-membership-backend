@@ -66,8 +66,6 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
 }, {
   tableName: 'store_order_items',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['order_id'] },
     { fields: ['product_id'] }

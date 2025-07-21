@@ -36,8 +36,12 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.ENUM('cash', 'card', 'transfer', 'online'),
     allowNull: false
   },
+  // ✅ AMPLIADO: Incluir tipos de pago de tienda
   paymentType: {
-    type: DataTypes.ENUM('membership', 'daily', 'bulk_daily'),
+    type: DataTypes.ENUM(
+      'membership', 'daily', 'bulk_daily',
+      'store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'
+    ),
     allowNull: false
   },
   status: {
@@ -116,6 +120,16 @@ const Payment = sequelize.define('Payment', {
       min: 0
     }
   },
+  // ✅ NUEVO: Referencias para pagos de tienda
+  referenceId: {
+    type: DataTypes.UUID,
+    allowNull: true
+    // Para referenciar orderId de StoreOrder
+  },
+  referenceType: {
+    type: DataTypes.ENUM('membership', 'daily', 'store_order', 'other'),
+    allowNull: true
+  },
   // Fecha del pago (puede ser diferente a createdAt)
   paymentDate: {
     type: DataTypes.DATE,
@@ -133,7 +147,8 @@ const Payment = sequelize.define('Payment', {
     { fields: ['status'] },
     { fields: ['registeredBy'] },
     { fields: ['paymentDate'] },
-    { fields: ['transferValidated'] }
+    { fields: ['transferValidated'] },
+    { fields: ['referenceId', 'referenceType'] }
   ],
   // ✅ VALIDACIONES PERSONALIZADAS
   validate: {

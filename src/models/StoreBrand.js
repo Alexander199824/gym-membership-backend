@@ -31,9 +31,7 @@ const StoreBrand = sequelize.define('StoreBrand', {
   }
 }, {
   tableName: 'store_brands',
-  timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  timestamps: true
 });
 
 // ✅ Crear marcas por defecto

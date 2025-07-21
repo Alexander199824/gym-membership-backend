@@ -70,9 +70,10 @@ class DashboardController {
         User.count({ where: { isActive: true } }),
         Membership.count({ where: { status: 'active' } }),
         StoreOrder.count({ where: { createdAt: { [Op.between]: [today, tomorrow] } } }),
+        // ✅ CORREGIDO: Referencia correcta a minStock
         StoreProduct.count({ 
           where: { 
-            stockQuantity: { [Op.lte]: sequelize.col('min_stock') },
+            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('minStock') },
             isActive: true 
           } 
         }),
@@ -90,7 +91,7 @@ class DashboardController {
 
       const weeklyTrend = await Payment.findAll({
         attributes: [
-          [Payment.sequelize.fn('DATE', Payment.sequelize.col('payment_date')), 'date'],
+          [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
           [Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'memberships'
@@ -106,7 +107,7 @@ class DashboardController {
           paymentDate: { [Op.gte]: weekAgo }
         },
         group: [
-          Payment.sequelize.fn('DATE', Payment.sequelize.col('payment_date')),
+          Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
           Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'memberships'
@@ -116,7 +117,7 @@ class DashboardController {
             END
           `)
         ],
-        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('payment_date')), 'ASC']]
+        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
       });
 
       res.json({
@@ -221,7 +222,7 @@ class DashboardController {
       ] = await Promise.all([
         // Valor promedio de orden
         StoreOrder.findOne({
-          attributes: [[StoreOrder.sequelize.fn('AVG', StoreOrder.sequelize.col('total_amount')), 'avg_order']],
+          attributes: [[StoreOrder.sequelize.fn('AVG', StoreOrder.sequelize.col('totalAmount')), 'avg_order']],
           where: {
             status: 'delivered',
             createdAt: { [Op.between]: [startDate, endDate] }
@@ -249,15 +250,15 @@ class DashboardController {
             model: StoreOrder,
             as: 'storeOrders',
             where: { status: 'delivered' },
-            having: sequelize.where(sequelize.fn('COUNT', sequelize.col('storeOrders.id')), '>', 1)
+            having: User.sequelize.where(User.sequelize.fn('COUNT', User.sequelize.col('storeOrders.id')), '>', 1)
           }],
           group: ['User.id']
         }),
 
-        // Productos más vendidos
+        // ✅ CORREGIDO: Productos más vendidos con las asociaciones correctas
         StoreProduct.findAll({
           include: [{
-            model: StoreOrderItem,
+            model: require('../models').StoreOrderItem,
             as: 'orderItems',
             include: [{
               model: StoreOrder,
@@ -266,15 +267,16 @@ class DashboardController {
                 status: 'delivered',
                 createdAt: { [Op.between]: [startDate, endDate] }
               }
-            }]
+            }],
+            required: true
           }],
           attributes: [
             'id', 'name',
-            [sequelize.fn('SUM', sequelize.col('orderItems.quantity')), 'total_sold'],
-            [sequelize.fn('SUM', sequelize.col('orderItems.total_price')), 'total_revenue']
+            [StoreProduct.sequelize.fn('SUM', StoreProduct.sequelize.col('orderItems.quantity')), 'total_sold'],
+            [StoreProduct.sequelize.fn('SUM', StoreProduct.sequelize.col('orderItems.totalPrice')), 'total_revenue']
           ],
           group: ['StoreProduct.id'],
-          order: [[sequelize.fn('SUM', sequelize.col('orderItems.quantity')), 'DESC']],
+          order: [[StoreProduct.sequelize.fn('SUM', StoreProduct.sequelize.col('orderItems.quantity')), 'DESC']],
           limit: 10
         }),
 
@@ -301,8 +303,8 @@ class DashboardController {
           topProducts: productPerformance.map(product => ({
             id: product.id,
             name: product.name,
-            totalSold: parseInt(product.dataValues.total_sold),
-            totalRevenue: parseFloat(product.dataValues.total_revenue)
+            totalSold: parseInt(product.dataValues.total_sold || 0),
+            totalRevenue: parseFloat(product.dataValues.total_revenue || 0)
           }))
         }
       });

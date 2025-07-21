@@ -123,14 +123,12 @@ const StoreOrder = sequelize.define('StoreOrder', {
 }, {
   tableName: 'store_orders',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['user_id'] },
     { fields: ['order_number'], unique: true },
     { fields: ['status'] },
     { fields: ['payment_status'] },
-    { fields: ['created_at'] }
+    { fields: ['createdAt'] }
   ]
 });
 
@@ -169,12 +167,12 @@ StoreOrder.getSalesReport = async function(startDate, endDate) {
       }
     },
     attributes: [
-      [sequelize.fn('DATE', sequelize.col('created_at')), 'date'],
+      [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
       [sequelize.fn('COUNT', sequelize.col('id')), 'orders'],
       [sequelize.fn('SUM', sequelize.col('total_amount')), 'revenue']
     ],
-    group: [sequelize.fn('DATE', sequelize.col('created_at'))],
-    order: [[sequelize.fn('DATE', sequelize.col('created_at')), 'ASC']]
+    group: [sequelize.fn('DATE', sequelize.col('createdAt'))],
+    order: [[sequelize.fn('DATE', sequelize.col('createdAt')), 'ASC']]
   });
 };
 

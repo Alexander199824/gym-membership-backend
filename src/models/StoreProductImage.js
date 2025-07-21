@@ -46,8 +46,6 @@ const StoreProductImage = sequelize.define('StoreProductImage', {
 }, {
   tableName: 'store_product_images',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['product_id'] },
     { fields: ['is_primary'] },

@@ -46,8 +46,6 @@ const StoreCategory = sequelize.define('StoreCategory', {
 }, {
   tableName: 'store_categories',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['slug'], unique: true },
     { fields: ['is_active'] },

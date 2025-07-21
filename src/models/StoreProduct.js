@@ -138,8 +138,6 @@ const StoreProduct = sequelize.define('StoreProduct', {
 }, {
   tableName: 'store_products',
   timestamps: true,
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
   indexes: [
     { fields: ['category_id'] },
     { fields: ['brand_id'] },

@@ -639,7 +639,7 @@ class PaymentController {
           [Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'Membresías'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'Productos'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'Productos'
               WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
               ELSE 'Otros'
             END
@@ -654,7 +654,7 @@ class PaymentController {
         group: [Payment.sequelize.literal(`
           CASE 
             WHEN payment_type IN ('membership') THEN 'Membresías'
-            WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'Productos'
+            WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'Productos'
             WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
             ELSE 'Otros'
           END
@@ -693,7 +693,7 @@ class PaymentController {
           [Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'products'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
               WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
               ELSE 'other'
             END
@@ -709,7 +709,7 @@ class PaymentController {
           Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other') THEN 'products'
+              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
               WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
               ELSE 'other'
             END
