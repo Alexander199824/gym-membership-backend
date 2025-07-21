@@ -225,7 +225,7 @@ class StoreController {
     }
   }
 
-  // ✅ === CARRITO ===
+  // ✅ === CARRITO CORREGIDO ===
 
   // Obtener carrito del usuario
   async getCart(req, res) {
@@ -299,12 +299,17 @@ class StoreController {
         });
       }
 
-      // ✅ Verificar si ya existe en el carrito
-      const where = { productId };
+      // ✅ Determinar si es usuario logueado o invitado
+      let cartData = { productId };
+      
       if (req.user) {
-        where.userId = req.user.id;
+        // Usuario logueado
+        cartData.userId = req.user.id;
+        cartData.sessionId = null;
       } else if (sessionId) {
-        where.sessionId = sessionId;
+        // Usuario invitado
+        cartData.userId = null;
+        cartData.sessionId = sessionId;
       } else {
         return res.status(400).json({
           success: false,
@@ -312,7 +317,8 @@ class StoreController {
         });
       }
 
-      const existingCartItem = await StoreCart.findOne({ where });
+      // ✅ Verificar si ya existe en el carrito
+      const existingCartItem = await StoreCart.findOne({ where: cartData });
 
       if (existingCartItem) {
         // ✅ Actualizar cantidad
@@ -321,9 +327,7 @@ class StoreController {
       } else {
         // ✅ Crear nuevo item
         await StoreCart.create({
-          userId: req.user?.id || null,
-          sessionId: req.user ? null : sessionId,
-          productId,
+          ...cartData,
           quantity: parseInt(quantity),
           selectedVariants,
           unitPrice: product.price
@@ -358,12 +362,23 @@ class StoreController {
         });
       }
 
-      // ✅ Verificar permisos
-      if (req.user && cartItem.userId !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'No tienes permisos para modificar este item'
-        });
+      // ✅ Verificar permisos (usuario logueado o sesión coincidente)
+      if (req.user) {
+        if (cartItem.userId !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar este item'
+          });
+        }
+      } else {
+        // Para usuarios invitados, verificar sessionId en query params
+        const { sessionId } = req.query;
+        if (!sessionId || cartItem.sessionId !== sessionId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar este item'
+          });
+        }
       }
 
       // ✅ Verificar stock
@@ -405,12 +420,22 @@ class StoreController {
         });
       }
 
-      // ✅ Verificar permisos
-      if (req.user && cartItem.userId !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'No tienes permisos para eliminar este item'
-        });
+      // ✅ Verificar permisos (similar al update)
+      if (req.user) {
+        if (cartItem.userId !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para eliminar este item'
+          });
+        }
+      } else {
+        const { sessionId } = req.query;
+        if (!sessionId || cartItem.sessionId !== sessionId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para eliminar este item'
+          });
+        }
       }
 
       await cartItem.destroy();
@@ -614,7 +639,7 @@ class StoreController {
     }
   }
 
-  // Obtener orden por ID
+  // ✅ Obtener orden por ID corregido
   async getOrderById(req, res) {
     try {
       const { id } = req.params;
@@ -638,11 +663,23 @@ class StoreController {
       }
 
       // ✅ Verificar permisos
-      if (req.user.role === 'cliente' && order.userId !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'No tienes permisos para ver esta orden'
-        });
+      if (req.user) {
+        // Si es usuario logueado
+        if (req.user.role === 'cliente' && order.userId !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver esta orden'
+          });
+        }
+        // Admin y colaborador pueden ver todas las órdenes
+      } else {
+        // Si no hay usuario logueado, solo puede ver órdenes sin usuario (guest orders)
+        if (order.userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver esta orden'
+          });
+        }
       }
 
       res.json({
