@@ -1,4 +1,4 @@
-// src/controllers/dashboardController.js - Dashboard unificado
+// src/controllers/dashboardController.js 
 const { 
   Payment, 
   Membership, 
@@ -70,10 +70,10 @@ class DashboardController {
         User.count({ where: { isActive: true } }),
         Membership.count({ where: { status: 'active' } }),
         StoreOrder.count({ where: { createdAt: { [Op.between]: [today, tomorrow] } } }),
-        // ✅ CORREGIDO: Referencia correcta a minStock
+        // ✅ CORREGIDO: Usar min_stock en lugar de minStock
         StoreProduct.count({ 
           where: { 
-            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('minStock') },
+            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('min_stock') },
             isActive: true 
           } 
         }),

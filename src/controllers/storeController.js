@@ -1,4 +1,4 @@
-// src/controllers/storeController.js
+// src/controllers/storeController.js - CORREGIDO
 const { 
   StoreCategory, 
   StoreBrand, 
@@ -881,9 +881,10 @@ class StoreController {
         StoreOrder.count({
           where: { status: ['pending', 'confirmed'] }
         }),
+        // ✅ CORREGIDO: Usar min_stock en lugar de minStock
         StoreProduct.count({
           where: {
-            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('minStock') },
+            stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('min_stock') },
             isActive: true
           }
         }),
