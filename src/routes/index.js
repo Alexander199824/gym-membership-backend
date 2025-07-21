@@ -1,4 +1,4 @@
-// src/routes/index.js (Actualizado)
+// src/routes/index.js - ACTUALIZADO con rutas de Stripe
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -10,35 +10,46 @@ const gymRoutes = require('./gymRoutes');
 const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
 const adminRoutes = require('./adminRoutes');
+const stripeRoutes = require('./stripeRoutes'); // ✅ NUEVO
 
 const router = express.Router();
 
-// ✅ Health check mejorado
+// ✅ Health check mejorado con Stripe
 router.get('/health', (req, res) => {
+  const stripeService = require('../services/stripeService');
+  const stripeConfig = stripeService.getPublicConfig();
+  
   res.json({
     success: true,
-    message: 'Elite Fitness Club API - Sistema Completo',
+    message: 'Elite Fitness Club API - Sistema Completo con Pagos',
     timestamp: new Date().toISOString(),
-    version: '2.0.0',
+    version: '2.1.0', // ✅ Incrementar versión
     services: {
       core: 'Active',
       auth: 'Active',
       gym: 'Active',
       financial: 'Active',
-      schedule: 'Active'
+      schedule: 'Active',
+      stripe: stripeConfig.enabled ? 'Active' : 'Disabled' // ✅ NUEVO
+    },
+    payments: {
+      cash: 'Available',
+      card: 'Available',
+      transfer: 'Available',
+      stripe: stripeConfig.enabled ? `Available (${stripeConfig.mode})` : 'Not configured' // ✅ NUEVO
     }
   });
 });
 
-router.use('/store', storeRoutes);
-router.use('/data-cleanup', dataCleanupRoutes);
-
-// ✅ ACTUALIZAR la información de endpoints
+// ✅ ACTUALIZAR endpoints disponibles
 router.get('/endpoints', (req, res) => {
+  const stripeService = require('../services/stripeService');
+  const stripeConfig = stripeService.getPublicConfig();
+  
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.1.0', // ← Incrementar versión
+    version: '2.1.0', // ✅ Incrementar versión
     endpoints: {
       core: {
         health: 'GET /api/health',
@@ -62,7 +73,6 @@ router.get('/endpoints', (req, res) => {
         mySchedule: 'GET,PUT,POST /api/schedule/my-schedule',
         analytics: 'GET /api/schedule/popular-times'
       },
-      // ✅ NUEVO: Endpoints de tienda
       store: {
         products: 'GET /api/store/products',
         cart: 'GET,POST,PUT,DELETE /api/store/cart',
@@ -70,10 +80,21 @@ router.get('/endpoints', (req, res) => {
         myOrders: 'GET /api/store/my-orders',
         admin: 'GET /api/store/admin/* (staff only)'
       },
+      // ✅ NUEVO: Endpoints de Stripe
+      stripe: {
+        enabled: stripeConfig.enabled,
+        mode: stripeConfig.mode,
+        config: 'GET /api/stripe/config (público)',
+        membershipPayment: 'POST /api/stripe/create-membership-intent',
+        dailyPayment: 'POST /api/stripe/create-daily-intent',
+        storePayment: 'POST /api/stripe/create-store-intent',
+        confirmPayment: 'POST /api/stripe/confirm-payment',
+        webhook: 'POST /api/stripe/webhook',
+        admin: 'POST /api/stripe/refund, GET /api/stripe/payments (staff only)'
+      },
       admin: {
         upload: 'POST /api/admin/upload',
         systemInfo: 'GET /api/admin/system-info',
-        // ✅ NUEVO: Limpieza de datos
         dataCleanup: 'GET,DELETE,POST /api/data-cleanup/* (admin only)'
       }
     }
@@ -85,49 +106,15 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/memberships', membershipRoutes);
 router.use('/payments', paymentRoutes);
-
-// ✅ Nuevas rutas
+router.use('/store', storeRoutes);
+router.use('/data-cleanup', dataCleanupRoutes);
 router.use('/gym', gymRoutes);
 router.use('/financial', financialRoutes);
 router.use('/schedule', scheduleRoutes);
 router.use('/admin', adminRoutes);
 
-// ✅ Ruta de información de la API
-router.get('/endpoints', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.0.0',
-    endpoints: {
-      core: {
-        health: 'GET /api/health',
-        auth: 'POST /api/auth/login, /register, /profile',
-        users: 'GET,POST,PUT /api/users',
-        memberships: 'GET,POST,PUT /api/memberships',
-        payments: 'GET,POST /api/payments'
-      },
-      gym: {
-        info: 'GET /api/gym/info (público)',
-        config: 'GET,PUT /api/gym/config',
-        services: 'GET /api/gym/services',
-        plans: 'GET /api/gym/plans'
-      },
-      financial: {
-        movements: 'GET,POST /api/financial/movements',
-        reports: 'GET /api/financial/reports',
-        dashboard: 'GET /api/financial/dashboard'
-      },
-      schedule: {
-        mySchedule: 'GET,PUT,POST /api/schedule/my-schedule',
-        analytics: 'GET /api/schedule/popular-times'
-      },
-      admin: {
-        upload: 'POST /api/admin/upload',
-        systemInfo: 'GET /api/admin/system-info'
-      }
-    }
-  });
-});
+// ✅ NUEVA ruta de Stripe
+router.use('/stripe', stripeRoutes);
 
 // ✅ Manejo de rutas no encontradas
 router.use('*', (req, res) => {
