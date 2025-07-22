@@ -633,126 +633,169 @@ class PaymentController {
           break;
       }
 
-      // ✅ Ingresos por fuente (membresías vs productos vs diarios)
-      const incomeBySource = await Payment.findAll({
-        attributes: [
-          [Payment.sequelize.literal(`
+      // ✅ CORREGIDO: Consultas más seguras con try-catch individuales
+      let totalIncome = 0;
+      let incomeBySource = [];
+      let paymentMethodStats = [];
+      let dailyTrend = [];
+      let productPerformance = [];
+
+      try {
+        // Total de ingresos
+        totalIncome = await Payment.sum('amount', {
+          where: {
+            status: 'completed',
+            paymentDate: dateRange
+          }
+        }) || 0;
+      } catch (error) {
+        console.warn('⚠️ Error al calcular ingresos totales:', error.message);
+        totalIncome = 0;
+      }
+
+      try {
+        // Ingresos por fuente
+        incomeBySource = await Payment.findAll({
+          attributes: [
+            [Payment.sequelize.literal(`
+              CASE 
+                WHEN payment_type IN ('membership') THEN 'Membresías'
+                WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'Productos'
+                WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
+                ELSE 'Otros'
+              END
+            `), 'source'],
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+            [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+          ],
+          where: {
+            status: 'completed',
+            paymentDate: dateRange
+          },
+          group: [Payment.sequelize.literal(`
             CASE 
               WHEN payment_type IN ('membership') THEN 'Membresías'
               WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'Productos'
               WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
               ELSE 'Otros'
             END
-          `), 'source'],
-          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
-          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
-        ],
-        where: {
-          status: 'completed',
-          paymentDate: dateRange
-        },
-        group: [Payment.sequelize.literal(`
-          CASE 
-            WHEN payment_type IN ('membership') THEN 'Membresías'
-            WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'Productos'
-            WHEN payment_type IN ('daily', 'bulk_daily') THEN 'Pagos Diarios'
-            ELSE 'Otros'
-          END
-        `)]
-      });
+          `)]
+        });
+      } catch (error) {
+        console.warn('⚠️ Error al obtener ingresos por fuente:', error.message);
+        incomeBySource = [];
+      }
 
-      // ✅ Métodos de pago más utilizados
-      const paymentMethodStats = await Payment.findAll({
-        attributes: [
-          'paymentMethod',
-          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
-          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
-        ],
-        where: {
-          status: 'completed',
-          paymentDate: dateRange
-        },
-        group: ['paymentMethod']
-      });
-
-      // ✅ Total general
-      const totalIncome = await Payment.sum('amount', {
-        where: {
-          status: 'completed',
-          paymentDate: dateRange
-        }
-      });
-
-      // ✅ Tendencia diaria (últimos 30 días)
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-      const dailyTrend = await Payment.findAll({
-        attributes: [
-          [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
-          [Payment.sequelize.literal(`
-            CASE 
-              WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
-              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
-              ELSE 'other'
-            END
-          `), 'source'],
-          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
-        ],
-        where: {
-          status: 'completed',
-          paymentDate: { [Op.gte]: thirtyDaysAgo }
-        },
-        group: [
-          Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
-          Payment.sequelize.literal(`
-            CASE 
-              WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
-              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
-              ELSE 'other'
-            END
-          `)
-        ],
-        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
-      });
-
-      // ✅ CORREGIDO: Productos más vendidos con mejor manejo de errores
-      let productPerformance = [];
       try {
-        // Verificar si StoreOrderItem existe y tiene las asociaciones correctas
-        const hasStoreModels = StoreOrderItem && StoreOrder && StoreProduct;
+        // Métodos de pago más utilizados
+        paymentMethodStats = await Payment.findAll({
+          attributes: [
+            'paymentMethod',
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+            [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+          ],
+          where: {
+            status: 'completed',
+            paymentDate: dateRange
+          },
+          group: ['paymentMethod']
+        });
+      } catch (error) {
+        console.warn('⚠️ Error al obtener estadísticas de métodos de pago:', error.message);
+        paymentMethodStats = [];
+      }
+
+      try {
+        // Tendencia diaria (últimos 30 días)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const rawDailyTrend = await Payment.findAll({
+          attributes: [
+            [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
+            [Payment.sequelize.literal(`
+              CASE 
+                WHEN payment_type IN ('membership') THEN 'memberships'
+                WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
+                WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+                ELSE 'other'
+              END
+            `), 'source'],
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
+          ],
+          where: {
+            status: 'completed',
+            paymentDate: { [Op.gte]: thirtyDaysAgo }
+          },
+          group: [
+            Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
+            Payment.sequelize.literal(`
+              CASE 
+                WHEN payment_type IN ('membership') THEN 'memberships'
+                WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
+                WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+                ELSE 'other'
+              END
+            `)
+          ],
+          order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
+        });
+
+        dailyTrend = this.organizeDailyTrend(rawDailyTrend);
+      } catch (error) {
+        console.warn('⚠️ Error al obtener tendencia diaria:', error.message);
+        dailyTrend = [];
+      }
+
+      // ✅ CORREGIDO: Productos más vendidos con verificación de modelos más robusta
+      try {
+        // Verificar disponibilidad de modelos de tienda
+        const modelsAvailable = this.checkStoreModelsAvailability();
         
-        if (hasStoreModels) {
-          productPerformance = await Payment.sequelize.query(`
-            SELECT 
-              soi.product_id as id,
-              sp.name,
-              SUM(soi.quantity) as total_sold,
-              SUM(soi.total_price) as total_revenue
-            FROM store_order_items soi
-            JOIN store_orders so ON soi.order_id = so.id
-            JOIN store_products sp ON soi.product_id = sp.id
-            WHERE so.status = 'delivered'
-            AND so.created_at >= :startDate
-            GROUP BY soi.product_id, sp.name
-            ORDER BY SUM(soi.quantity) DESC
-            LIMIT 10
-          `, {
-            replacements: { startDate: thirtyDaysAgo },
-            type: Payment.sequelize.QueryTypes.SELECT
+        if (modelsAvailable) {
+          // Usar ORM en lugar de SQL crudo para mejor compatibilidad
+          const orderItems = await StoreOrderItem.findAll({
+            attributes: [
+              'productId',
+              [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'totalSold'],
+              [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('totalPrice')), 'totalRevenue']
+            ],
+            include: [{
+              model: StoreOrder,
+              as: 'order',
+              where: {
+                status: 'delivered',
+                createdAt: { [Op.gte]: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+              },
+              attributes: []
+            }, {
+              model: StoreProduct,
+              as: 'product',
+              attributes: ['id', 'name'],
+              required: true
+            }],
+            group: ['productId', 'product.id', 'product.name'],
+            order: [[StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'DESC']],
+            limit: 10
           });
+
+          productPerformance = orderItems.map(item => ({
+            id: item.productId,
+            name: item.product?.name || 'Producto desconocido',
+            totalSold: parseInt(item.dataValues.totalSold || 0),
+            totalRevenue: parseFloat(item.dataValues.totalRevenue || 0)
+          }));
         }
-      } catch (productError) {
-        console.warn('⚠️ Error al obtener productos más vendidos (no crítico):', productError.message);
+      } catch (error) {
+        console.warn('⚠️ Error al obtener productos más vendidos (no crítico):', error.message);
         productPerformance = [];
       }
 
+      // ✅ Respuesta con datos seguros
       res.json({
         success: true,
         data: {
-          totalIncome: totalIncome || 0,
+          totalIncome: parseFloat(totalIncome.toFixed(2)),
           incomeBySource: incomeBySource.map(item => ({
             source: item.dataValues.source,
             total: parseFloat(item.dataValues.total || 0),
@@ -764,13 +807,8 @@ class PaymentController {
             total: parseFloat(item.dataValues.total || 0),
             count: parseInt(item.dataValues.count || 0)
           })),
-          dailyTrend: this.organizeDailyTrend(dailyTrend),
-          topProducts: productPerformance.map(item => ({
-            id: item.id,
-            name: item.name || 'Producto desconocido',
-            totalSold: parseInt(item.total_sold || 0),
-            totalRevenue: parseFloat(item.total_revenue || 0)
-          }))
+          dailyTrend,
+          topProducts: productPerformance
         }
       });
     } catch (error) {
@@ -780,6 +818,19 @@ class PaymentController {
         message: 'Error al obtener reportes',
         error: error.message
       });
+    }
+  }
+
+  // ✅ NUEVO: Método para verificar disponibilidad de modelos de tienda
+  checkStoreModelsAvailability() {
+    try {
+      return !!(StoreOrderItem && StoreOrder && StoreProduct && 
+               typeof StoreOrderItem.findAll === 'function' &&
+               typeof StoreOrder.findAll === 'function' &&
+               typeof StoreProduct.findAll === 'function');
+    } catch (error) {
+      console.warn('⚠️ Modelos de tienda no disponibles:', error.message);
+      return false;
     }
   }
 
