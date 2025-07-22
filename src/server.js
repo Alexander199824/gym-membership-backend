@@ -1,4 +1,4 @@
-// src/server.js - ACTUALIZADO para Brevo
+// src/server.js - ACTUALIZADO para Gmail
 const app = require('./app');
 const { 
   testConnection, 
@@ -64,7 +64,7 @@ class Server {
       console.log('\n💡 Soluciones sugeridas:');
       console.log('   1. Verifica tu conexión a internet');
       console.log('   2. Verifica las credenciales de la base de datos en .env');
-      console.log('   3. Verifica la configuración de Brevo (BREVO_API_KEY)');
+      console.log('   3. Verifica la configuración de Gmail (GMAIL_USER, GMAIL_APP_PASSWORD)');
       console.log('   4. Intenta con RESET_DATABASE=true');
       console.log('   5. Contacta al administrador del sistema');
       process.exit(1);
@@ -206,29 +206,30 @@ class Server {
     }
   }
 
-  // ✅ NUEVO: Verificar servicios de notificación con Brevo
+  // ✅ ACTUALIZADO: Verificar servicios de notificación con Gmail
   async checkNotificationServices() {
     try {
       console.log('\n📧 Verificando servicios de notificación...');
       
       const { EmailService, WhatsAppService } = require('./services/notificationServices');
       
-      // Verificar Brevo
+      // Verificar Gmail
       const emailService = new EmailService();
       if (emailService.isConfigured) {
-        console.log('   ✅ Brevo Email Service configurado correctamente');
+        console.log('   ✅ Gmail Email Service configurado correctamente');
         
         // Opcional: Obtener información de la cuenta
         try {
           const stats = await emailService.getEmailStats();
           if (stats.success) {
-            console.log(`   📊 Cuenta Brevo: ${stats.stats.accountEmail} (Plan: ${stats.stats.plan})`);
+            console.log(`   📊 Cuenta Gmail: ${stats.stats.senderEmail} (${stats.stats.senderName})`);
           }
         } catch (error) {
-          console.log('   📊 Brevo configurado (detalles de cuenta no disponibles)');
+          console.log('   📊 Gmail configurado (detalles de cuenta no disponibles)');
         }
       } else {
-        console.log('   ⚠️ Brevo no configurado - Emails deshabilitados');
+        console.log('   ⚠️ Gmail no configurado - Emails deshabilitados');
+        console.log('   💡 Configura GMAIL_USER y GMAIL_APP_PASSWORD para habilitar emails');
       }
       
       // Verificar WhatsApp (Twilio)
@@ -281,7 +282,7 @@ class Server {
           console.log('   POST /api/data-cleanup/clean-test-users');
           console.log('\n🔄 Para reset completo: Cambia RESET_DATABASE=true y reinicia');
           console.log('\n📧 Servicios de notificación:');
-          console.log('   - Email: Brevo (configurar BREVO_API_KEY)');
+          console.log('   - Email: Gmail (configurar GMAIL_USER y GMAIL_APP_PASSWORD)');
           console.log('   - WhatsApp: Twilio (configurar TWILIO_ACCOUNT_SID)');
           resolve();
         }
@@ -289,7 +290,7 @@ class Server {
     });
   }
 
-  // ✅ ACTUALIZADO: Verificación de variables de entorno para Brevo
+  // ✅ ACTUALIZADO: Verificación de variables de entorno para Gmail
   checkEnvironmentVariables() {
     const required = [
       'DB_HOST',
@@ -315,10 +316,10 @@ class Server {
       console.log('✅ Modo normal: Se mantendrán los datos existentes');
     }
 
-    // ✅ ACTUALIZADO: Verificar servicios opcionales con Brevo
+    // ✅ ACTUALIZADO: Verificar servicios opcionales con Gmail
     const serviceStatus = {
       cloudinary: process.env.CLOUDINARY_CLOUD_NAME && !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_') ? 'Configurado' : 'Pendiente',
-      brevo: process.env.BREVO_API_KEY && process.env.BREVO_SENDER_EMAIL && !process.env.BREVO_API_KEY.startsWith('tu_') ? 'Configurado' : 'Pendiente',
+      gmail: process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD && !process.env.GMAIL_USER.includes('yourEmail') ? 'Configurado' : 'Pendiente',
       whatsapp: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID.startsWith('AC') ? 'Configurado' : 'Pendiente',
       googleOAuth: process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.startsWith('your_') ? 'Configurado' : 'Pendiente',
       stripe: process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.startsWith('sk_test_51234') ? 'Configurado' : 'Pendiente'
@@ -332,9 +333,10 @@ class Server {
       console.log(`⚠️ Servicios opcionales pendientes: ${pendingServices.join(', ')}`);
       console.log('💡 Se pueden configurar más tarde para funcionalidades completas');
       
-      // ✅ Mensaje específico para Brevo
-      if (pendingServices.includes('brevo')) {
-        console.log('   📧 Para emails: Configura BREVO_API_KEY y BREVO_SENDER_EMAIL');
+      // ✅ Mensaje específico para Gmail
+      if (pendingServices.includes('gmail')) {
+        console.log('   📧 Para emails: Configura GMAIL_USER y GMAIL_APP_PASSWORD');
+        console.log('   💡 Usa elitefitnesnoreply@gmail.com y tu App Password de Gmail');
       }
     } else {
       console.log('✅ Todos los servicios opcionales están configurados');
@@ -348,18 +350,28 @@ class Server {
     if (configuredServices.length > 0) {
       console.log(`🟢 Servicios configurados: ${configuredServices.join(', ')}`);
       
-      // ✅ Mensaje específico para Brevo
-      if (configuredServices.includes('brevo')) {
-        console.log('   📧 Brevo Email configurado - Notificaciones habilitadas');
+      // ✅ Mensaje específico para Gmail
+      if (configuredServices.includes('gmail')) {
+        console.log('   📧 Gmail configurado - Notificaciones por email habilitadas');
       }
     }
 
-    // ✅ Advertencia sobre migración de nodemailer a Brevo
-    if (process.env.EMAIL_HOST || process.env.EMAIL_USER || process.env.EMAIL_PASS) {
+    // ✅ NUEVO: Advertencia sobre migración de Brevo a Gmail
+    if (process.env.BREVO_API_KEY || process.env.EMAIL_HOST || process.env.EMAIL_USER) {
       console.log('\n🔄 MIGRACIÓN DETECTADA:');
-      console.log('   ⚠️ Variables de nodemailer detectadas (EMAIL_HOST, EMAIL_USER, EMAIL_PASS)');
-      console.log('   ✅ Sistema migrado a Brevo - usa BREVO_API_KEY en su lugar');
-      console.log('   💡 Puedes eliminar las variables EMAIL_* del archivo .env');
+      console.log('   ⚠️ Variables de Brevo/SMTP detectadas en el .env');
+      console.log('   ✅ Sistema migrado a Gmail - usa GMAIL_USER y GMAIL_APP_PASSWORD');
+      console.log('   💡 Puedes eliminar las variables BREVO_* y EMAIL_* del archivo .env');
+    }
+
+    // ✅ Instrucciones específicas para Gmail
+    if (serviceStatus.gmail === 'Pendiente') {
+      console.log('\n📧 CONFIGURACIÓN DE GMAIL:');
+      console.log('   1. Habilita 2FA en tu cuenta de Gmail');
+      console.log('   2. Ve a Configuración > Seguridad > Contraseñas de aplicaciones');
+      console.log('   3. Genera una contraseña de aplicación para "Correo"');
+      console.log('   4. Usa esa contraseña en GMAIL_APP_PASSWORD (no la contraseña normal)');
+      console.log('   5. GMAIL_USER=elitefitnesnoreply@gmail.com');
     }
   }
 

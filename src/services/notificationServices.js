@@ -1,119 +1,115 @@
-// src/services/notificationServices.js - MIGRADO A BREVO
-const brevo = require('@getbrevo/brevo');
+// src/services/notificationServices.js - MIGRADO A GMAIL CON NODEMAILER
+const nodemailer = require('nodemailer');
 const twilio = require('twilio');
 
 class EmailService {
   constructor() {
-    // Verificar que las credenciales de Brevo sean válidas
-    const hasValidBrevoConfig = 
-      process.env.BREVO_API_KEY &&
-      process.env.BREVO_SENDER_EMAIL &&
-      process.env.BREVO_API_KEY !== 'tu_api_key_de_brevo_aqui' && // No es placeholder
-      process.env.BREVO_API_KEY.length > 10; // Validación básica de longitud
+    // Verificar que las credenciales de Gmail sean válidas
+    const hasValidGmailConfig = 
+      process.env.GMAIL_USER &&
+      process.env.GMAIL_APP_PASSWORD &&
+      process.env.GMAIL_USER !== 'yourEmail@email.com' && // No es placeholder
+      process.env.GMAIL_APP_PASSWORD !== 'yourPassword' && // No es placeholder
+      process.env.GMAIL_APP_PASSWORD.length > 10; // Validación básica de longitud
 
-    if (hasValidBrevoConfig) {
+    if (hasValidGmailConfig) {
       try {
-        // Configurar cliente de Brevo
-        this.brevoApi = new brevo.TransactionalEmailsApi();
+        // Crear transporter de nodemailer con Gmail
+        this.transporter = nodemailer.createTransporter({
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true, // true para 465, false para otros puertos
+          auth: {
+            user: process.env.GMAIL_USER,
+            pass: process.env.GMAIL_APP_PASSWORD
+          }
+        });
         
-        // Configurar API key
-        const brevoApiKey = brevoApi.authentications['apiKey'];
-        brevoApiKey.apiKey = process.env.BREVO_API_KEY;
-        
-        this.brevoApi = brevoApi;
         this.isConfigured = true;
-        
-        console.log('✅ Brevo Email Service inicializado correctamente');
+        console.log('✅ Gmail Email Service inicializado correctamente');
         
         // Verificar configuración haciendo una llamada de prueba
         this.verifyConfiguration();
       } catch (error) {
-        console.warn('⚠️ Error al inicializar Brevo:', error.message);
-        this.brevoApi = null;
+        console.warn('⚠️ Error al inicializar Gmail:', error.message);
+        this.transporter = null;
         this.isConfigured = false;
       }
     } else {
-      console.warn('⚠️ Brevo no configurado correctamente - Las notificaciones por email no funcionarán');
-      console.warn('   Variables requeridas: BREVO_API_KEY, BREVO_SENDER_EMAIL');
-      this.brevoApi = null;
+      console.warn('⚠️ Gmail no configurado correctamente - Las notificaciones por email no funcionarán');
+      console.warn('   Variables requeridas: GMAIL_USER, GMAIL_APP_PASSWORD');
+      this.transporter = null;
       this.isConfigured = false;
     }
   }
 
-  // Verificar configuración de Brevo
+  // Verificar configuración de Gmail
   async verifyConfiguration() {
     try {
-      // Verificar que la API key sea válida
-      await this.brevoApi.getAccount();
-      console.log('✅ Configuración de Brevo verificada exitosamente');
+      // Verificar que la conexión funcione
+      await this.transporter.verify();
+      console.log('✅ Configuración de Gmail verificada exitosamente');
     } catch (error) {
-      console.warn('⚠️ Error al verificar configuración de Brevo:', error.message);
+      console.warn('⚠️ Error al verificar configuración de Gmail:', error.message);
       this.isConfigured = false;
     }
   }
 
-  async sendEmail({ to, subject, html, text, templateId = null, templateParams = {} }) {
+  async sendEmail({ to, subject, html, text, attachments = null }) {
     try {
       if (!process.env.NOTIFICATION_EMAIL_ENABLED || process.env.NOTIFICATION_EMAIL_ENABLED !== 'true') {
         console.log('📧 Email deshabilitado en configuración');
         return { success: false, message: 'Email deshabilitado' };
       }
 
-      if (!this.isConfigured || !this.brevoApi) {
-        console.log('📧 Brevo no configurado correctamente');
-        return { success: false, message: 'Brevo no configurado correctamente' };
+      if (!this.isConfigured || !this.transporter) {
+        console.log('📧 Gmail no configurado correctamente');
+        return { success: false, message: 'Gmail no configurado correctamente' };
       }
 
       // Preparar el email
-      const emailData = {
-        sender: {
-          name: process.env.BREVO_SENDER_NAME || 'Elite Fitness Club',
-          email: process.env.BREVO_SENDER_EMAIL
+      const mailOptions = {
+        from: {
+          name: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
+          address: process.env.GMAIL_USER
         },
-        to: [
-          {
-            email: to,
-            name: to.split('@')[0] // Usar parte del email como nombre si no se proporciona
-          }
-        ],
-        subject: subject
+        to: to,
+        subject: subject,
+        text: text || undefined,
+        html: html || undefined,
+        attachments: attachments || undefined
       };
 
-      // Si se especifica un template ID, usar template
-      if (templateId) {
-        emailData.templateId = templateId;
-        emailData.params = templateParams;
-      } else {
-        // Usar contenido HTML/texto personalizado
-        if (html) emailData.htmlContent = html;
-        if (text) emailData.textContent = text;
-      }
-
-      // Enviar email a través de Brevo
-      const result = await this.brevoApi.sendTransacEmail(emailData);
+      // Enviar email a través de Gmail
+      const result = await this.transporter.sendMail(mailOptions);
       
-      console.log('✅ Email enviado vía Brevo:', result.messageId);
+      console.log('✅ Email enviado vía Gmail:', result.messageId);
       
       return { 
         success: true, 
         messageId: result.messageId,
-        provider: 'brevo'
+        provider: 'gmail',
+        response: result.response
       };
     } catch (error) {
-      console.error('❌ Error al enviar email vía Brevo:', error);
+      console.error('❌ Error al enviar email vía Gmail:', error);
       
-      // Manejar errores específicos de Brevo
-      if (error.response) {
-        const errorMessage = error.response.body?.message || error.response.text || error.message;
-        console.error('   Detalles del error:', errorMessage);
-        return { success: false, error: errorMessage, provider: 'brevo' };
+      // Manejar errores específicos de Gmail/SMTP
+      let errorMessage = error.message;
+      
+      if (error.code === 'EAUTH') {
+        errorMessage = 'Error de autenticación con Gmail. Verifica las credenciales.';
+      } else if (error.code === 'ECONNECTION') {
+        errorMessage = 'Error de conexión con el servidor de Gmail.';
+      } else if (error.responseCode === 550) {
+        errorMessage = 'Email rechazado por el destinatario.';
       }
       
-      return { success: false, error: error.message, provider: 'brevo' };
+      return { success: false, error: errorMessage, provider: 'gmail' };
     }
   }
 
-  // Templates de email optimizados para Brevo
+  // Templates de email optimizados para Gmail (MANTIENEN EL DISEÑO ORIGINAL)
   generateWelcomeEmail(user) {
     const html = `
       <!DOCTYPE html>
@@ -163,7 +159,7 @@ class EmailService {
           </div>
           <div class="footer">
             <p>Este es un mensaje automático de Elite Fitness Club</p>
-            <p>Si no puedes ver este email correctamente, <a href="#">visualízalo en tu navegador</a></p>
+            <p>📧 Email: ${process.env.GMAIL_USER} | 📞 Tel: ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
           </div>
         </div>
       </body>
@@ -194,6 +190,7 @@ class EmailService {
           .alert-box { background-color: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 15px 0; }
           .button { display: inline-block; background-color: #e74c3c; color: #ffffff; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
           .info-box { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          .footer { background-color: #ecf0f1; padding: 15px; text-align: center; font-size: 12px; color: #7f8c8d; }
         </style>
       </head>
       <body>
@@ -228,11 +225,15 @@ class EmailService {
             <p>¿Necesitas ayuda? Contáctanos:</p>
             <ul>
               <li>📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}</li>
-              <li>📧 Email: ${process.env.GYM_EMAIL || 'info@gym.com'}</li>
+              <li>📧 Email: ${process.env.GMAIL_USER}</li>
               <li>🏢 Visítanos en recepción</li>
             </ul>
             
             <p><strong>¡Te esperamos para seguir entrenando juntos! 💪</strong></p>
+          </div>
+          <div class="footer">
+            <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
           </div>
         </div>
       </body>
@@ -262,6 +263,7 @@ class EmailService {
           .expired-box { background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; margin: 15px 0; }
           .button { display: inline-block; background-color: #e74c3c; color: #ffffff; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
           .comeback-box { background-color: #d1ecf1; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          .footer { background-color: #ecf0f1; padding: 15px; text-align: center; font-size: 12px; color: #7f8c8d; }
         </style>
       </head>
       <body>
@@ -296,6 +298,10 @@ class EmailService {
             
             <p><strong>¡Te extrañamos y esperamos verte pronto de vuelta! 💙</strong></p>
           </div>
+          <div class="footer">
+            <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+          </div>
         </div>
       </body>
       </html>
@@ -324,6 +330,7 @@ class EmailService {
           .success-box { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0; }
           .payment-details { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
           .button { display: inline-block; background-color: #27ae60; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+          .footer { background-color: #ecf0f1; padding: 15px; text-align: center; font-size: 12px; color: #7f8c8d; }
         </style>
       </head>
       <body>
@@ -367,6 +374,10 @@ class EmailService {
             
             <p><strong>¡Gracias por confiar en Elite Fitness Club! 💪</strong></p>
           </div>
+          <div class="footer">
+            <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+          </div>
         </div>
       </body>
       </html>
@@ -389,31 +400,46 @@ class EmailService {
     return methods[method] || method;
   }
 
-  // Método para obtener estadísticas de Brevo (opcional)
+  // Método para obtener estadísticas básicas (opcional)
   async getEmailStats() {
     try {
       if (!this.isConfigured) {
-        return { success: false, message: 'Brevo no configurado' };
+        return { success: false, message: 'Gmail no configurado' };
       }
 
-      // Obtener estadísticas básicas de la cuenta
-      const account = await this.brevoApi.getAccount();
-      
+      // Información básica del servicio
       return {
         success: true,
         stats: {
-          provider: 'Brevo',
-          accountEmail: account.email,
-          plan: account.plan || 'Unknown'
+          provider: 'Gmail',
+          senderEmail: process.env.GMAIL_USER,
+          senderName: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
+          configured: true
         }
       };
     } catch (error) {
-      console.error('Error al obtener estadísticas de Brevo:', error);
+      console.error('Error al obtener estadísticas de Gmail:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // NUEVO: Método para enviar email con archivo adjunto
+  async sendEmailWithAttachment({ to, subject, html, text, attachmentPath, attachmentName }) {
+    try {
+      const attachments = attachmentPath ? [{
+        filename: attachmentName || 'archivo.pdf',
+        path: attachmentPath
+      }] : null;
+
+      return await this.sendEmail({ to, subject, html, text, attachments });
+    } catch (error) {
+      console.error('Error al enviar email con adjunto:', error);
       return { success: false, error: error.message };
     }
   }
 }
 
+// WhatsAppService se mantiene igual
 class WhatsAppService {
   constructor() {
     // El servicio de WhatsApp permanece igual usando Twilio
