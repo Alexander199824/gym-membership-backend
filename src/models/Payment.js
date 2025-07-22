@@ -40,7 +40,7 @@ const Payment = sequelize.define('Payment', {
   paymentType: {
     type: DataTypes.ENUM(
       'membership', 'daily', 'bulk_daily',
-      'store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'
+      'store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'
     ),
     allowNull: false
   },

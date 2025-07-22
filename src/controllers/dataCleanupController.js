@@ -18,6 +18,7 @@ const {
   GymServices,
   MembershipPlans
 } = require('../models');
+const { Op } = require('sequelize');
 
 class DataCleanupController {
 
@@ -79,7 +80,7 @@ class DataCleanupController {
       const deletedUsers = await User.destroy({ 
         where: { 
           id: { 
-            [sequelize.Sequelize.Op.ne]: mainAdmin.id 
+            [Op.ne]: mainAdmin.id 
           } 
         } 
       });
@@ -126,11 +127,11 @@ class DataCleanupController {
 
       // ✅ Identificar usuarios de prueba por email o nombre
       const testUserPatterns = [
-        { email: { [sequelize.Sequelize.Op.like]: '%test%' } },
-        { email: { [sequelize.Sequelize.Op.like]: '%ejemplo%' } },
-        { email: { [sequelize.Sequelize.Op.like]: '%demo%' } },
-        { firstName: { [sequelize.Sequelize.Op.like]: '%Test%' } },
-        { firstName: { [sequelize.Sequelize.Op.like]: '%Demo%' } },
+        { email: { [Op.like]: '%test%' } },
+        { email: { [Op.like]: '%ejemplo%' } },
+        { email: { [Op.like]: '%demo%' } },
+        { firstName: { [Op.like]: '%Test%' } },
+        { firstName: { [Op.like]: '%Demo%' } },
         { email: 'cliente@gym.com' },
         { email: 'colaborador@gym.com' }
       ];
@@ -139,10 +140,10 @@ class DataCleanupController {
 
       const testUsers = await User.findAll({
         where: {
-          [sequelize.Sequelize.Op.and]: [
-            { email: { [sequelize.Sequelize.Op.ne]: adminEmail } },
+          [Op.and]: [
+            { email: { [Op.ne]: adminEmail } },
             { 
-              [sequelize.Sequelize.Op.or]: testUserPatterns 
+              [Op.or]: testUserPatterns 
             }
           ]
         }

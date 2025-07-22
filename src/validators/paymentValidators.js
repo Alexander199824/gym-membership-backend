@@ -17,7 +17,7 @@ const createPaymentValidator = [
     .withMessage('Método de pago inválido'),
     
   body('paymentType')
-    .isIn(['membership', 'daily', 'bulk_daily'])
+    .isIn(['membership', 'daily', 'bulk_daily', 'store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'])
     .withMessage('Tipo de pago inválido'),
     
   body('membershipId')
@@ -67,7 +67,20 @@ const createPaymentValidator = [
   body('paymentDate')
     .optional()
     .isISO8601()
-    .withMessage('Formato de fecha de pago inválido')
+    .withMessage('Formato de fecha de pago inválido'),
+
+  // ✅ NUEVO: Validaciones para pagos de tienda
+  body('referenceId')
+    .if(body('paymentType').matches(/^store_/))
+    .optional()
+    .isUUID()
+    .withMessage('ID de referencia inválido para pagos de tienda'),
+
+  body('referenceType')
+    .if(body('paymentType').matches(/^store_/))
+    .optional()
+    .isIn(['store_order'])
+    .withMessage('Tipo de referencia inválido para pagos de tienda')
 ];
 
 const validateTransferValidator = [

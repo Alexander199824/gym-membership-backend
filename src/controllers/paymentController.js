@@ -1,5 +1,5 @@
 // src/controllers/paymentController.js - COMPLETO con todas las mejoras
-const { Payment, User, Membership, DailyIncome, StoreOrder, FinancialMovements } = require('../models');
+const { Payment, User, Membership, DailyIncome, StoreOrder, StoreOrderItem, StoreProduct, FinancialMovements } = require('../models');
 const { Op } = require('sequelize');
 const { EmailService, WhatsAppService } = require('../services/notificationServices');
 
@@ -718,6 +718,38 @@ class PaymentController {
         order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
       });
 
+      // ✅ Productos más vendidos - CORREGIDO
+      let productPerformance = [];
+      try {
+        productPerformance = await StoreOrderItem.findAll({
+          include: [{
+            model: StoreOrder,
+            as: 'order',
+            where: { 
+              status: 'delivered',
+              createdAt: { [Op.gte]: thirtyDaysAgo }
+            },
+            required: true
+          }, {
+            model: StoreProduct,
+            as: 'product',
+            attributes: ['id', 'name', 'sku'],
+            required: true
+          }],
+          attributes: [
+            'productId',
+            [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'total_sold'],
+            [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('totalPrice')), 'total_revenue']
+          ],
+          group: ['productId', 'product.id'],
+          order: [[StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'DESC']],
+          limit: 10
+        });
+      } catch (productError) {
+        console.warn('⚠️ Error al obtener productos más vendidos:', productError.message);
+        productPerformance = [];
+      }
+
       res.json({
         success: true,
         data: {
@@ -733,7 +765,13 @@ class PaymentController {
             total: parseFloat(item.dataValues.total),
             count: parseInt(item.dataValues.count)
           })),
-          dailyTrend: this.organizeDailyTrend(dailyTrend)
+          dailyTrend: this.organizeDailyTrend(dailyTrend),
+          topProducts: productPerformance.map(item => ({
+            id: item.productId,
+            name: item.product ? item.product.name : 'Producto desconocido',
+            totalSold: parseInt(item.dataValues.total_sold || 0),
+            totalRevenue: parseFloat(item.dataValues.total_revenue || 0)
+          }))
         }
       });
     } catch (error) {
