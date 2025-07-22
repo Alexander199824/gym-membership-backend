@@ -1,4 +1,4 @@
-// src/routes/paymentRoutes.js
+// src/routes/paymentRoutes.js - CORREGIDO: Orden de rutas y configuración
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const { 
@@ -41,30 +41,36 @@ if (!uploadTransferProof) {
   };
 }
 
-// Obtener todos los pagos
-router.get('/', 
-  authenticateToken,
-  requireStaff,
-  paymentController.getPayments
+// ✅ CORREGIDO: Rutas de reportes ANTES de rutas con parámetros
+// Reportes mejorados (nueva ruta principal)
+router.get('/reports/enhanced', 
+  authenticateToken, 
+  requireAdmin,
+  paymentController.getEnhancedPaymentReports
 );
 
-// Obtener transferencias pendientes
-router.get('/transfers/pending', 
-  authenticateToken,
-  requireStaff,
-  paymentController.getPendingTransfers
-);
-
-// Obtener reportes de pagos
+// Reportes básicos (compatibilidad)
 router.get('/reports', 
   authenticateToken,
   requireAdmin,
   paymentController.getPaymentReports
 );
 
+// ✅ Obtener todos los pagos
+router.get('/', 
+  authenticateToken,
+  requireStaff,
+  paymentController.getPayments
+);
 
+// ✅ Obtener transferencias pendientes
+router.get('/transfers/pending', 
+  authenticateToken,
+  requireStaff,
+  paymentController.getPendingTransfers
+);
 
-// Crear nuevo pago
+// ✅ Crear nuevo pago
 router.post('/', 
   authenticateToken,
   requireStaff,
@@ -73,7 +79,7 @@ router.post('/',
   paymentController.createPayment
 );
 
-// Registrar ingresos diarios totales
+// ✅ Registrar ingresos diarios totales
 router.post('/daily-income', 
   authenticateToken,
   requireStaff,
@@ -82,6 +88,14 @@ router.post('/daily-income',
   paymentController.registerDailyIncome
 );
 
+// ✅ Crear pago desde orden de tienda
+router.post('/from-order', 
+  authenticateToken, 
+  requireStaff,
+  paymentController.createPaymentFromOrder
+);
+
+// ✅ RUTAS CON PARÁMETROS AL FINAL
 // Obtener pago por ID
 router.get('/:id', 
   authenticateToken,
@@ -104,19 +118,6 @@ router.post('/:id/validate-transfer',
   validateTransferValidator,
   handleValidationErrors,
   paymentController.validateTransfer
-);
-
-router.post('/from-order', 
-  authenticateToken, 
-  requireStaff,
-  paymentController.createPaymentFromOrder
-);
-
-// ✅ Reportes mejorados (reemplazar ruta existente)
-router.get('/reports/enhanced', 
-  authenticateToken, 
-  requireAdmin,
-  paymentController.getEnhancedPaymentReports
 );
 
 module.exports = router;

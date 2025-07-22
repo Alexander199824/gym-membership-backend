@@ -1,4 +1,4 @@
-// src/controllers/dashboardController.js 
+// src/controllers/dashboardController.js - CORREGIDO: Problemas de consultas y métodos auxiliares
 const { 
   Payment, 
   Membership, 
@@ -11,7 +11,7 @@ const { Op } = require('sequelize');
 
 class DashboardController {
 
-  // ✅ Dashboard principal unificado
+  // ✅ Dashboard principal unificado - CORREGIDO
   async getUnifiedDashboard(req, res) {
     try {
       const today = new Date();
@@ -23,7 +23,7 @@ class DashboardController {
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
 
-      // ✅ Obtener todos los datos en paralelo
+      // ✅ Obtener todos los datos en paralelo con mejor manejo de errores
       const [
         // Ingresos por fuente
         membershipIncome,
@@ -40,38 +40,32 @@ class DashboardController {
         monthlyFinancialSummary
       ] = await Promise.all([
         // Ingresos de membresías (hoy)
-        Payment.sum('amount', {
-          where: {
-            paymentType: 'membership',
-            status: 'completed',
-            paymentDate: { [Op.between]: [today, tomorrow] }
-          }
+        this.safeSum(Payment, 'amount', {
+          paymentType: 'membership',
+          status: 'completed',
+          paymentDate: { [Op.between]: [today, tomorrow] }
         }),
         
         // Ingresos de pagos diarios (hoy)
-        Payment.sum('amount', {
-          where: {
-            paymentType: ['daily', 'bulk_daily'],
-            status: 'completed',
-            paymentDate: { [Op.between]: [today, tomorrow] }
-          }
+        this.safeSum(Payment, 'amount', {
+          paymentType: ['daily', 'bulk_daily'],
+          status: 'completed',
+          paymentDate: { [Op.between]: [today, tomorrow] }
         }),
         
         // Ingresos de productos (hoy)
-        Payment.sum('amount', {
-          where: {
-            paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
-            status: 'completed',
-            paymentDate: { [Op.between]: [today, tomorrow] }
-          }
+        this.safeSum(Payment, 'amount', {
+          paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
+          status: 'completed',
+          paymentDate: { [Op.between]: [today, tomorrow] }
         }),
 
         // Estadísticas generales
-        User.count({ where: { isActive: true } }),
-        Membership.count({ where: { status: 'active' } }),
-        StoreOrder.count({ where: { createdAt: { [Op.between]: [today, tomorrow] } } }),
+        this.safeCount(User, { isActive: true }),
+        this.safeCount(Membership, { status: 'active' }),
+        this.safeCount(StoreOrder, { createdAt: { [Op.between]: [today, tomorrow] } }),
         
-        // ✅ CORREGIDO: Usar consulta SQL directa para productos con stock bajo
+        // ✅ CORREGIDO: Productos con stock bajo
         this.getProductsLowStockCount(),
 
         // Resumen financiero del mes
@@ -81,40 +75,48 @@ class DashboardController {
       // ✅ Calcular totales
       const totalIncomeToday = (membershipIncome || 0) + (dailyIncome || 0) + (productsIncome || 0);
 
-      // ✅ Obtener tendencia semanal
+      // ✅ Obtener tendencia semanal con mejor manejo de errores
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
 
-      const weeklyTrend = await Payment.findAll({
-        attributes: [
-          [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
-          [Payment.sequelize.literal(`
-            CASE 
-              WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
-              ELSE 'other'
-            END
-          `), 'source'],
-          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
-        ],
-        where: {
-          status: 'completed',
-          paymentDate: { [Op.gte]: weekAgo }
-        },
-        group: [
-          Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
-          Payment.sequelize.literal(`
-            CASE 
-              WHEN payment_type IN ('membership') THEN 'memberships'
-              WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
-              WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
-              ELSE 'other'
-            END
-          `)
-        ],
-        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
-      });
+      let weeklyTrend = [];
+      try {
+        const weeklyData = await Payment.findAll({
+          attributes: [
+            [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
+            [Payment.sequelize.literal(`
+              CASE 
+                WHEN payment_type IN ('membership') THEN 'memberships'
+                WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+                WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
+                ELSE 'other'
+              END
+            `), 'source'],
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
+          ],
+          where: {
+            status: 'completed',
+            paymentDate: { [Op.gte]: weekAgo }
+          },
+          group: [
+            Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')),
+            Payment.sequelize.literal(`
+              CASE 
+                WHEN payment_type IN ('membership') THEN 'memberships'
+                WHEN payment_type IN ('daily', 'bulk_daily') THEN 'daily'
+                WHEN payment_type IN ('store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer') THEN 'products'
+                ELSE 'other'
+              END
+            `)
+          ],
+          order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
+        });
+
+        weeklyTrend = this.organizeWeeklyTrend(weeklyData);
+      } catch (trendError) {
+        console.warn('⚠️ Error al obtener tendencia semanal (no crítico):', trendError.message);
+        weeklyTrend = [];
+      }
 
       res.json({
         success: true,
@@ -131,17 +133,17 @@ class DashboardController {
           
           // ✅ Estadísticas generales
           stats: {
-            totalUsers,
-            activeMemberships,
-            ordersToday,
-            productsLowStock
+            totalUsers: totalUsers || 0,
+            activeMemberships: activeMemberships || 0,
+            ordersToday: ordersToday || 0,
+            productsLowStock: productsLowStock || 0
           },
           
           // ✅ Resumen financiero mensual
           monthlyFinancial: monthlyFinancialSummary,
           
           // ✅ Tendencia semanal
-          weeklyTrend: this.organizeWeeklyTrend(weeklyTrend)
+          weeklyTrend
         }
       });
     } catch (error) {
@@ -154,45 +156,85 @@ class DashboardController {
     }
   }
 
-  // ✅ Método auxiliar para obtener productos con stock bajo
+  // ✅ CORREGIDO: Método auxiliar para obtener productos con stock bajo
   async getProductsLowStockCount() {
     try {
-      const result = await StoreProduct.sequelize.query(`
-        SELECT COUNT(*) as count 
-        FROM store_products 
-        WHERE stock_quantity <= min_stock 
-        AND is_active = true
-      `, {
-        type: StoreProduct.sequelize.QueryTypes.SELECT
+      // Verificar si el modelo StoreProduct existe
+      if (!StoreProduct) {
+        console.warn('⚠️ Modelo StoreProduct no disponible');
+        return 0;
+      }
+
+      const count = await StoreProduct.count({
+        where: {
+          [Op.and]: [
+            { isActive: true },
+            StoreProduct.sequelize.where(
+              StoreProduct.sequelize.col('stock_quantity'),
+              Op.lte,
+              StoreProduct.sequelize.col('min_stock')
+            )
+          ]
+        }
       });
       
-      return parseInt(result[0].count || 0);
+      return count || 0;
     } catch (error) {
       console.warn('⚠️ Error al obtener productos con stock bajo:', error.message);
       return 0;
     }
   }
 
-  // ✅ Método auxiliar para obtener resumen financiero mensual
+  // ✅ CORREGIDO: Método auxiliar para obtener resumen financiero mensual
   async getMonthlyFinancialSummary(startDate, endDate) {
     try {
-      if (FinancialMovements && typeof FinancialMovements.getFinancialSummary === 'function') {
-        return await FinancialMovements.getFinancialSummary(startDate, endDate);
-      } else {
-        // Fallback si el método no está disponible
+      // Verificar si FinancialMovements existe y tiene el método
+      if (!FinancialMovements || typeof FinancialMovements.getFinancialSummary !== 'function') {
+        console.warn('⚠️ FinancialMovements.getFinancialSummary no disponible, usando fallback');
+        
+        // Fallback: calcular manualmente desde pagos
+        const totalIncome = await this.safeSum(Payment, 'amount', {
+          status: 'completed',
+          paymentDate: { [Op.between]: [startDate, endDate] }
+        });
+
         return {
-          totalIncome: 0,
+          totalIncome: totalIncome || 0,
           totalExpenses: 0,
-          netProfit: 0
+          netProfit: totalIncome || 0
         };
       }
+
+      return await FinancialMovements.getFinancialSummary(startDate, endDate);
     } catch (error) {
-      console.warn('⚠️ Error al obtener resumen financiero:', error.message);
+      console.warn('⚠️ Error al obtener resumen financiero mensual:', error.message);
       return {
         totalIncome: 0,
         totalExpenses: 0,
         netProfit: 0
       };
+    }
+  }
+
+  // ✅ NUEVO: Método auxiliar para suma segura
+  async safeSum(model, field, where) {
+    try {
+      const result = await model.sum(field, { where });
+      return result || 0;
+    } catch (error) {
+      console.warn(`⚠️ Error en suma segura de ${model.name}.${field}:`, error.message);
+      return 0;
+    }
+  }
+
+  // ✅ NUEVO: Método auxiliar para conteo seguro
+  async safeCount(model, where) {
+    try {
+      const result = await model.count({ where });
+      return result || 0;
+    } catch (error) {
+      console.warn(`⚠️ Error en conteo seguro de ${model.name}:`, error.message);
+      return 0;
     }
   }
 
@@ -203,10 +245,10 @@ class DashboardController {
     weeklyData.forEach(item => {
       const date = item.dataValues.date;
       const source = item.dataValues.source;
-      const total = parseFloat(item.dataValues.total);
+      const total = parseFloat(item.dataValues.total || 0);
       
       if (!organized[date]) {
-        organized[date] = { date, memberships: 0, daily: 0, products: 0, total: 0 };
+        organized[date] = { date, memberships: 0, daily: 0, products: 0, other: 0, total: 0 };
       }
       
       organized[date][source] = total;
@@ -216,7 +258,7 @@ class DashboardController {
     return Object.values(organized).sort((a, b) => new Date(a.date) - new Date(b.date));
   }
 
-  // ✅ Obtener métricas de rendimiento
+  // ✅ Obtener métricas de rendimiento - CORREGIDO
   async getPerformanceMetrics(req, res) {
     try {
       const { period = 'month' } = req.query;
@@ -246,7 +288,7 @@ class DashboardController {
           startDate.setMonth(startDate.getMonth() - 1);
       }
 
-      // ✅ Métricas de rendimiento
+      // ✅ Métricas de rendimiento con mejor manejo de errores
       const [
         avgOrderValue,
         conversionRate,
@@ -275,12 +317,12 @@ class DashboardController {
         data: {
           period,
           metrics: {
-            avgOrderValue: parseFloat(avgOrderValue).toFixed(2),
+            avgOrderValue: parseFloat((avgOrderValue || 0).toFixed(2)),
             conversionRate,
-            customerRetention,
-            revenueGrowth: parseFloat(revenueGrowth || 0).toFixed(2)
+            customerRetention: customerRetention || 0,
+            revenueGrowth: parseFloat((revenueGrowth || 0).toFixed(2))
           },
-          topProducts: productPerformance
+          topProducts: productPerformance || []
         }
       });
     } catch (error) {
@@ -293,9 +335,11 @@ class DashboardController {
     }
   }
 
-  // ✅ Métodos auxiliares para métricas
+  // ✅ CORREGIDO: Métodos auxiliares para métricas
   async getAvgOrderValue(startDate, endDate) {
     try {
+      if (!StoreOrder) return 0;
+
       const result = await StoreOrder.findOne({
         attributes: [[StoreOrder.sequelize.fn('AVG', StoreOrder.sequelize.col('totalAmount')), 'avg_order']],
         where: {
@@ -304,7 +348,7 @@ class DashboardController {
         }
       });
       
-      return result?.dataValues?.avg_order || 0;
+      return parseFloat(result?.dataValues?.avg_order || 0);
     } catch (error) {
       console.warn('⚠️ Error al calcular valor promedio de orden:', error.message);
       return 0;
@@ -313,6 +357,10 @@ class DashboardController {
 
   async getConversionRate(startDate, endDate) {
     try {
+      if (!StoreOrder) {
+        return { total: 0, completed: 0, rate: 0 };
+      }
+
       const [total, completed] = await Promise.all([
         StoreOrder.count({ where: { createdAt: { [Op.between]: [startDate, endDate] } } }),
         StoreOrder.count({ 
@@ -324,19 +372,21 @@ class DashboardController {
       ]);
 
       return {
-        total,
-        completed,
-        rate: total > 0 ? ((completed / total) * 100).toFixed(1) : 0
+        total: total || 0,
+        completed: completed || 0,
+        rate: total > 0 ? ((completed / total) * 100).toFixed(1) : '0'
       };
     } catch (error) {
       console.warn('⚠️ Error al calcular tasa de conversión:', error.message);
-      return { total: 0, completed: 0, rate: 0 };
+      return { total: 0, completed: 0, rate: '0' };
     }
   }
 
   async getCustomerRetention() {
     try {
-      const retentionResult = await User.sequelize.query(`
+      if (!User || !StoreOrder) return 0;
+
+      const result = await User.sequelize.query(`
         SELECT COUNT(DISTINCT user_id) as retention_count
         FROM store_orders 
         WHERE status = 'delivered' 
@@ -344,6 +394,7 @@ class DashboardController {
           SELECT user_id 
           FROM store_orders 
           WHERE status = 'delivered' 
+          AND user_id IS NOT NULL
           GROUP BY user_id 
           HAVING COUNT(*) > 1
         )
@@ -351,7 +402,7 @@ class DashboardController {
         type: User.sequelize.QueryTypes.SELECT
       });
 
-      return parseInt(retentionResult[0]?.retention_count || 0);
+      return parseInt(result[0]?.retention_count || 0);
     } catch (error) {
       console.warn('⚠️ Error al calcular retención de clientes:', error.message);
       return 0;
@@ -360,9 +411,9 @@ class DashboardController {
 
   async getProductPerformance(startDate, endDate) {
     try {
-      const { StoreOrderItem } = require('../models');
-      
-      const performance = await StoreOrderItem.sequelize.query(`
+      if (!StoreOrder || !StoreProduct) return [];
+
+      const performance = await User.sequelize.query(`
         SELECT 
           soi.product_id as id,
           sp.name,
@@ -378,12 +429,12 @@ class DashboardController {
         LIMIT 10
       `, {
         replacements: { startDate, endDate },
-        type: StoreOrderItem.sequelize.QueryTypes.SELECT
+        type: User.sequelize.QueryTypes.SELECT
       });
 
       return performance.map(item => ({
         id: item.id,
-        name: item.name,
+        name: item.name || 'Producto desconocido',
         totalSold: parseInt(item.total_sold || 0),
         totalRevenue: parseFloat(item.total_revenue || 0)
       }));
@@ -395,12 +446,10 @@ class DashboardController {
 
   async getRevenueGrowth(startDate, endDate) {
     try {
-      const result = await Payment.sum('amount', {
-        where: {
-          paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
-          status: 'completed',
-          paymentDate: { [Op.between]: [startDate, endDate] }
-        }
+      const result = await this.safeSum(Payment, 'amount', {
+        paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
+        status: 'completed',
+        paymentDate: { [Op.between]: [startDate, endDate] }
       });
 
       return result || 0;

@@ -1,4 +1,4 @@
-// src/middleware/validation.js
+// src/middleware/validation.js - CORREGIDO: Solo validación
 const { validationResult } = require('express-validator');
 
 const handleValidationErrors = (req, res, next) => {
@@ -9,7 +9,7 @@ const handleValidationErrors = (req, res, next) => {
       success: false,
       message: 'Errores de validación',
       errors: errors.array().map(error => ({
-        field: error.path,
+        field: error.path || error.param,
         message: error.msg,
         value: error.value
       }))

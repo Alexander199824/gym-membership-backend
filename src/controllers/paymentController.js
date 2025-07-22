@@ -1,4 +1,4 @@
-// src/controllers/paymentController.js - COMPLETO con todas las mejoras
+// src/controllers/paymentController.js - CORREGIDO: Problemas de consultas de base de datos
 const { Payment, User, Membership, DailyIncome, StoreOrder, StoreOrderItem, StoreProduct, FinancialMovements } = require('../models');
 const { Op } = require('sequelize');
 const { EmailService, WhatsAppService } = require('../services/notificationServices');
@@ -589,7 +589,7 @@ class PaymentController {
     }
   }
 
-  // ✅ MEJORADO: Reportes de pagos incluyendo productos
+  // ✅ CORREGIDO: Reportes de pagos incluyendo productos
   async getEnhancedPaymentReports(req, res) {
     try {
       if (req.user.role !== 'admin') {
@@ -718,35 +718,34 @@ class PaymentController {
         order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
       });
 
-      // ✅ Productos más vendidos - CORREGIDO
+      // ✅ CORREGIDO: Productos más vendidos con mejor manejo de errores
       let productPerformance = [];
       try {
-        productPerformance = await StoreOrderItem.findAll({
-          include: [{
-            model: StoreOrder,
-            as: 'order',
-            where: { 
-              status: 'delivered',
-              createdAt: { [Op.gte]: thirtyDaysAgo }
-            },
-            required: true
-          }, {
-            model: StoreProduct,
-            as: 'product',
-            attributes: ['id', 'name', 'sku'],
-            required: true
-          }],
-          attributes: [
-            'productId',
-            [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'total_sold'],
-            [StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('totalPrice')), 'total_revenue']
-          ],
-          group: ['productId', 'product.id'],
-          order: [[StoreOrderItem.sequelize.fn('SUM', StoreOrderItem.sequelize.col('quantity')), 'DESC']],
-          limit: 10
-        });
+        // Verificar si StoreOrderItem existe y tiene las asociaciones correctas
+        const hasStoreModels = StoreOrderItem && StoreOrder && StoreProduct;
+        
+        if (hasStoreModels) {
+          productPerformance = await Payment.sequelize.query(`
+            SELECT 
+              soi.product_id as id,
+              sp.name,
+              SUM(soi.quantity) as total_sold,
+              SUM(soi.total_price) as total_revenue
+            FROM store_order_items soi
+            JOIN store_orders so ON soi.order_id = so.id
+            JOIN store_products sp ON soi.product_id = sp.id
+            WHERE so.status = 'delivered'
+            AND so.created_at >= :startDate
+            GROUP BY soi.product_id, sp.name
+            ORDER BY SUM(soi.quantity) DESC
+            LIMIT 10
+          `, {
+            replacements: { startDate: thirtyDaysAgo },
+            type: Payment.sequelize.QueryTypes.SELECT
+          });
+        }
       } catch (productError) {
-        console.warn('⚠️ Error al obtener productos más vendidos:', productError.message);
+        console.warn('⚠️ Error al obtener productos más vendidos (no crítico):', productError.message);
         productPerformance = [];
       }
 
@@ -756,21 +755,21 @@ class PaymentController {
           totalIncome: totalIncome || 0,
           incomeBySource: incomeBySource.map(item => ({
             source: item.dataValues.source,
-            total: parseFloat(item.dataValues.total),
-            count: parseInt(item.dataValues.count),
-            percentage: totalIncome ? ((parseFloat(item.dataValues.total) / totalIncome) * 100).toFixed(1) : 0
+            total: parseFloat(item.dataValues.total || 0),
+            count: parseInt(item.dataValues.count || 0),
+            percentage: totalIncome ? ((parseFloat(item.dataValues.total || 0) / totalIncome) * 100).toFixed(1) : '0'
           })),
           paymentMethodStats: paymentMethodStats.map(item => ({
             method: item.paymentMethod,
-            total: parseFloat(item.dataValues.total),
-            count: parseInt(item.dataValues.count)
+            total: parseFloat(item.dataValues.total || 0),
+            count: parseInt(item.dataValues.count || 0)
           })),
           dailyTrend: this.organizeDailyTrend(dailyTrend),
           topProducts: productPerformance.map(item => ({
-            id: item.productId,
-            name: item.product ? item.product.name : 'Producto desconocido',
-            totalSold: parseInt(item.dataValues.total_sold || 0),
-            totalRevenue: parseFloat(item.dataValues.total_revenue || 0)
+            id: item.id,
+            name: item.name || 'Producto desconocido',
+            totalSold: parseInt(item.total_sold || 0),
+            totalRevenue: parseFloat(item.total_revenue || 0)
           }))
         }
       });

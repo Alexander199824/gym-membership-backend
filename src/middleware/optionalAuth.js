@@ -1,46 +1,49 @@
-// src/middleware/optionalAuth.js - Middleware de autenticación opcional
+// src/middleware/optionalAuth.js - NUEVO: Middleware para autenticación opcional
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
-// ✅ Middleware que permite autenticación opcional
-// Funciona tanto para usuarios logueados como invitados
+// ✅ Middleware de autenticación opcional para rutas que funcionan con o sin usuario logueado
 const optionalAuthenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
     if (!token) {
-      // Si no hay token, continuar sin autenticación
+      // No hay token, continuar sin usuario
       req.user = null;
       return next();
     }
 
-    // Si hay token, intentar verificarlo
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      // Buscar el usuario
       const user = await User.findByPk(decoded.id);
-
-      if (user && user.isActive) {
-        req.user = user;
-      } else {
+      
+      if (!user || !user.isActive) {
+        // Usuario no válido o inactivo, continuar sin usuario
         req.user = null;
+        return next();
       }
-    } catch (error) {
-      // Si el token es inválido, continuar sin autenticación
+
+      // Usuario válido encontrado
+      req.user = user;
+      next();
+      
+    } catch (tokenError) {
+      // Token inválido o expirado, continuar sin usuario
       req.user = null;
+      next();
     }
 
-    next();
   } catch (error) {
-    // En caso de cualquier error, continuar sin autenticación
+    console.error('Error en optionalAuthenticateToken:', error);
+    // En caso de error, continuar sin usuario
     req.user = null;
     next();
   }
 };
 
-module.exports = { optionalAuthenticateToken };
-
-// Este middleware me permite manejar rutas que pueden ser usadas tanto por usuarios 
-// logueados como por invitados. A diferencia del middleware de autenticación normal 
-// que rechaza requests sin token, este middleware simplemente asigna null a req.user 
-// si no hay token válido, permitiendo que el controlador decida cómo manejar cada caso.
+module.exports = {
+  optionalAuthenticateToken
+};
