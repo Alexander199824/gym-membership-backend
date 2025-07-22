@@ -1,4 +1,4 @@
-// src/server.js - COMPLETO con todas las mejoras
+// src/server.js - ACTUALIZADO para Brevo
 const app = require('./app');
 const { 
   testConnection, 
@@ -45,6 +45,9 @@ class Server {
       // ✅ Mostrar estado final de la base de datos
       await this.showFinalDatabaseStatus();
 
+      // ✅ Verificar servicios de notificación
+      await this.checkNotificationServices();
+
       // ✅ Iniciar programador de notificaciones
       if (process.env.NODE_ENV !== 'test') {
         this.startNotificationScheduler();
@@ -61,8 +64,9 @@ class Server {
       console.log('\n💡 Soluciones sugeridas:');
       console.log('   1. Verifica tu conexión a internet');
       console.log('   2. Verifica las credenciales de la base de datos en .env');
-      console.log('   3. Intenta con RESET_DATABASE=true');
-      console.log('   4. Contacta al administrador del sistema');
+      console.log('   3. Verifica la configuración de Brevo (BREVO_API_KEY)');
+      console.log('   4. Intenta con RESET_DATABASE=true');
+      console.log('   5. Contacta al administrador del sistema');
       process.exit(1);
     }
   }
@@ -202,6 +206,44 @@ class Server {
     }
   }
 
+  // ✅ NUEVO: Verificar servicios de notificación con Brevo
+  async checkNotificationServices() {
+    try {
+      console.log('\n📧 Verificando servicios de notificación...');
+      
+      const { EmailService, WhatsAppService } = require('./services/notificationServices');
+      
+      // Verificar Brevo
+      const emailService = new EmailService();
+      if (emailService.isConfigured) {
+        console.log('   ✅ Brevo Email Service configurado correctamente');
+        
+        // Opcional: Obtener información de la cuenta
+        try {
+          const stats = await emailService.getEmailStats();
+          if (stats.success) {
+            console.log(`   📊 Cuenta Brevo: ${stats.stats.accountEmail} (Plan: ${stats.stats.plan})`);
+          }
+        } catch (error) {
+          console.log('   📊 Brevo configurado (detalles de cuenta no disponibles)');
+        }
+      } else {
+        console.log('   ⚠️ Brevo no configurado - Emails deshabilitados');
+      }
+      
+      // Verificar WhatsApp (Twilio)
+      const whatsappService = new WhatsAppService();
+      if (whatsappService.client) {
+        console.log('   ✅ WhatsApp (Twilio) configurado correctamente');
+      } else {
+        console.log('   ⚠️ WhatsApp no configurado - Mensajes WhatsApp deshabilitados');
+      }
+      
+    } catch (error) {
+      console.warn('⚠️ Error al verificar servicios de notificación:', error.message);
+    }
+  }
+
   startNotificationScheduler() {
     try {
       notificationScheduler.start();
@@ -238,12 +280,16 @@ class Server {
           console.log('\n🧹 Para limpiar datos de prueba:');
           console.log('   POST /api/data-cleanup/clean-test-users');
           console.log('\n🔄 Para reset completo: Cambia RESET_DATABASE=true y reinicia');
+          console.log('\n📧 Servicios de notificación:');
+          console.log('   - Email: Brevo (configurar BREVO_API_KEY)');
+          console.log('   - WhatsApp: Twilio (configurar TWILIO_ACCOUNT_SID)');
           resolve();
         }
       });
     });
   }
 
+  // ✅ ACTUALIZADO: Verificación de variables de entorno para Brevo
   checkEnvironmentVariables() {
     const required = [
       'DB_HOST',
@@ -269,12 +315,13 @@ class Server {
       console.log('✅ Modo normal: Se mantendrán los datos existentes');
     }
 
-    // ✅ Warnings para servicios opcionales (resumidos)
+    // ✅ ACTUALIZADO: Verificar servicios opcionales con Brevo
     const serviceStatus = {
       cloudinary: process.env.CLOUDINARY_CLOUD_NAME && !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_') ? 'Configurado' : 'Pendiente',
-      email: process.env.EMAIL_USER && !process.env.EMAIL_USER.startsWith('your_') ? 'Configurado' : 'Pendiente',
+      brevo: process.env.BREVO_API_KEY && process.env.BREVO_SENDER_EMAIL && !process.env.BREVO_API_KEY.startsWith('tu_') ? 'Configurado' : 'Pendiente',
       whatsapp: process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID.startsWith('AC') ? 'Configurado' : 'Pendiente',
-      googleOAuth: process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.startsWith('your_') ? 'Configurado' : 'Pendiente'
+      googleOAuth: process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.startsWith('your_') ? 'Configurado' : 'Pendiente',
+      stripe: process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.startsWith('sk_test_51234') ? 'Configurado' : 'Pendiente'
     };
 
     const pendingServices = Object.entries(serviceStatus)
@@ -284,6 +331,11 @@ class Server {
     if (pendingServices.length > 0) {
       console.log(`⚠️ Servicios opcionales pendientes: ${pendingServices.join(', ')}`);
       console.log('💡 Se pueden configurar más tarde para funcionalidades completas');
+      
+      // ✅ Mensaje específico para Brevo
+      if (pendingServices.includes('brevo')) {
+        console.log('   📧 Para emails: Configura BREVO_API_KEY y BREVO_SENDER_EMAIL');
+      }
     } else {
       console.log('✅ Todos los servicios opcionales están configurados');
     }
@@ -295,6 +347,19 @@ class Server {
 
     if (configuredServices.length > 0) {
       console.log(`🟢 Servicios configurados: ${configuredServices.join(', ')}`);
+      
+      // ✅ Mensaje específico para Brevo
+      if (configuredServices.includes('brevo')) {
+        console.log('   📧 Brevo Email configurado - Notificaciones habilitadas');
+      }
+    }
+
+    // ✅ Advertencia sobre migración de nodemailer a Brevo
+    if (process.env.EMAIL_HOST || process.env.EMAIL_USER || process.env.EMAIL_PASS) {
+      console.log('\n🔄 MIGRACIÓN DETECTADA:');
+      console.log('   ⚠️ Variables de nodemailer detectadas (EMAIL_HOST, EMAIL_USER, EMAIL_PASS)');
+      console.log('   ✅ Sistema migrado a Brevo - usa BREVO_API_KEY en su lugar');
+      console.log('   💡 Puedes eliminar las variables EMAIL_* del archivo .env');
     }
   }
 
