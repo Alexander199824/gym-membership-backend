@@ -1,4 +1,4 @@
-// src/services/notificationServices.js - MIGRADO A GMAIL CON NODEMAILER
+// src/services/notificationServices.js - CORREGIDO: Gmail con nodemailer
 const nodemailer = require('nodemailer');
 const twilio = require('twilio');
 
@@ -14,56 +14,159 @@ class EmailService {
 
     if (hasValidGmailConfig) {
       try {
-        // Crear transporter de nodemailer con Gmail
-        this.transporter = nodemailer.createTransporter({
+        // ✅ CORREGIDO: createTransport (no createTransporter)
+        this.transporter = nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
           secure: true, // true para 465, false para otros puertos
           auth: {
             user: process.env.GMAIL_USER,
             pass: process.env.GMAIL_APP_PASSWORD
-          }
+          },
+          // Configuraciones adicionales para Gmail
+          pool: true, // Pool de conexiones para mejor performance
+          maxConnections: 5,
+          maxMessages: 10,
+          rateDelta: 1000, // 1 segundo entre emails
+          rateLimit: 5 // máximo 5 emails por segundo
         });
         
         this.isConfigured = true;
         console.log('✅ Gmail Email Service inicializado correctamente');
+        console.log(`   📧 Usuario configurado: ${process.env.GMAIL_USER}`);
         
-        // Verificar configuración haciendo una llamada de prueba
-        this.verifyConfiguration();
+        // Verificar configuración sin enviar email de prueba
+        this.verifyConfiguration(false); // false = no enviar email de prueba
       } catch (error) {
-        console.warn('⚠️ Error al inicializar Gmail:', error.message);
+        console.error('❌ Error al inicializar Gmail:', error.message);
         this.transporter = null;
         this.isConfigured = false;
       }
     } else {
       console.warn('⚠️ Gmail no configurado correctamente - Las notificaciones por email no funcionarán');
-      console.warn('   Variables requeridas: GMAIL_USER, GMAIL_APP_PASSWORD');
+      
+      // Diagnóstico detallado
+      if (!process.env.GMAIL_USER) {
+        console.warn('   ❌ GMAIL_USER no configurado');
+      } else if (process.env.GMAIL_USER === 'yourEmail@email.com') {
+        console.warn('   ❌ GMAIL_USER todavía tiene el valor placeholder');
+      }
+      
+      if (!process.env.GMAIL_APP_PASSWORD) {
+        console.warn('   ❌ GMAIL_APP_PASSWORD no configurado');
+      } else if (process.env.GMAIL_APP_PASSWORD === 'yourPassword') {
+        console.warn('   ❌ GMAIL_APP_PASSWORD todavía tiene el valor placeholder');
+      } else if (process.env.GMAIL_APP_PASSWORD.length <= 10) {
+        console.warn('   ❌ GMAIL_APP_PASSWORD parece ser demasiado corto (no es una App Password)');
+      }
+      
+      console.warn('   💡 Configura GMAIL_USER y GMAIL_APP_PASSWORD correctamente');
       this.transporter = null;
       this.isConfigured = false;
     }
   }
 
-  // Verificar configuración de Gmail
-  async verifyConfiguration() {
+  // ✅ MEJORADO: Verificar configuración de Gmail con control de email de prueba
+  async verifyConfiguration(sendTestEmail = false) {
     try {
+      if (!this.transporter) {
+        console.warn('⚠️ No hay transporter de Gmail para verificar');
+        return false;
+      }
+
+      console.log('🔍 Verificando configuración de Gmail...');
+      
       // Verificar que la conexión funcione
-      await this.transporter.verify();
-      console.log('✅ Configuración de Gmail verificada exitosamente');
+      const isVerified = await this.transporter.verify();
+      
+      if (isVerified) {
+        console.log('✅ Configuración de Gmail verificada exitosamente');
+        console.log('   📧 SMTP Gmail conectado correctamente');
+        
+        // ✅ CORREGIDO: Solo enviar email de prueba si se solicita explícitamente
+        if (sendTestEmail) {
+          await this.sendTestEmail();
+        }
+        
+        return true;
+      } else {
+        console.warn('⚠️ Error al verificar configuración de Gmail');
+        this.isConfigured = false;
+        return false;
+      }
     } catch (error) {
-      console.warn('⚠️ Error al verificar configuración de Gmail:', error.message);
+      console.error('❌ Error al verificar configuración de Gmail:', error.message);
+      
+      // Diagnóstico específico del error
+      if (error.code === 'EAUTH') {
+        console.error('   🚨 Error de autenticación:');
+        console.error('      - Verifica que GMAIL_USER sea correcto');
+        console.error('      - Verifica que GMAIL_APP_PASSWORD sea una App Password válida');
+        console.error('      - Asegúrate de que 2FA esté habilitado en Gmail');
+      } else if (error.code === 'ECONNECTION') {
+        console.error('   🚨 Error de conexión con Gmail SMTP');
+      } else if (error.code === 'ETIMEDOUT') {
+        console.error('   🚨 Timeout conectando con Gmail');
+      }
+      
       this.isConfigured = false;
+      return false;
+    }
+  }
+
+  // ✅ NUEVO: Enviar email de prueba para verificar funcionamiento
+  async sendTestEmail() {
+    try {
+      if (!this.isConfigured || !this.transporter) {
+        return { success: false, message: 'Gmail no configurado' };
+      }
+
+      const testEmail = {
+        from: {
+          name: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
+          address: process.env.GMAIL_USER
+        },
+        to: process.env.GMAIL_USER, // Enviarse a sí mismo
+        subject: '✅ Test de configuración Gmail - Elite Fitness Club',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #2c3e50;">✅ Gmail configurado correctamente</h2>
+            <p>Este es un email de prueba para verificar que la configuración de Gmail está funcionando correctamente.</p>
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+              <h3>📋 Información de configuración:</h3>
+              <ul>
+                <li><strong>Usuario:</strong> ${process.env.GMAIL_USER}</li>
+                <li><strong>Servidor:</strong> smtp.gmail.com:465</li>
+                <li><strong>Fecha:</strong> ${new Date().toLocaleString('es-ES')}</li>
+                <li><strong>Sistema:</strong> Elite Fitness Club Management</li>
+              </ul>
+            </div>
+            <p>Si recibes este email, ¡las notificaciones funcionarán correctamente! 🎉</p>
+          </div>
+        `,
+        text: `✅ Gmail configurado correctamente para Elite Fitness Club. Email de prueba enviado el ${new Date().toLocaleString('es-ES')}`
+      };
+
+      const result = await this.transporter.sendMail(testEmail);
+      console.log('✅ Email de prueba enviado exitosamente:', result.messageId);
+      console.log('   📬 Revisa la bandeja de entrada de', process.env.GMAIL_USER);
+      
+      return { success: true, messageId: result.messageId };
+    } catch (error) {
+      console.error('❌ Error al enviar email de prueba:', error.message);
+      return { success: false, error: error.message };
     }
   }
 
   async sendEmail({ to, subject, html, text, attachments = null }) {
     try {
       if (!process.env.NOTIFICATION_EMAIL_ENABLED || process.env.NOTIFICATION_EMAIL_ENABLED !== 'true') {
-        console.log('📧 Email deshabilitado en configuración');
-        return { success: false, message: 'Email deshabilitado' };
+        console.log('📧 Email deshabilitado en configuración (NOTIFICATION_EMAIL_ENABLED=false)');
+        return { success: false, message: 'Email deshabilitado en configuración' };
       }
 
       if (!this.isConfigured || !this.transporter) {
-        console.log('📧 Gmail no configurado correctamente');
+        console.warn('📧 Gmail no configurado correctamente - no se puede enviar email');
         return { success: false, message: 'Gmail no configurado correctamente' };
       }
 
@@ -80,32 +183,53 @@ class EmailService {
         attachments: attachments || undefined
       };
 
+      console.log(`📤 Enviando email a: ${to}`);
+      console.log(`📄 Asunto: ${subject}`);
+
       // Enviar email a través de Gmail
       const result = await this.transporter.sendMail(mailOptions);
       
-      console.log('✅ Email enviado vía Gmail:', result.messageId);
+      console.log('✅ Email enviado exitosamente vía Gmail:', result.messageId);
+      console.log(`   📧 A: ${to}`);
+      console.log(`   📄 Asunto: ${subject}`);
       
       return { 
         success: true, 
         messageId: result.messageId,
         provider: 'gmail',
-        response: result.response
+        response: result.response,
+        to: to,
+        subject: subject
       };
     } catch (error) {
       console.error('❌ Error al enviar email vía Gmail:', error);
       
       // Manejar errores específicos de Gmail/SMTP
       let errorMessage = error.message;
+      let errorCode = error.code;
       
       if (error.code === 'EAUTH') {
         errorMessage = 'Error de autenticación con Gmail. Verifica las credenciales.';
+        console.error('   🔑 Verifica GMAIL_USER y GMAIL_APP_PASSWORD');
       } else if (error.code === 'ECONNECTION') {
         errorMessage = 'Error de conexión con el servidor de Gmail.';
+        console.error('   🌐 Problema de conectividad con smtp.gmail.com');
       } else if (error.responseCode === 550) {
         errorMessage = 'Email rechazado por el destinatario.';
+        console.error('   📭 El email fue rechazado:', to);
+      } else if (error.code === 'EMESSAGE') {
+        errorMessage = 'Error en el contenido del mensaje.';
+        console.error('   📝 Revisa el contenido del email');
       }
       
-      return { success: false, error: errorMessage, provider: 'gmail' };
+      return { 
+        success: false, 
+        error: errorMessage,
+        errorCode: errorCode,
+        provider: 'gmail',
+        to: to,
+        subject: subject
+      };
     }
   }
 
@@ -400,7 +524,7 @@ class EmailService {
     return methods[method] || method;
   }
 
-  // Método para obtener estadísticas básicas (opcional)
+  // Método para obtener estadísticas básicas (mejorado)
   async getEmailStats() {
     try {
       if (!this.isConfigured) {
@@ -414,7 +538,11 @@ class EmailService {
           provider: 'Gmail',
           senderEmail: process.env.GMAIL_USER,
           senderName: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
-          configured: true
+          configured: true,
+          verified: this.isConfigured,
+          host: 'smtp.gmail.com',
+          port: 465,
+          secure: true
         }
       };
     } catch (error) {
@@ -437,9 +565,60 @@ class EmailService {
       return { success: false, error: error.message };
     }
   }
+
+  // ✅ NUEVO: Método para probar el servicio manualmente
+  async testEmailService() {
+    try {
+      console.log('🧪 Iniciando prueba manual del servicio de Gmail...');
+      
+      if (!this.isConfigured) {
+        console.log('❌ No se puede probar: Gmail no configurado');
+        return { success: false, message: 'Gmail no configurado' };
+      }
+
+      // Verificar conexión (con email de prueba)
+      const verifyResult = await this.verifyConfiguration(true); // true = enviar email de prueba
+      if (!verifyResult) {
+        console.log('❌ No se puede probar: Error en verificación');
+        return { success: false, message: 'Error en verificación de configuración' };
+      }
+
+      // Enviar email de prueba
+      const testResult = await this.sendTestEmail();
+      
+      if (testResult.success) {
+        console.log('✅ Prueba del servicio Gmail completada exitosamente');
+        console.log('   📧 Email de prueba enviado a:', process.env.GMAIL_USER);
+        console.log('   📬 Revisa tu bandeja de entrada para confirmar');
+        return {
+          success: true,
+          message: 'Servicio Gmail funcionando correctamente',
+          details: {
+            messageId: testResult.messageId,
+            testEmailSent: true,
+            recipientEmail: process.env.GMAIL_USER
+          }
+        };
+      } else {
+        console.log('❌ Fallo en envío de email de prueba:', testResult.error);
+        return {
+          success: false,
+          message: 'Error al enviar email de prueba',
+          error: testResult.error
+        };
+      }
+    } catch (error) {
+      console.error('❌ Error en prueba del servicio Gmail:', error);
+      return {
+        success: false,
+        message: 'Error en prueba del servicio',
+        error: error.message
+      };
+    }
+  }
 }
 
-// WhatsAppService se mantiene igual
+// WhatsAppService se mantiene igual (sin cambios)
 class WhatsAppService {
   constructor() {
     // El servicio de WhatsApp permanece igual usando Twilio
