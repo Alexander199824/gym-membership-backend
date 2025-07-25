@@ -1,4 +1,4 @@
-// src/controllers/authController.js
+// src/controllers/authController.js - ACTUALIZADO: Redirección por rol con Google OAuth
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
@@ -130,7 +130,7 @@ class AuthController {
     }
   }
 
-  // Google OAuth success callback
+  // ✅ ACTUALIZADO: Google OAuth success callback con redirección por rol
   async googleCallback(req, res) {
     try {
       const user = req.user;
@@ -143,13 +143,103 @@ class AuthController {
         this.sendWelcomeNotifications(user).catch(console.error);
       }
 
-      // Redirigir al frontend con token
-      const frontendUrl = process.env.FRONTEND_URL;
-      res.redirect(`${frontendUrl}/auth/success?token=${token}&refresh=${refreshToken}`);
+      // ✅ NUEVO: Determinar URL de redirección según el rol del usuario
+      const redirectUrl = this.determineRedirectUrl(user);
+      
+      // ✅ NUEVO: Crear parámetros de redirección más completos
+      const redirectParams = new URLSearchParams({
+        token,
+        refresh: refreshToken,
+        role: user.role,
+        userId: user.id,
+        name: user.getFullName(),
+        email: user.email,
+        loginType: 'google',
+        timestamp: Date.now()
+      });
+
+      const finalRedirectUrl = `${redirectUrl}/auth/google-success?${redirectParams.toString()}`;
+      
+      console.log(`✅ Redirección Google OAuth exitosa:`);
+      console.log(`   👤 Usuario: ${user.getFullName()} (${user.email})`);
+      console.log(`   🏷️ Rol: ${user.role}`);
+      console.log(`   🌐 Redirigiendo a: ${finalRedirectUrl}`);
+      
+      res.redirect(finalRedirectUrl);
     } catch (error) {
-      console.error('Error en Google callback:', error);
-      const frontendUrl = process.env.FRONTEND_URL;
-      res.redirect(`${frontendUrl}/auth/error?message=Error en autenticación`);
+      console.error('❌ Error en Google callback:', error);
+      
+      // ✅ MEJORADO: Manejo de errores con información más detallada
+      const errorUrl = this.getErrorRedirectUrl();
+      const errorParams = new URLSearchParams({
+        error: 'oauth_error',
+        message: 'Error en autenticación con Google',
+        timestamp: Date.now()
+      });
+      
+      res.redirect(`${errorUrl}/auth/google-error?${errorParams.toString()}`);
+    }
+  }
+
+  // ✅ NUEVO: Determinar URL de redirección según el rol del usuario
+  determineRedirectUrl(user) {
+    const role = user.role;
+    
+    // URLs específicas según el rol
+    const roleUrls = {
+      'admin': process.env.FRONTEND_ADMIN_URL || process.env.ADMIN_PANEL_URL,
+      'colaborador': process.env.FRONTEND_ADMIN_URL || process.env.ADMIN_PANEL_URL,
+      'cliente': process.env.FRONTEND_CLIENT_URL || process.env.FRONTEND_URL
+    };
+    
+    // Obtener URL específica para el rol o usar la URL por defecto
+    const specificUrl = roleUrls[role];
+    const defaultUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    
+    const finalUrl = specificUrl || defaultUrl;
+    
+    console.log(`🔗 URL de redirección para rol '${role}': ${finalUrl}`);
+    
+    return finalUrl;
+  }
+
+  // ✅ NUEVO: Obtener URL de error según preferencias
+  getErrorRedirectUrl() {
+    // Intentar usar la URL del cliente por defecto para errores
+    return process.env.FRONTEND_CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  }
+
+  // ✅ NUEVO: Endpoint para obtener información de configuración OAuth
+  async getOAuthConfig(req, res) {
+    try {
+      const config = {
+        googleOAuth: {
+          enabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+          clientId: process.env.GOOGLE_CLIENT_ID,
+          callbackUrl: process.env.GOOGLE_CALLBACK_URL,
+          redirectUrls: {
+            admin: process.env.FRONTEND_ADMIN_URL,
+            colaborador: process.env.FRONTEND_ADMIN_URL,
+            cliente: process.env.FRONTEND_CLIENT_URL
+          }
+        },
+        endpoints: {
+          googleLogin: '/api/auth/google',
+          googleCallback: '/api/auth/google/callback'
+        }
+      };
+
+      res.json({
+        success: true,
+        data: config
+      });
+    } catch (error) {
+      console.error('Error al obtener configuración OAuth:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener configuración OAuth',
+        error: error.message
+      });
     }
   }
 
@@ -226,63 +316,63 @@ class AuthController {
     }
   }
 
- // ✅ REEMPLAZAR el método uploadProfileImage existente en authController.js
+  // ✅ Subir imagen de perfil (sin cambios)
+  async uploadProfileImage(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No se recibió ningún archivo'
+        });
+      }
 
-async uploadProfileImage(req, res) {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
+      const user = req.user;
+      const oldProfileImage = user.profileImage;
+      
+      // ✅ Actualizar URL de la imagen de perfil
+      user.profileImage = req.file.path || req.file.location;
+      await user.save();
+
+      // ✅ Si tenía imagen anterior y Cloudinary está configurado, intentar eliminarla
+      if (oldProfileImage && process.env.CLOUDINARY_CLOUD_NAME) {
+        try {
+          const { deleteFile } = require('../config/cloudinary');
+          
+          // ✅ Extraer public_id de la URL de Cloudinary
+          const publicIdMatch = oldProfileImage.match(/\/([^\/]+)\.[^\.]+$/);
+          if (publicIdMatch) {
+            const publicId = `gym/profile-images/${publicIdMatch[1]}`;
+            await deleteFile(publicId);
+          }
+        } catch (deleteError) {
+          console.warn('⚠️ No se pudo eliminar imagen anterior:', deleteError.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: 'Imagen de perfil actualizada exitosamente',
+        data: {
+          profileImage: user.profileImage,
+          user: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            profileImage: user.profileImage
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al subir imagen de perfil:', error);
+      res.status(500).json({
         success: false,
-        message: 'No se recibió ningún archivo'
+        message: 'Error al subir imagen de perfil',
+        error: error.message
       });
     }
-
-    const user = req.user;
-    const oldProfileImage = user.profileImage;
-    
-    // ✅ Actualizar URL de la imagen de perfil
-    user.profileImage = req.file.path || req.file.location;
-    await user.save();
-
-    // ✅ Si tenía imagen anterior y Cloudinary está configurado, intentar eliminarla
-    if (oldProfileImage && process.env.CLOUDINARY_CLOUD_NAME) {
-      try {
-        const { deleteFile } = require('../config/cloudinary');
-        
-        // ✅ Extraer public_id de la URL de Cloudinary
-        const publicIdMatch = oldProfileImage.match(/\/([^\/]+)\.[^\.]+$/);
-        if (publicIdMatch) {
-          const publicId = `gym/profile-images/${publicIdMatch[1]}`;
-          await deleteFile(publicId);
-        }
-      } catch (deleteError) {
-        console.warn('⚠️ No se pudo eliminar imagen anterior:', deleteError.message);
-      }
-    }
-
-    res.json({
-      success: true,
-      message: 'Imagen de perfil actualizada exitosamente',
-      data: {
-        profileImage: user.profileImage,
-        user: {
-          id: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          email: user.email,
-          profileImage: user.profileImage
-        }
-      }
-    });
-  } catch (error) {
-    console.error('Error al subir imagen de perfil:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al subir imagen de perfil',
-      error: error.message
-    });
   }
-}
+
   // Cambiar contraseña
   async changePassword(req, res) {
     try {
