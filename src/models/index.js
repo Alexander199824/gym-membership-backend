@@ -1,11 +1,11 @@
-// src/models/index.js  Todas las importaciones necesarias
+// src/models/index.js - VERSIÓN CORREGIDA (reemplazar todo el archivo)
 const User = require('./User');
 const Membership = require('./Membership');
 const Payment = require('./Payment');
 const DailyIncome = require('./DailyIncome');
 const Notification = require('./Notification');
 
-// ✅ AGREGAR: Importaciones de modelos del gimnasio que faltaban
+// ✅ Modelos del gimnasio existentes
 const GymConfiguration = require('./GymConfiguration');
 const GymContactInfo = require('./GymContactInfo');
 const GymHours = require('./GymHours');
@@ -14,6 +14,16 @@ const GymServices = require('./GymServices');
 const MembershipPlans = require('./MembershipPlans');
 const FinancialMovements = require('./FinancialMovements');
 const UserSchedulePreferences = require('./UserSchedulePreferences');
+
+// ✅ NUEVOS MODELOS para contenido dinámico
+const GymTestimonials = require('./GymTestimonials');
+const GymSocialMedia = require('./GymSocialMedia');
+const GymSectionsContent = require('./GymSectionsContent');
+const GymNavigation = require('./GymNavigation');
+const GymPromotionalContent = require('./GymPromotionalContent');
+const GymFormsConfig = require('./GymFormsConfig');
+const GymSystemMessages = require('./GymSystemMessages');
+const GymBrandingConfig = require('./GymBrandingConfig');
 
 // ✅ Modelos de tienda
 const StoreCategory = require('./StoreCategory');
@@ -118,7 +128,7 @@ StoreCart.belongsTo(User, { foreignKey: 'userId', as: 'user' });
 StoreProduct.hasMany(StoreCart, { foreignKey: 'productId', as: 'cartItems' });
 StoreCart.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
 
-// ✅ EXPORTACIÓN CORREGIDA - Todos los modelos importados
+// ✅ EXPORTACIÓN COMPLETA
 module.exports = {
   // Modelos principales
   User,
@@ -136,6 +146,16 @@ module.exports = {
   MembershipPlans,
   FinancialMovements,
   UserSchedulePreferences,
+  
+  // ✅ NUEVOS MODELOS para contenido dinámico
+  GymTestimonials,
+  GymSocialMedia,
+  GymSectionsContent,
+  GymNavigation,
+  GymPromotionalContent,
+  GymFormsConfig,
+  GymSystemMessages,
+  GymBrandingConfig,
   
   // Modelos de tienda
   StoreCategory,

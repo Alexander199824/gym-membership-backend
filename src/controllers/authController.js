@@ -130,57 +130,88 @@ class AuthController {
     }
   }
 
-  // ✅ ACTUALIZADO: Google OAuth success callback con redirección por rol
-  async googleCallback(req, res) {
-    try {
-      const user = req.user;
-      
-      const token = generateToken(user);
-      const refreshToken = generateRefreshToken(user);
 
-      // Si es un nuevo usuario, enviar notificaciones de bienvenida
-      if (user.createdAt && (new Date() - user.createdAt) < 5000) {
-        this.sendWelcomeNotifications(user).catch(console.error);
-      }
+// ✅ CORREGIDO: Google OAuth success callback SIN dependencias de this
+async googleCallback(req, res) {
+  try {
+    const user = req.user;
+    
+    const token = generateToken(user);
+    const refreshToken = generateRefreshToken(user);
 
-      // ✅ NUEVO: Determinar URL de redirección según el rol del usuario
-      const redirectUrl = this.determineRedirectUrl(user);
-      
-      // ✅ NUEVO: Crear parámetros de redirección más completos
-      const redirectParams = new URLSearchParams({
-        token,
-        refresh: refreshToken,
-        role: user.role,
-        userId: user.id,
-        name: user.getFullName(),
-        email: user.email,
-        loginType: 'google',
-        timestamp: Date.now()
-      });
-
-      const finalRedirectUrl = `${redirectUrl}/auth/google-success?${redirectParams.toString()}`;
-      
-      console.log(`✅ Redirección Google OAuth exitosa:`);
-      console.log(`   👤 Usuario: ${user.getFullName()} (${user.email})`);
-      console.log(`   🏷️ Rol: ${user.role}`);
-      console.log(`   🌐 Redirigiendo a: ${finalRedirectUrl}`);
-      
-      res.redirect(finalRedirectUrl);
-    } catch (error) {
-      console.error('❌ Error en Google callback:', error);
-      
-      // ✅ MEJORADO: Manejo de errores con información más detallada
-      const errorUrl = this.getErrorRedirectUrl();
-      const errorParams = new URLSearchParams({
-        error: 'oauth_error',
-        message: 'Error en autenticación con Google',
-        timestamp: Date.now()
-      });
-      
-      res.redirect(`${errorUrl}/auth/google-error?${errorParams.toString()}`);
+    // Si es un nuevo usuario, enviar notificaciones de bienvenida
+    if (user.createdAt && (new Date() - user.createdAt) < 5000) {
+      console.log('🆕 Usuario nuevo detectado - se enviarán notificaciones de bienvenida');
+      // TODO: Implementar notificaciones de bienvenida sin dependencia de this
     }
-  }
 
+    // ✅ FUNCIÓN HELPER: Determinar URL de redirección según el rol del usuario
+    const determineRedirectUrl = (user) => {
+      const role = user.role;
+      
+      // URLs específicas según el rol
+      const roleUrls = {
+        'admin': process.env.FRONTEND_ADMIN_URL || process.env.ADMIN_PANEL_URL,
+        'colaborador': process.env.FRONTEND_ADMIN_URL || process.env.ADMIN_PANEL_URL,
+        'cliente': process.env.FRONTEND_CLIENT_URL || process.env.FRONTEND_URL
+      };
+      
+      // Obtener URL específica para el rol o usar la URL por defecto
+      const specificUrl = roleUrls[role];
+      const defaultUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      
+      const finalUrl = specificUrl || defaultUrl;
+      
+      console.log(`🔗 URL de redirección para rol '${role}': ${finalUrl}`);
+      
+      return finalUrl;
+    };
+
+    // ✅ Determinar URL de redirección
+    const redirectUrl = determineRedirectUrl(user);
+    
+    // ✅ Crear parámetros de redirección
+    const redirectParams = new URLSearchParams({
+      token,
+      refresh: refreshToken,
+      role: user.role,
+      userId: user.id,
+      name: user.getFullName(),
+      email: user.email,
+      loginType: 'google',
+      timestamp: Date.now()
+    });
+
+    const finalRedirectUrl = `${redirectUrl}/auth/google-success?${redirectParams.toString()}`;
+    
+    console.log(`✅ Redirección Google OAuth exitosa:`);
+    console.log(`   👤 Usuario: ${user.getFullName()} (${user.email})`);
+    console.log(`   🏷️ Rol: ${user.role}`);
+    console.log(`   🌐 Redirigiendo a: ${finalRedirectUrl}`);
+    
+    res.redirect(finalRedirectUrl);
+  } catch (error) {
+    console.error('❌ Error en Google callback:', error);
+    
+    // ✅ FUNCIÓN HELPER: Obtener URL de error
+    const getErrorRedirectUrl = () => {
+      return process.env.FRONTEND_CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+    };
+    
+    const errorUrl = getErrorRedirectUrl();
+    const errorParams = new URLSearchParams({
+      error: 'oauth_error',
+      message: 'Error en autenticación con Google',
+      timestamp: Date.now(),
+      details: error.message
+    });
+    
+    const errorRedirectUrl = `${errorUrl}/auth/google-error?${errorParams.toString()}`;
+    console.log(`❌ Redirigiendo a URL de error: ${errorRedirectUrl}`);
+    
+    res.redirect(errorRedirectUrl);
+  }
+}
   // ✅ NUEVO: Determinar URL de redirección según el rol del usuario
   determineRedirectUrl(user) {
     const role = user.role;

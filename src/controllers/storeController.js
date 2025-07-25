@@ -8,7 +8,8 @@ const {
   StoreOrder,
   StoreOrderItem,
   User,
-  FinancialMovements
+  FinancialMovements,
+  getFeaturedProducts
 } = require('../models');
 const { Op } = require('sequelize');
 
@@ -850,6 +851,45 @@ class StoreController {
       });
     }
   }
+
+  // ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend
+async getFeaturedProducts(req, res) {
+  try {
+    const limit = parseInt(req.query.limit) || 8;
+    const products = await StoreProduct.getFeaturedProducts(limit);
+    
+    // ✅ Formatear productos para el frontend según formato esperado
+    const formattedProducts = products.map(product => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: parseFloat(product.price),
+      originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
+      image: product.images && product.images.length > 0 
+        ? product.images[0].imageUrl 
+        : '/uploads/products/default.jpg',
+      category: product.category ? product.category.slug : 'otros',
+      rating: parseFloat(product.rating) || 0,
+      reviews: product.reviewsCount || 0,
+      badge: product.isFeatured ? 'Destacado' : null,
+      featured: product.isFeatured,
+      discountPercentage: product.getDiscountPercentage()
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedProducts
+    });
+  } catch (error) {
+    console.error('Error al obtener productos destacados:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener productos destacados',
+      error: error.message
+    });
+  }
+}
+
 
   // Dashboard de tienda
   async getStoreDashboard(req, res) {

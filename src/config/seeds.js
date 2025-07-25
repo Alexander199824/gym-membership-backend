@@ -75,6 +75,42 @@ const createGymConfiguration = async () => {
     await MembershipPlans.seedDefaultPlans();
     console.log('   ✅ Planes de membresía por defecto creados');
     
+    // ✅ NUEVOS: Crear contenido dinámico por defecto
+    const { 
+      GymTestimonials, 
+      GymSocialMedia, 
+      GymSectionsContent, 
+      GymNavigation, 
+      GymPromotionalContent, 
+      GymFormsConfig, 
+      GymSystemMessages, 
+      GymBrandingConfig 
+    } = require('../models');
+    
+    await GymTestimonials.seedDefaultTestimonials();
+    console.log('   ✅ Testimonios por defecto creados');
+    
+    await GymSocialMedia.seedDefaultSocialMedia();
+    console.log('   ✅ Redes sociales por defecto creadas');
+    
+    await GymSectionsContent.seedDefaultContent();
+    console.log('   ✅ Contenido de secciones por defecto creado');
+    
+    await GymNavigation.seedDefaultNavigation();
+    console.log('   ✅ Navegación por defecto creada');
+    
+    await GymPromotionalContent.seedDefaultPromotionalContent();
+    console.log('   ✅ Contenido promocional por defecto creado');
+    
+    await GymFormsConfig.seedDefaultFormsConfig();
+    console.log('   ✅ Configuración de formularios por defecto creada');
+    
+    await GymSystemMessages.seedDefaultSystemMessages();
+    console.log('   ✅ Mensajes del sistema por defecto creados');
+    
+    await GymBrandingConfig.seedDefaultBrandingConfig();
+    console.log('   ✅ Configuración de branding por defecto creada');
+    
     console.log('✅ Configuración del gimnasio completada');
     
   } catch (error) {
