@@ -1,4 +1,4 @@
-// src/models/GymTestimonials.js
+// src/models/GymTestimonials.js 
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -32,7 +32,7 @@ const GymTestimonials = sequelize.define('GymTestimonials', {
       max: 5
     }
   },
-  // ✅ Imagen del cliente
+  // ✅ Imagen del cliente (Cloudinary URL)
   imageUrl: {
     type: DataTypes.STRING(500),
     allowNull: true,
@@ -92,7 +92,7 @@ GymTestimonials.getFeaturedTestimonials = async function(limit = 3) {
   });
 };
 
-// ✅ Método estático para crear testimonios por defecto
+// ✅ Método estático para crear testimonios por defecto SIN IMÁGENES (vacías)
 GymTestimonials.seedDefaultTestimonials = async function() {
   const defaultTestimonials = [
     {
@@ -100,6 +100,7 @@ GymTestimonials.seedDefaultTestimonials = async function() {
       role: 'Empresaria',
       text: 'Elite Fitness cambió mi vida completamente. Los entrenadores son excepcionales y las instalaciones de primera clase. He logrado mis objetivos de fitness más rápido de lo que imaginé.',
       rating: 5,
+      imageUrl: '', // Vacío por defecto, se actualizará cuando admin suba imagen
       isFeatured: true,
       displayOrder: 1
     },
@@ -108,6 +109,7 @@ GymTestimonials.seedDefaultTestimonials = async function() {
       role: 'Ingeniero',
       text: 'Después de años buscando el gimnasio perfecto, finalmente lo encontré. La variedad de equipos y clases es impresionante. Totalmente recomendado.',
       rating: 5,
+      imageUrl: '', // Vacío por defecto
       isFeatured: true,
       displayOrder: 2
     },
@@ -116,6 +118,7 @@ GymTestimonials.seedDefaultTestimonials = async function() {
       role: 'Doctora',
       text: 'Como médico, aprecio la limpieza y profesionalismo de Elite Fitness. Es un lugar donde realmente puedes enfocarte en tu salud y bienestar.',
       rating: 5,
+      imageUrl: '', // Vacío por defecto
       isFeatured: true,
       displayOrder: 3
     },
@@ -124,6 +127,7 @@ GymTestimonials.seedDefaultTestimonials = async function() {
       role: 'Contador',
       text: 'La atención personalizada y los planes de entrenamiento han sido clave para mi progreso. Excelente relación calidad-precio.',
       rating: 5,
+      imageUrl: '', // Vacío por defecto
       displayOrder: 4
     },
     {
@@ -131,6 +135,7 @@ GymTestimonials.seedDefaultTestimonials = async function() {
       role: 'Estudiante',
       text: 'Me encanta la energía del lugar y la motivación de los entrenadores. He ganado mucha confianza en mí misma.',
       rating: 5,
+      imageUrl: '', // Vacío por defecto
       displayOrder: 5
     }
   ];

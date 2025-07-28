@@ -1,4 +1,5 @@
-// src/routes/membershipRoutes.js
+// src/routes/membershipRoutes.js - CORREGIDO con endpoint de planes
+
 const express = require('express');
 const membershipController = require('../controllers/membershipController');
 const { 
@@ -9,6 +10,12 @@ const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
 
 const router = express.Router();
+
+// ✅ RUTAS PÚBLICAS
+// Obtener planes de membresía (formato específico para frontend)
+router.get('/plans', membershipController.getMembershipPlans);
+
+// ✅ RUTAS QUE REQUIEREN AUTENTICACIÓN
 
 // Obtener todas las membresías
 router.get('/', 
@@ -80,10 +87,6 @@ router.post('/:id/cancel',
 router.patch('/:id/schedule', 
   authenticateToken,
   membershipController.updateSchedule
-);
-
-router.get('/plans', 
-  membershipController.getMembershipPlans
 );
 
 module.exports = router;

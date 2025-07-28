@@ -1,4 +1,4 @@
-// src/models/GymSectionsContent.js
+// src/models/GymSectionsContent.js 
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -86,13 +86,19 @@ GymSectionsContent.getAllSectionsContent = async function() {
   return result;
 };
 
-// ✅ Método estático para crear contenido por defecto
+// ✅ Método estático para crear contenido por defecto CON URLS DE MEDIOS
 GymSectionsContent.seedDefaultContent = async function() {
   const defaultContent = [
     // HERO SECTION
     { section: 'hero', contentKey: 'title', contentValue: 'Bienvenido a Elite Fitness Club', contentType: 'text' },
     { section: 'hero', contentKey: 'subtitle', contentValue: 'Transforma tu cuerpo, eleva tu mente', contentType: 'text' },
     { section: 'hero', contentKey: 'description', contentValue: 'El mejor gimnasio de Guatemala con equipos de última generación y entrenadores certificados', contentType: 'text' },
+    
+    // ✅ URLs de imagen y video hero (vacías por defecto, se llenan cuando admin sube contenido)
+    { section: 'hero', contentKey: 'imageUrl', contentValue: '', contentType: 'text' },
+    { section: 'hero', contentKey: 'videoUrl', contentValue: '', contentType: 'text' },
+    { section: 'hero', contentKey: 'ctaText', contentValue: 'Comienza Hoy', contentType: 'text' },
+    
     { 
       section: 'hero', 
       contentKey: 'ctaButtons', 

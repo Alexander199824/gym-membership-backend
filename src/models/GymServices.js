@@ -1,4 +1,4 @@
-// src/models/GymServices.js
+// src/models/GymServices.js - COMPLETO con campo imageUrl
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -23,6 +23,12 @@ const GymServices = sequelize.define('GymServices', {
     allowNull: false,
     defaultValue: 'dumbbell',
     field: 'icon_name'
+  },
+  // ✅ NUEVO: URL de imagen del servicio (Cloudinary)
+  imageUrl: {
+    type: DataTypes.STRING(500),
+    allowNull: true,
+    field: 'image_url'
   },
   // ✅ Características del servicio (array JSON)
   features: {
@@ -64,13 +70,14 @@ GymServices.getActiveServices = async function() {
   });
 };
 
-// ✅ Método estático para crear servicios por defecto
+// ✅ Método estático para crear servicios por defecto CON IMÁGENES
 GymServices.seedDefaultServices = async function() {
   const defaultServices = [
     {
       title: 'Entrenamiento Personal',
       description: 'Sesiones individualizadas con entrenadores certificados para maximizar tus resultados.',
       iconName: 'user-check',
+      imageUrl: '', // Vacío por defecto, se actualizará cuando el admin suba imagen
       features: ['Entrenadores certificados', 'Plan personalizado', 'Seguimiento constante', 'Resultados garantizados'],
       displayOrder: 1
     },
@@ -78,6 +85,7 @@ GymServices.seedDefaultServices = async function() {
       title: 'Clases Grupales',
       description: 'Entrenamientos dinámicos en grupo para motivarte y socializar mientras te ejercitas.',
       iconName: 'users',
+      imageUrl: '', // Vacío por defecto
       features: ['Yoga y Pilates', 'CrossFit', 'Zumba', 'Spinning'],
       displayOrder: 2
     },
@@ -85,6 +93,7 @@ GymServices.seedDefaultServices = async function() {
       title: 'Zona de Cardio',
       description: 'Equipos cardiovasculares de última generación para mejorar tu resistencia.',
       iconName: 'heart',
+      imageUrl: '', // Vacío por defecto
       features: ['Caminadoras modernas', 'Bicicletas estáticas', 'Elípticas', 'Monitores cardíacos'],
       displayOrder: 3
     },
@@ -92,6 +101,7 @@ GymServices.seedDefaultServices = async function() {
       title: 'Área de Pesas',
       description: 'Zona completa de musculación con pesas libres y máquinas profesionales.',
       iconName: 'dumbbell',
+      imageUrl: '', // Vacío por defecto
       features: ['Pesas libres', 'Máquinas profesionales', 'Área funcional', 'Asesoría técnica'],
       displayOrder: 4
     }

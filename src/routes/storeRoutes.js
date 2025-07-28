@@ -1,4 +1,5 @@
-// src/routes/storeRoutes.js
+// src/routes/storeRoutes.js - CORREGIDO con endpoint getFeaturedProducts
+
 const express = require('express');
 const storeController = require('../controllers/storeController');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
@@ -12,6 +13,9 @@ const router = express.Router();
 router.get('/products', storeController.getProducts);
 router.get('/products/featured', storeController.getFeaturedProducts);
 router.get('/products/:id', storeController.getProductById);
+
+// ✅ NUEVO: Endpoint específico para el frontend
+router.get('/featured-products', storeController.getFeaturedProducts);
 
 // Categorías y marcas
 router.get('/categories', storeController.getCategories);

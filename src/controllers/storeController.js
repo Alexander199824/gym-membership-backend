@@ -852,7 +852,8 @@ class StoreController {
     }
   }
 
-  // ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend
+  // ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend  
+
 async getFeaturedProducts(req, res) {
   try {
     const limit = parseInt(req.query.limit) || 8;
@@ -867,11 +868,16 @@ async getFeaturedProducts(req, res) {
       originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
       images: product.images && product.images.length > 0 ? 
         product.images.map(img => ({
-          url: img.imageUrl,
+          url: img.imageUrl || "", // Usar URL de BD (vacía por defecto)
           alt: img.altText || product.name,
           isPrimary: img.isPrimary,
           cloudinaryPublicId: img.imageUrl ? img.imageUrl.split('/').pop().split('.')[0] : ""
-        })) : [],
+        })) : [{
+          url: "", // Vacío por defecto
+          alt: product.name,
+          isPrimary: true,
+          cloudinaryPublicId: ""
+        }],
       category: product.category ? product.category.slug : 'otros',
       brand: product.brand ? product.brand.name : null,
       rating: parseFloat(product.rating) || 0,
@@ -903,6 +909,61 @@ async getFeaturedProducts(req, res) {
 }
 
 
+
+// ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend
+async getFeaturedProducts(req, res) {
+  try {
+    const limit = parseInt(req.query.limit) || 8;
+    const products = await StoreProduct.getFeaturedProducts(limit);
+    
+    // ✅ Formatear productos según especificación del frontend
+    const formattedProducts = products.map(product => ({
+      id: product.id,
+      name: product.name,
+      description: product.description,
+      price: parseFloat(product.price),
+      originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
+      images: product.images && product.images.length > 0 ? 
+        product.images.map(img => ({
+          url: img.imageUrl || `https://res.cloudinary.com/demo/image/upload/c_fill,w_800,h_800/v1234567890/products/product-${product.id}-${img.id}.jpg`,
+          alt: img.altText || product.name,
+          isPrimary: img.isPrimary,
+          cloudinaryPublicId: img.imageUrl ? img.imageUrl.split('/').pop().split('.')[0] : `product-${product.id}-${img.id}`
+        })) : [{
+          url: `https://res.cloudinary.com/demo/image/upload/c_fill,w_800,h_800/v1234567890/products/product-${product.id}-default.jpg`,
+          alt: product.name,
+          isPrimary: true,
+          cloudinaryPublicId: `product-${product.id}-default`
+        }],
+      category: product.category ? product.category.slug : 'otros',
+      brand: product.brand ? product.brand.name : null,
+      rating: parseFloat(product.rating) || 0,
+      reviews: product.reviewsCount || 0,
+      features: [], // Se puede expandir después
+      inStock: product.isInStock(),
+      stock: product.stockQuantity,
+      badge: product.isFeatured ? 'Más Vendido' : null,
+      variants: {
+        flavors: [], // Se puede expandir después
+        sizes: []    // Se puede expandir después
+      },
+      featured: product.isFeatured,
+      discountPercentage: product.getDiscountPercentage()
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedProducts
+    });
+  } catch (error) {
+    console.error('Error al obtener productos destacados:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener productos destacados',
+      error: error.message
+    });
+  }
+}
   // Dashboard de tienda
   async getStoreDashboard(req, res) {
     try {
@@ -1001,5 +1062,7 @@ async getFeaturedProducts(req, res) {
     }
   }
 }
+
+
 
 module.exports = new StoreController();

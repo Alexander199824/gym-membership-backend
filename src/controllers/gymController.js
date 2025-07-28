@@ -31,65 +31,72 @@ class GymController {
     this.getGymInfo = this.getGymInfo.bind(this);
     this.updateConfiguration = this.updateConfiguration.bind(this);
     this.initializeDefaultData = this.initializeDefaultData.bind(this);
+    
+    // ✅ MÉTODOS que estaban causando el error "undefined"
+    this.getContactInfo = this.getContactInfo.bind(this);
+    this.getHours = this.getHours.bind(this);
+    this.getMembershipPlans = this.getMembershipPlans.bind(this);
   }
 
-  // ✅ NUEVO: Endpoint principal /api/gym/config (formato esperado por frontend)
-  async getGymConfig(req, res) {
-    try {
-      const [
-        configuration,
-        contactInfo,
-        hours,
-        socialMedia
-      ] = await Promise.all([
-        GymConfiguration.getConfig(),
-        GymContactInfo.getContactInfo(),
-        GymHours.getWeeklySchedule(),
-        GymSocialMedia.getSocialMediaObject()
-      ]);
+ // En tu gymController.js - Método getGymConfig CORREGIDO
 
-      // ✅ Formatear respuesta según especificación del frontend
-      const response = {
-        name: configuration.gymName,
-        description: configuration.gymDescription,
-        tagline: configuration.gymTagline,
-        logo: {
-          url: configuration.logoUrl || '',
-          alt: `${configuration.gymName} Logo`,
-          width: 200,
-          height: 80
-        },
-        contact: {
-          address: contactInfo.address || '',
-          phone: contactInfo.phone || '',
-          email: contactInfo.email || '',
-          whatsapp: contactInfo.phone || ''
-        },
-        hours: {
-          full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
-          weekdays: "5:00-22:00",
-          weekends: "6:00-20:00"
-        },
-        social: socialMedia
-      };
+async getGymConfig(req, res) {
+  try {
+    const [
+      configuration,
+      contactInfo,
+      hours,
+      socialMedia
+    ] = await Promise.all([
+      GymConfiguration.getConfig(),
+      GymContactInfo.getContactInfo(),
+      GymHours.getWeeklySchedule(),
+      GymSocialMedia.getSocialMediaObject()
+    ]);
 
-      res.json({
-        success: true,
-        data: response,
-        message: "Configuración obtenida exitosamente",
-        timestamp: new Date().toISOString()
-      });
-    } catch (error) {
-      console.error('Error en getGymConfig:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al obtener configuración del gym',
-        error: error.message
-      });
-    }
+    // ✅ CORREGIDO: Proveer URL de logo válida o vacía
+    const logoUrl = configuration.logoUrl || ''; // No usar favicon.ico
+
+    const response = {
+      name: configuration.gymName,
+      description: configuration.gymDescription,
+      tagline: configuration.gymTagline,
+      logo: {
+        url: logoUrl, // ✅ Si está vacío, frontend usará placeholder
+        alt: `${configuration.gymName} Logo`,
+        width: 200,
+        height: 80
+      },
+      contact: {
+        address: contactInfo.address || '',
+        phone: contactInfo.phone || '',
+        email: contactInfo.email || '',
+        whatsapp: contactInfo.phone || ''
+      },
+      hours: {
+        full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
+        weekdays: "5:00-22:00",
+        weekends: "6:00-20:00"
+      },
+      social: socialMedia
+    };
+
+    res.json({
+      success: true,
+      data: response,
+      message: "Configuración obtenida exitosamente",
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error en getGymConfig:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener configuración del gym',
+      error: error.message
+    });
   }
-
-  // ✅ NUEVO: Endpoint /api/content/landing (contenido de la landing page)
+}
+  // ✅ ENDPOINT: /api/content/landing (contenido de la landing page)
   async getLandingContent(req, res) {
     try {
       const sectionsContent = await GymSectionsContent.getAllSectionsContent();
@@ -130,7 +137,7 @@ class GymController {
     }
   }
 
-  // ✅ NUEVO: Endpoint /api/gym/services (formato esperado por frontend)
+  // ✅ ENDPOINT: /api/gym/services (formato esperado por frontend)
   async getServices(req, res) {
     try {
       const services = await GymServices.getActiveServices();
@@ -140,7 +147,7 @@ class GymController {
         title: service.title,
         description: service.description,
         icon: service.iconName,
-        imageUrl: "", // Por ahora vacío, se puede agregar después
+        imageUrl: service.imageUrl || "", // Usar la URL de la BD (vacía por defecto)
         features: service.features || [],
         active: service.isActive,
         order: service.displayOrder
@@ -160,7 +167,7 @@ class GymController {
     }
   }
 
-  // ✅ NUEVO: Endpoint /api/gym/testimonials (formato esperado por frontend)
+  // ✅ ENDPOINT: /api/gym/testimonials (formato esperado por frontend)
   async getTestimonials(req, res) {
     try {
       const testimonials = await GymTestimonials.getActiveTestimonials();
@@ -172,7 +179,7 @@ class GymController {
         text: testimonial.text,
         rating: testimonial.rating,
         image: {
-          url: testimonial.imageUrl || "",
+          url: testimonial.imageUrl || "", // Usar la URL de la BD (vacía por defecto)
           alt: testimonial.name,
           cloudinaryPublicId: testimonial.imageUrl ? testimonial.imageUrl.split('/').pop().split('.')[0] : ""
         },
@@ -195,7 +202,7 @@ class GymController {
     }
   }
 
-  // ✅ NUEVO: Endpoint /api/gym/stats (formato esperado por frontend)
+  // ✅ ENDPOINT: /api/gym/stats (formato esperado por frontend)
   async getStatistics(req, res) {
     try {
       const statistics = await GymStatistics.getActiveStats();
@@ -250,7 +257,7 @@ class GymController {
     }
   }
 
-  // ✅ NUEVO: Endpoint /api/branding/theme (configuración de branding)
+  // ✅ ENDPOINT: /api/branding/theme (configuración de branding)
   async getBrandingTheme(req, res) {
     try {
       const branding = await GymBrandingConfig.getAllBrandingConfig();
@@ -293,7 +300,7 @@ class GymController {
     }
   }
 
-  // ✅ NUEVO: Endpoint /api/promotions/active (promociones activas)
+  // ✅ ENDPOINT: /api/promotions/active (promociones activas)
   async getActivePromotions(req, res) {
     try {
       const promotions = await GymPromotionalContent.getAllActivePromotionalContent();
@@ -334,7 +341,107 @@ class GymController {
     }
   }
 
-  // ✅ Obtener información completa del gym (endpoint existente mejorado)
+  // ✅ MÉTODOS que estaban causando el error "undefined" - CORREGIDOS
+
+  // Información de contacto
+  async getContactInfo(req, res) {
+    try {
+      const contactInfo = await GymContactInfo.getContactInfo();
+      
+      res.json({
+        success: true,
+        data: {
+          phone: contactInfo.phone,
+          email: contactInfo.email,
+          address: contactInfo.address,
+          whatsapp: contactInfo.phone,
+          location: {
+            lat: contactInfo.latitude || 14.599512,
+            lng: contactInfo.longitude || -90.513843,
+            mapsUrl: contactInfo.mapsUrl
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener información de contacto:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener información de contacto',
+        error: error.message
+      });
+    }
+  }
+
+  // Horarios del gimnasio
+  async getHours(req, res) {
+    try {
+      const hours = await GymHours.getWeeklySchedule();
+      const isOpenNow = await GymHours.isOpenNow();
+      
+      res.json({
+        success: true,
+        data: {
+          weeklySchedule: hours,
+          isOpenNow,
+          summary: {
+            weekday: "Lunes a Viernes: 5:00 AM - 10:00 PM",
+            weekend: "Sábados y Domingos: 6:00 AM - 8:00 PM",
+            full: "Lun-Vie: 5AM-10PM | Sáb-Dom: 6AM-8PM"
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener horarios:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener horarios',
+        error: error.message
+      });
+    }
+  }
+
+  // Planes de membresía (formato correcto para el frontend)
+  async getMembershipPlans(req, res) {
+    try {
+      const plans = await MembershipPlans.getActivePlans();
+      
+      // ✅ Formatear planes según especificación del frontend
+      const formattedPlans = plans.map(plan => ({
+        id: plan.id,
+        name: plan.planName,
+        price: parseFloat(plan.price),
+        originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
+        currency: 'GTQ',
+        duration: plan.durationType === 'monthly' ? 'mes' : 
+                  plan.durationType === 'daily' ? 'día' : 'año',
+        popular: plan.isPopular,
+        iconName: plan.iconName,
+        color: '#3b82f6',
+        features: plan.features || [],
+        benefits: plan.features ? plan.features.map(feature => ({
+          text: feature,
+          included: true
+        })) : [],
+        active: plan.isActive,
+        order: plan.displayOrder,
+        discountPercentage: plan.getDiscountPercentage()
+      }));
+      
+      res.json({
+        success: true,
+        data: formattedPlans
+      });
+    } catch (error) {
+      console.error('Error al obtener planes de membresía:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener planes de membresía',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ Obtener información completa del gym
   async getGymInfo(req, res) {
     try {
       const [
@@ -367,7 +474,7 @@ class GymController {
 
       const isOpenNow = await GymHours.isOpenNow();
 
-      // ✅ Formatear respuesta completa
+      // ✅ Formatear respuesta completa con URLs de BD
       const response = {
         configuration: {
           name: configuration.gymName,
@@ -395,14 +502,30 @@ class GymController {
           }
         },
         statistics,
-        services,
+        services: services.map(service => ({
+          ...service.toJSON(),
+          imageUrl: service.imageUrl || "" // Usar URL de BD (vacía por defecto)
+        })),
         membershipPlans: membershipPlans.map(plan => ({
           ...plan.toJSON(),
           discountPercentage: plan.getDiscountPercentage()
         })),
-        testimonials,
+        testimonials: testimonials.map(testimonial => ({
+          ...testimonial.toJSON(),
+          image: {
+            url: testimonial.imageUrl || "", // Usar URL de BD (vacía por defecto)
+            alt: testimonial.name
+          }
+        })),
         socialMedia,
-        sectionsContent,
+        sectionsContent: {
+          ...sectionsContent,
+          hero: {
+            ...sectionsContent.hero,
+            imageUrl: sectionsContent.hero?.imageUrl || "", // URL de BD
+            videoUrl: sectionsContent.hero?.videoUrl || ""  // URL de BD
+          }
+        },
         navigation,
         promotionalContent,
         branding,
@@ -424,7 +547,7 @@ class GymController {
     }
   }
 
-  // ✅ Mantener métodos administrativos existentes
+  // ✅ Actualizar configuración
   async updateConfiguration(req, res) {
     try {
       const {

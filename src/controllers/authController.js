@@ -274,135 +274,148 @@ async googleCallback(req, res) {
     }
   }
 
-  // Obtener perfil del usuario actual
-  async getProfile(req, res) {
-    try {
-      const user = await User.findByPk(req.user.id, {
-        include: [
-          {
-            association: 'memberships',
-            limit: 1,
-            order: [['createdAt', 'DESC']]
-          }
-        ]
-      });
+ // Obtener perfil del usuario actual
+async getProfile(req, res) {
+  try {
+    const user = await User.findByPk(req.user.id, {
+      include: [
+        {
+          association: 'memberships',
+          limit: 1,
+          order: [['createdAt', 'DESC']]
+        }
+      ]
+    });
 
-      res.json({
-        success: true,
-        data: { user: user.toJSON() }
-      });
-    } catch (error) {
-      console.error('Error al obtener perfil:', error);
-      res.status(500).json({
+    // ✅ Formatear usuario con imagen de perfil (vacía por defecto)
+    const userResponse = {
+      ...user.toJSON(),
+      profileImage: user.profileImage || '' // Vacía por defecto
+    };
+
+    res.json({
+      success: true,
+      data: { user: userResponse }
+    });
+  } catch (error) {
+    console.error('Error al obtener perfil:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener perfil',
+      error: error.message
+    });
+  }
+}
+
+ // Actualizar perfil
+async updateProfile(req, res) {
+  try {
+    const {
+      firstName,
+      lastName,
+      phone,
+      whatsapp,
+      dateOfBirth,
+      emergencyContact,
+      notificationPreferences
+    } = req.body;
+
+    const user = req.user;
+
+    // Actualizar campos permitidos
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (phone) user.phone = phone;
+    if (whatsapp) user.whatsapp = whatsapp;
+    if (dateOfBirth) user.dateOfBirth = dateOfBirth;
+    if (emergencyContact) user.emergencyContact = emergencyContact;
+    if (notificationPreferences) {
+      user.notificationPreferences = {
+        ...user.notificationPreferences,
+        ...notificationPreferences
+      };
+    }
+
+    await user.save();
+
+    // ✅ Formatear respuesta con imagen de perfil (vacía por defecto)
+    const userResponse = {
+      ...user.toJSON(),
+      profileImage: user.profileImage || '' // Vacía por defecto
+    };
+
+    res.json({
+      success: true,
+      message: 'Perfil actualizado exitosamente',
+      data: { user: userResponse }
+    });
+  } catch (error) {
+    console.error('Error al actualizar perfil:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al actualizar perfil',
+      error: error.message
+    });
+  }
+}
+
+
+ // ✅ Subir imagen de perfil
+async uploadProfileImage(req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
         success: false,
-        message: 'Error al obtener perfil',
-        error: error.message
+        message: 'No se recibió ningún archivo'
       });
     }
-  }
 
-  // Actualizar perfil
-  async updateProfile(req, res) {
-    try {
-      const {
-        firstName,
-        lastName,
-        phone,
-        whatsapp,
-        dateOfBirth,
-        emergencyContact,
-        notificationPreferences
-      } = req.body;
+    const user = req.user;
+    const oldProfileImage = user.profileImage;
+    
+    // ✅ Actualizar URL de la imagen de perfil (Cloudinary)
+    user.profileImage = req.file.path || req.file.location;
+    await user.save();
 
-      const user = req.user;
-
-      // Actualizar campos permitidos
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
-      if (phone) user.phone = phone;
-      if (whatsapp) user.whatsapp = whatsapp;
-      if (dateOfBirth) user.dateOfBirth = dateOfBirth;
-      if (emergencyContact) user.emergencyContact = emergencyContact;
-      if (notificationPreferences) {
-        user.notificationPreferences = {
-          ...user.notificationPreferences,
-          ...notificationPreferences
-        };
+    // ✅ Si tenía imagen anterior y Cloudinary está configurado, intentar eliminarla
+    if (oldProfileImage && process.env.CLOUDINARY_CLOUD_NAME) {
+      try {
+        const { deleteFile } = require('../config/cloudinary');
+        
+        // ✅ Extraer public_id de la URL de Cloudinary
+        const publicIdMatch = oldProfileImage.match(/\/([^\/]+)\.[^\.]+$/);
+        if (publicIdMatch) {
+          const publicId = `gym/profile-images/${publicIdMatch[1]}`;
+          await deleteFile(publicId);
+        }
+      } catch (deleteError) {
+        console.warn('⚠️ No se pudo eliminar imagen anterior:', deleteError.message);
       }
-
-      await user.save();
-
-      res.json({
-        success: true,
-        message: 'Perfil actualizado exitosamente',
-        data: { user: user.toJSON() }
-      });
-    } catch (error) {
-      console.error('Error al actualizar perfil:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al actualizar perfil',
-        error: error.message
-      });
     }
-  }
 
-  // ✅ Subir imagen de perfil (sin cambios)
-  async uploadProfileImage(req, res) {
-    try {
-      if (!req.file) {
-        return res.status(400).json({
-          success: false,
-          message: 'No se recibió ningún archivo'
-        });
-      }
-
-      const user = req.user;
-      const oldProfileImage = user.profileImage;
-      
-      // ✅ Actualizar URL de la imagen de perfil
-      user.profileImage = req.file.path || req.file.location;
-      await user.save();
-
-      // ✅ Si tenía imagen anterior y Cloudinary está configurado, intentar eliminarla
-      if (oldProfileImage && process.env.CLOUDINARY_CLOUD_NAME) {
-        try {
-          const { deleteFile } = require('../config/cloudinary');
-          
-          // ✅ Extraer public_id de la URL de Cloudinary
-          const publicIdMatch = oldProfileImage.match(/\/([^\/]+)\.[^\.]+$/);
-          if (publicIdMatch) {
-            const publicId = `gym/profile-images/${publicIdMatch[1]}`;
-            await deleteFile(publicId);
-          }
-        } catch (deleteError) {
-          console.warn('⚠️ No se pudo eliminar imagen anterior:', deleteError.message);
+    res.json({
+      success: true,
+      message: 'Imagen de perfil actualizada exitosamente',
+      data: {
+        profileImage: user.profileImage,
+        user: {
+          id: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          profileImage: user.profileImage || '' // Asegurar que nunca sea null
         }
       }
-
-      res.json({
-        success: true,
-        message: 'Imagen de perfil actualizada exitosamente',
-        data: {
-          profileImage: user.profileImage,
-          user: {
-            id: user.id,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            profileImage: user.profileImage
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Error al subir imagen de perfil:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al subir imagen de perfil',
-        error: error.message
-      });
-    }
+    });
+  } catch (error) {
+    console.error('Error al subir imagen de perfil:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al subir imagen de perfil',
+      error: error.message
+    });
   }
+}
 
   // Cambiar contraseña
   async changePassword(req, res) {

@@ -1,4 +1,5 @@
-// src/routes/gymRoutes.js - ACTUALIZADO: Nuevos endpoints específicos para el frontend
+// src/routes/gymRoutes.js - CORREGIDO: Sin métodos undefined
+
 const express = require('express');
 const gymController = require('../controllers/gymController');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
@@ -10,13 +11,13 @@ const router = express.Router();
 // Endpoint principal con toda la información básica
 router.get('/info', gymController.getGymInfo);
 
-// ✅ NUEVOS ENDPOINTS específicos que el frontend espera
+// ✅ ENDPOINTS específicos que el frontend espera
 router.get('/config', gymController.getGymConfig);           // GET /api/gym/config
 router.get('/services', gymController.getServices);         // GET /api/gym/services  
 router.get('/testimonials', gymController.getTestimonials); // GET /api/gym/testimonials
 router.get('/stats', gymController.getStatistics);          // GET /api/gym/stats
 
-// ✅ Endpoints existentes mantenidos
+// ✅ Endpoints existentes CORREGIDOS (ahora estos métodos existen)
 router.get('/contact', gymController.getContactInfo);
 router.get('/hours', gymController.getHours);
 router.get('/plans', gymController.getMembershipPlans);
@@ -75,6 +76,8 @@ router.get('/sections-content', (req, res) => {
         title: 'Bienvenido a Elite Fitness Club',
         subtitle: 'Transforma tu cuerpo, eleva tu mente',
         description: 'El mejor gimnasio de Guatemala',
+        imageUrl: '', // Vacío por defecto
+        videoUrl: '', // Vacío por defecto
         ctaButtons: [
           {
             text: 'Primera Semana GRATIS',

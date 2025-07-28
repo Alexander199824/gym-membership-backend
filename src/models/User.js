@@ -1,4 +1,4 @@
-// src/models/User.js
+// src/models/User.js - COMPLETO con profileImage vacía por defecto
 const { DataTypes } = require('sequelize');
 const bcrypt = require('bcryptjs');
 const { sequelize } = require('../config/database');
@@ -56,9 +56,11 @@ const User = sequelize.define('User', {
     allowNull: true,
     unique: true
   },
+  // ✅ Campo para imagen de perfil - VACÍO POR DEFECTO
   profileImage: {
     type: DataTypes.TEXT,
-    allowNull: true // URL de Cloudinary
+    allowNull: true,
+    defaultValue: null // NULL por defecto, se actualiza cuando el usuario sube imagen
   },
   role: {
     type: DataTypes.ENUM('admin', 'colaborador', 'cliente'),
@@ -146,9 +148,18 @@ User.prototype.getFullName = function() {
   return `${this.firstName} ${this.lastName}`;
 };
 
+// ✅ Método para obtener imagen de perfil (vacía por defecto)
+User.prototype.getProfileImageUrl = function() {
+  return this.profileImage || ''; // Devuelve vacío si no hay imagen
+};
+
 User.prototype.toJSON = function() {
   const values = { ...this.get() };
   delete values.password;
+  
+  // ✅ Asegurar que profileImage esté presente (vacía si es null)
+  values.profileImage = values.profileImage || '';
+  
   return values;
 };
 
