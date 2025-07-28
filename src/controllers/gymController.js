@@ -1,4 +1,5 @@
 // src/controllers/gymController.js - ACTUALIZADO: Respuestas exactas para el frontend
+
 const { 
   GymConfiguration, 
   GymContactInfo, 
@@ -18,6 +19,19 @@ const {
 } = require('../models');
 
 class GymController {
+  constructor() {
+    // ✅ BINDEAR todos los métodos al contexto de la clase
+    this.getGymConfig = this.getGymConfig.bind(this);
+    this.getLandingContent = this.getLandingContent.bind(this);
+    this.getServices = this.getServices.bind(this);
+    this.getTestimonials = this.getTestimonials.bind(this);
+    this.getStatistics = this.getStatistics.bind(this);
+    this.getBrandingTheme = this.getBrandingTheme.bind(this);
+    this.getActivePromotions = this.getActivePromotions.bind(this);
+    this.getGymInfo = this.getGymInfo.bind(this);
+    this.updateConfiguration = this.updateConfiguration.bind(this);
+    this.initializeDefaultData = this.initializeDefaultData.bind(this);
+  }
 
   // ✅ NUEVO: Endpoint principal /api/gym/config (formato esperado por frontend)
   async getGymConfig(req, res) {
@@ -320,9 +334,7 @@ class GymController {
     }
   }
 
-  // ✅ Mantener métodos existentes pero adaptados
-
-  // Obtener información completa del gym (endpoint existente mejorado)
+  // ✅ Obtener información completa del gym (endpoint existente mejorado)
   async getGymInfo(req, res) {
     try {
       const [
