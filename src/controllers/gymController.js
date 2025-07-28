@@ -38,8 +38,7 @@ class GymController {
     this.getMembershipPlans = this.getMembershipPlans.bind(this);
   }
 
- // En tu gymController.js - Método getGymConfig CORREGIDO
-
+ 
 async getGymConfig(req, res) {
   try {
     const [

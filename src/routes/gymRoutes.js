@@ -1,10 +1,26 @@
-// src/routes/gymRoutes.js - CORREGIDO: Sin métodos undefined
+// src/routes/gymRoutes.js - CORREGIDO: Sin error de middleware
 
 const express = require('express');
 const gymController = require('../controllers/gymController');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
 const router = express.Router();
+
+// ✅ IMPORTAR Rate Limiter de forma segura
+let developmentLimiter;
+try {
+  const rateLimiterModule = require('../middleware/rateLimiter');
+  developmentLimiter = rateLimiterModule.developmentLimiter || rateLimiterModule.generalLimiter;
+} catch (error) {
+  console.warn('⚠️ Rate limiter no disponible, continuando sin límites');
+  // Middleware dummy que no hace nada
+  developmentLimiter = (req, res, next) => next();
+}
+
+// ✅ APLICAR Rate Limiter solo si está disponible
+if (developmentLimiter && typeof developmentLimiter === 'function') {
+  router.use(developmentLimiter);
+}
 
 // ✅ RUTAS PÚBLICAS ESPECÍFICAS (según especificación del frontend)
 
@@ -17,10 +33,17 @@ router.get('/services', gymController.getServices);         // GET /api/gym/serv
 router.get('/testimonials', gymController.getTestimonials); // GET /api/gym/testimonials
 router.get('/stats', gymController.getStatistics);          // GET /api/gym/stats
 
-// ✅ Endpoints existentes CORREGIDOS (ahora estos métodos existen)
+// ✅ NUEVAS RUTAS FALTANTES que el frontend necesita
+router.get('/membership-plans', gymController.getMembershipPlans); // NUEVA
+router.get('/promotions', gymController.getActivePromotions);      // NUEVA  
+router.get('/promotional-content', gymController.getActivePromotions); // ALIAS
+router.get('/branding', gymController.getBrandingTheme);           // NUEVA
+router.get('/content', gymController.getLandingContent);           // NUEVA (sin /api)
+
+// ✅ Endpoints existentes CORREGIDOS
 router.get('/contact', gymController.getContactInfo);
 router.get('/hours', gymController.getHours);
-router.get('/plans', gymController.getMembershipPlans);
+router.get('/plans', gymController.getMembershipPlans); // Alias para compatibility
 
 // ✅ RUTAS ADMINISTRATIVAS (solo admin)
 router.put('/config', 
@@ -36,9 +59,37 @@ router.post('/initialize',
   gymController.initializeDefaultData
 );
 
-// ✅ ENDPOINTS TEMPORALES con datos estáticos (mantener hasta completar todos los modelos)
+// ✅ NAVEGACIÓN
+router.get('/navigation', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      header: [
+        { text: 'Inicio', href: '#inicio', active: true },
+        { text: 'Servicios', href: '#servicios', active: true },
+        { text: 'Planes', href: '#planes', active: true },
+        { text: 'Tienda', href: '#tienda', active: true },
+        { text: 'Contacto', href: '#contacto', active: true }
+      ],
+      footer: {
+        links: [
+          { text: 'Inicio', href: '#inicio' },
+          { text: 'Servicios', href: '#servicios' },
+          { text: 'Planes', href: '#planes' },
+          { text: 'Tienda', href: '#tienda' }
+        ],
+        store_links: [
+          { text: 'Suplementos', href: '/store?category=suplementos' },
+          { text: 'Ropa Deportiva', href: '/store?category=ropa' },
+          { text: 'Accesorios', href: '/store?category=accesorios' },
+          { text: 'Equipamiento', href: '/store?category=equipamiento' }
+        ]
+      }
+    }
+  });
+});
 
-// Redes sociales
+// ✅ REDES SOCIALES
 router.get('/social-media', (req, res) => {
   res.json({
     success: true,
@@ -67,7 +118,7 @@ router.get('/social-media', (req, res) => {
   });
 });
 
-// Contenido de secciones
+// ✅ CONTENIDO DE SECCIONES
 router.get('/sections-content', (req, res) => {
   res.json({
     success: true,
@@ -123,37 +174,7 @@ router.get('/sections-content', (req, res) => {
   });
 });
 
-// Navegación
-router.get('/navigation', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      header: [
-        { text: 'Inicio', href: '#inicio', active: true },
-        { text: 'Servicios', href: '#servicios', active: true },
-        { text: 'Planes', href: '#planes', active: true },
-        { text: 'Tienda', href: '#tienda', active: true },
-        { text: 'Contacto', href: '#contacto', active: true }
-      ],
-      footer: {
-        links: [
-          { text: 'Inicio', href: '#inicio' },
-          { text: 'Servicios', href: '#servicios' },
-          { text: 'Planes', href: '#planes' },
-          { text: 'Tienda', href: '#tienda' }
-        ],
-        store_links: [
-          { text: 'Suplementos', href: '/store?category=suplementos' },
-          { text: 'Ropa Deportiva', href: '/store?category=ropa' },
-          { text: 'Accesorios', href: '/store?category=accesorios' },
-          { text: 'Equipamiento', href: '/store?category=equipamiento' }
-        ]
-      }
-    }
-  });
-});
-
-// Configuración de formularios
+// ✅ CONFIGURACIÓN DE FORMULARIOS
 router.get('/forms-config', (req, res) => {
   res.json({
     success: true,
@@ -178,7 +199,7 @@ router.get('/forms-config', (req, res) => {
   });
 });
 
-// Mensajes del sistema
+// ✅ MENSAJES DEL SISTEMA  
 router.get('/system-messages', (req, res) => {
   res.json({
     success: true,

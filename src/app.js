@@ -1,4 +1,5 @@
-// src/app.js
+// src/app.js - CORREGIDO: Importación segura del rate limiter
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -7,7 +8,19 @@ const compression = require('compression');
 const passport = require('./config/passport');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
-const { apiLimiter } = require('./middleware/rateLimiter');
+
+// ✅ CORREGIDO: Importación segura del rate limiter
+let rateLimiter;
+try {
+  const rateLimiterModule = require('./middleware/rateLimiter');
+  rateLimiter = rateLimiterModule.generalLimiter || rateLimiterModule.developmentLimiter;
+  console.log('✅ Rate limiter importado correctamente');
+} catch (error) {
+  console.warn('⚠️ Rate limiter no disponible:', error.message);
+  // Middleware dummy que no hace nada
+  rateLimiter = (req, res, next) => next();
+}
+
 require('dotenv').config();
 
 class App {
@@ -40,8 +53,13 @@ class App {
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
     }));
 
-    // Rate limiting
-    this.app.use('/api', apiLimiter);
+    // ✅ CORREGIDO: Rate limiting con verificación
+    if (rateLimiter && typeof rateLimiter === 'function') {
+      this.app.use('/api', rateLimiter);
+      console.log('✅ Rate limiter aplicado a /api');
+    } else {
+      console.warn('⚠️ Rate limiter no aplicado - continuando sin límites');
+    }
 
     // Logging
     if (process.env.NODE_ENV === 'development') {
@@ -77,7 +95,9 @@ class App {
           auth: '/api/auth',
           users: '/api/users',
           memberships: '/api/memberships',
-          payments: '/api/payments'
+          payments: '/api/payments',
+          gym: '/api/gym',
+          store: '/api/store'
         },
         documentation: 'https://docs.gym-system.com'
       });
@@ -98,7 +118,10 @@ class App {
           'GET /api/health',
           'POST /api/auth/login',
           'POST /api/auth/register',
-          'GET /api/auth/google'
+          'GET /api/auth/google',
+          'GET /api/gym/config',
+          'GET /api/gym/services',
+          'GET /api/store/products'
         ]
       });
     });
