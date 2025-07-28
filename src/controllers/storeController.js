@@ -858,20 +858,32 @@ async getFeaturedProducts(req, res) {
     const limit = parseInt(req.query.limit) || 8;
     const products = await StoreProduct.getFeaturedProducts(limit);
     
-    // ✅ Formatear productos para el frontend según formato esperado
+    // ✅ Formatear productos según especificación del frontend
     const formattedProducts = products.map(product => ({
       id: product.id,
       name: product.name,
       description: product.description,
       price: parseFloat(product.price),
       originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
-      image: product.images && product.images.length > 0 
-        ? product.images[0].imageUrl 
-        : '/uploads/products/default.jpg',
+      images: product.images && product.images.length > 0 ? 
+        product.images.map(img => ({
+          url: img.imageUrl,
+          alt: img.altText || product.name,
+          isPrimary: img.isPrimary,
+          cloudinaryPublicId: img.imageUrl ? img.imageUrl.split('/').pop().split('.')[0] : ""
+        })) : [],
       category: product.category ? product.category.slug : 'otros',
+      brand: product.brand ? product.brand.name : null,
       rating: parseFloat(product.rating) || 0,
       reviews: product.reviewsCount || 0,
-      badge: product.isFeatured ? 'Destacado' : null,
+      features: [], // Se puede expandir después
+      inStock: product.isInStock(),
+      stock: product.stockQuantity,
+      badge: product.isFeatured ? 'Más Vendido' : null,
+      variants: {
+        flavors: [], // Se puede expandir después
+        sizes: []    // Se puede expandir después
+      },
       featured: product.isFeatured,
       discountPercentage: product.getDiscountPercentage()
     }));

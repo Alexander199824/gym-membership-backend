@@ -448,6 +448,51 @@ class MembershipController {
     }
   }
 
+
+  // AGREGAR ESTE MÉTODO al membershipController existente:
+
+// ✅ NUEVO: Obtener planes de membresía para el frontend (formato específico)
+async getMembershipPlans(req, res) {
+  try {
+    const plans = await MembershipPlans.getActivePlans();
+    
+    // ✅ Formatear planes según especificación del frontend
+    const formattedPlans = plans.map(plan => ({
+      id: plan.id,
+      name: plan.planName,
+      price: parseFloat(plan.price),
+      originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
+      currency: 'GTQ',
+      duration: plan.durationType === 'monthly' ? 'mes' : 
+                plan.durationType === 'daily' ? 'día' : 'año',
+      popular: plan.isPopular,
+      iconName: plan.iconName,
+      color: '#3b82f6', // Color por defecto, se puede personalizar
+      features: plan.features || [],
+      benefits: plan.features ? plan.features.map(feature => ({
+        text: feature,
+        included: true
+      })) : [],
+      active: plan.isActive,
+      order: plan.displayOrder,
+      discountPercentage: plan.getDiscountPercentage()
+    }));
+    
+    res.json({
+      success: true,
+      data: formattedPlans
+    });
+  } catch (error) {
+    console.error('Error al obtener planes de membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener planes de membresía',
+      error: error.message
+    });
+  }
+}
+
+
   // Obtener estadísticas de membresías
   async getMembershipStats(req, res) {
     try {

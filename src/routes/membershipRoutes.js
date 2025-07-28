@@ -82,4 +82,8 @@ router.patch('/:id/schedule',
   membershipController.updateSchedule
 );
 
+router.get('/plans', 
+  membershipController.getMembershipPlans
+);
+
 module.exports = router;

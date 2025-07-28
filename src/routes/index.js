@@ -1,4 +1,4 @@
-// src/routes/index.js - CORREGIDO: Agregar rutas faltantes
+// src/routes/index.js - ACTUALIZADO: Incluir nuevas rutas para el frontend
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -11,33 +11,40 @@ const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
 const adminRoutes = require('./adminRoutes');
 const stripeRoutes = require('./stripeRoutes');
-const dashboardRoutes = require('./dashboardRoutes'); // ✅ AGREGADO
+const dashboardRoutes = require('./dashboardRoutes');
+
+// ✅ NUEVAS RUTAS para el frontend
+const contentRoutes = require('./contentRoutes');
+const brandingRoutes = require('./brandingRoutes');
+const promotionsRoutes = require('./promotionsRoutes');
 
 const router = express.Router();
 
-// ✅ Health check mejorado con Stripe
+// ✅ Health check mejorado
 router.get('/health', (req, res) => {
   const stripeService = require('../services/stripeService');
   const stripeConfig = stripeService.getPublicConfig();
   
   res.json({
     success: true,
-    message: 'Elite Fitness Club API - Sistema Completo con Pagos',
+    message: 'Elite Fitness Club API - Sistema Completo con Frontend Integration',
     timestamp: new Date().toISOString(),
-    version: '2.1.0',
+    version: '2.2.0',
     services: {
       core: 'Active',
       auth: 'Active',
       gym: 'Active',
       financial: 'Active',
       schedule: 'Active',
+      frontend_integration: 'Active',
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
-    payments: {
-      cash: 'Available',
-      card: 'Available',
-      transfer: 'Available',
-      stripe: stripeConfig.enabled ? `Available (${stripeConfig.mode})` : 'Not configured'
+    frontend_endpoints: {
+      gym_config: '/api/gym/config',
+      landing_content: '/api/content/landing',
+      branding_theme: '/api/branding/theme',
+      active_promotions: '/api/promotions/active',
+      featured_products: '/api/store/featured-products'
     }
   });
 });
@@ -50,7 +57,7 @@ router.get('/endpoints', (req, res) => {
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.1.0',
+    version: '2.2.0',
     endpoints: {
       core: {
         health: 'GET /api/health',
@@ -61,9 +68,30 @@ router.get('/endpoints', (req, res) => {
       },
       gym: {
         info: 'GET /api/gym/info (público)',
-        config: 'GET,PUT /api/gym/config',
-        services: 'GET /api/gym/services',
-        plans: 'GET /api/gym/plans'
+        config: 'GET /api/gym/config (específico frontend)',
+        services: 'GET /api/gym/services (específico frontend)',
+        testimonials: 'GET /api/gym/testimonials (específico frontend)',
+        stats: 'GET /api/gym/stats (específico frontend)',
+        plans: 'GET /api/gym/plans',
+        contact: 'GET /api/gym/contact',
+        hours: 'GET /api/gym/hours'
+      },
+      content: {
+        landing: 'GET /api/content/landing (específico frontend)'
+      },
+      branding: {
+        theme: 'GET /api/branding/theme (específico frontend)'
+      },
+      promotions: {
+        active: 'GET /api/promotions/active (específico frontend)'
+      },
+      store: {
+        products: 'GET /api/store/products',
+        featured: 'GET /api/store/featured-products (específico frontend)',
+        cart: 'GET,POST,PUT,DELETE /api/store/cart',
+        orders: 'POST /api/store/orders',
+        myOrders: 'GET /api/store/my-orders',
+        admin: 'GET /api/store/admin/* (staff only)'
       },
       financial: {
         movements: 'GET,POST /api/financial/movements',
@@ -73,13 +101,6 @@ router.get('/endpoints', (req, res) => {
       schedule: {
         mySchedule: 'GET,PUT,POST /api/schedule/my-schedule',
         analytics: 'GET /api/schedule/popular-times'
-      },
-      store: {
-        products: 'GET /api/store/products',
-        cart: 'GET,POST,PUT,DELETE /api/store/cart',
-        orders: 'POST /api/store/orders',
-        myOrders: 'GET /api/store/my-orders',
-        admin: 'GET /api/store/admin/* (staff only)'
       },
       stripe: {
         enabled: stripeConfig.enabled,
@@ -92,7 +113,7 @@ router.get('/endpoints', (req, res) => {
         webhook: 'POST /api/stripe/webhook',
         admin: 'POST /api/stripe/refund, GET /api/stripe/payments (staff only)'
       },
-      dashboard: { // ✅ AGREGADO
+      dashboard: {
         unified: 'GET /api/dashboard/unified',
         metrics: 'GET /api/dashboard/metrics'
       },
@@ -117,7 +138,12 @@ router.use('/financial', financialRoutes);
 router.use('/schedule', scheduleRoutes);
 router.use('/admin', adminRoutes);
 router.use('/stripe', stripeRoutes);
-router.use('/dashboard', dashboardRoutes); // ✅ AGREGADO
+router.use('/dashboard', dashboardRoutes);
+
+// ✅ NUEVAS RUTAS específicas para el frontend
+router.use('/content', contentRoutes);       // /api/content/*
+router.use('/branding', brandingRoutes);     // /api/branding/*
+router.use('/promotions', promotionsRoutes); // /api/promotions/*
 
 // ✅ Manejo de rutas no encontradas
 router.use('*', (req, res) => {
@@ -126,7 +152,14 @@ router.use('*', (req, res) => {
     message: 'Endpoint no encontrado',
     path: req.originalUrl,
     method: req.method,
-    suggestion: 'Consulta GET /api/endpoints para ver rutas disponibles'
+    suggestion: 'Consulta GET /api/endpoints para ver rutas disponibles',
+    frontend_specific_endpoints: [
+      'GET /api/gym/config',
+      'GET /api/content/landing', 
+      'GET /api/branding/theme',
+      'GET /api/promotions/active',
+      'GET /api/store/featured-products'
+    ]
   });
 });
 

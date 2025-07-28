@@ -77,3 +77,4 @@ docs/api/
 api-docs/generated/
 
 .env
+package-lock.json
