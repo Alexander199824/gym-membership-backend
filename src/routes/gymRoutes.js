@@ -44,6 +44,7 @@ router.get('/content', gymController.getLandingContent);           // NUEVA (sin
 router.get('/contact', gymController.getContactInfo);
 router.get('/hours', gymController.getHours);
 router.get('/plans', gymController.getMembershipPlans); // Alias para compatibility
+router.get('/membership-plans', gymController.getMembershipPlans);
 
 // ✅ RUTAS ADMINISTRATIVAS (solo admin)
 router.put('/config', 
