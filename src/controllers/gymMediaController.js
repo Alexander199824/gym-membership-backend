@@ -75,7 +75,7 @@ class GymMediaController {
     }
   }
 
-  // ✅ 2. SUBIR VIDEO HERO
+  // ✅ 2. SUBIR VIDEO HERO - CORREGIDO
   async uploadHeroVideo(req, res) {
     try {
       if (!req.file) {
@@ -102,12 +102,23 @@ class GymMediaController {
         }
       }
 
-      // Guardar URLs en BD
+      // ✅ CORREGIDO: Solo guardar video URL, no sobrescribir imagen hero
       config.heroVideoUrl = videoUrl;
-      config.heroImageUrl = posterUrl; // Usar poster como imagen hero también
+      
+      // ✅ NUEVO: Solo actualizar heroImageUrl si no existe una imagen específica
+      if (!config.heroImageUrl || config.heroImageUrl.includes('so_0')) {
+        // Solo usar poster si no hay imagen hero específica o si la actual es un poster
+        config.heroImageUrl = posterUrl;
+      }
+      
       await config.save();
 
       console.log('🎬 Video hero actualizado:', videoUrl);
+      console.log('🖼️ Poster generado:', posterUrl);
+
+      // ✅ NUEVO: Obtener configuración completa actualizada
+      const videoConfig = config.getVideoConfig();
+      const heroData = config.getHeroData();
 
       res.json({
         success: true,
@@ -116,11 +127,36 @@ class GymMediaController {
           videoUrl,
           posterUrl,
           publicId,
+          // ✅ NUEVO: Información completa del video
+          videoInfo: {
+            hasVideo: true,
+            hasCustomImage: !!config.heroImageUrl && !config.heroImageUrl.includes('so_0'),
+            usingPosterAsImage: config.heroImageUrl === posterUrl
+          },
+          // ✅ NUEVO: Configuración completa de video
           videoSettings: {
             autoplay: config.videoAutoplay,
             muted: config.videoMuted,
             loop: config.videoLoop,
             controls: config.videoControls
+          },
+          // ✅ NUEVO: Datos del hero actualizados
+          heroData: {
+            title: heroData.title,
+            description: heroData.description,
+            videoUrl: videoUrl,
+            imageUrl: config.heroImageUrl,
+            hasVideo: true,
+            hasImage: !!config.heroImageUrl
+          },
+          // ✅ NUEVO: URLs para el frontend
+          frontendData: {
+            'hero.videoUrl': videoUrl,
+            'hero.imageUrl': config.heroImageUrl,
+            'videoUrl': videoUrl,
+            'imageUrl': config.heroImageUrl,
+            'hasVideo': true,
+            'hasImage': !!config.heroImageUrl
           }
         }
       });
@@ -129,6 +165,82 @@ class GymMediaController {
       res.status(500).json({
         success: false,
         message: 'Error al subir video hero',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ 3. SUBIR IMAGEN HERO - CORREGIDO para distinguir de poster
+  async uploadHeroImage(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'No se recibió ninguna imagen'
+        });
+      }
+
+      const imageUrl = req.file.path;
+      const publicId = req.file.filename;
+
+      // ✅ Actualizar configuración
+      const config = await GymConfiguration.getConfig();
+      
+      // Eliminar imagen anterior si existe y no es un poster de video
+      if (config.heroImageUrl && !config.heroImageUrl.includes('so_0')) {
+        const oldPublicId = this.extractPublicId(config.heroImageUrl);
+        if (oldPublicId) {
+          await deleteFile(oldPublicId);
+        }
+      }
+
+      // ✅ NUEVO: Guardar como imagen específica (no poster)
+      config.heroImageUrl = imageUrl;
+      await config.save();
+
+      console.log('🖼️ Imagen hero actualizada:', imageUrl);
+
+      // ✅ NUEVO: Obtener datos actualizados
+      const heroData = config.getHeroData();
+
+      res.json({
+        success: true,
+        message: 'Imagen hero subida y guardada exitosamente',
+        data: {
+          imageUrl,
+          publicId,
+          // ✅ NUEVO: Información de la imagen
+          imageInfo: {
+            hasImage: true,
+            hasVideo: !!config.heroVideoUrl,
+            isCustomImage: true, // No es poster de video
+            replacedPoster: config.heroImageUrl !== imageUrl // Si reemplazó un poster
+          },
+          // ✅ NUEVO: Datos del hero actualizados
+          heroData: {
+            title: heroData.title,
+            description: heroData.description,
+            videoUrl: config.heroVideoUrl || '',
+            imageUrl: imageUrl,
+            hasVideo: !!config.heroVideoUrl,
+            hasImage: true
+          },
+          // ✅ NUEVO: URLs para el frontend
+          frontendData: {
+            'hero.imageUrl': imageUrl,
+            'hero.videoUrl': config.heroVideoUrl || '',
+            'imageUrl': imageUrl,
+            'videoUrl': config.heroVideoUrl || '',
+            'hasImage': true,
+            'hasVideo': !!config.heroVideoUrl
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al subir imagen hero:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al subir imagen hero',
         error: error.message
       });
     }
