@@ -37,95 +37,62 @@ class GymController {
   }
 
   // ✅ ENDPOINT: /api/gym/config (configuración principal)
- // ✅ ENDPOINT: /api/gym/config (configuración principal CON VIDEO)
-async getGymConfig(req, res) {
-  try {
-    const [
-      configuration,
-      contactInfo,
-      hours,
-      socialMedia,
-      sectionsContent  // ✅ AGREGAR: Obtener contenido de secciones
-    ] = await Promise.all([
-      GymConfiguration.getConfig(),
-      GymContactInfo.getContactInfo(),
-      GymHours.getWeeklySchedule(),
-      GymSocialMedia.getSocialMediaObject(),
-      GymSectionsContent.getAllSectionsContent().catch(() => ({}))  // ✅ Con fallback
-    ]);
+  async getGymConfig(req, res) {
+    try {
+      const [
+        configuration,
+        contactInfo,
+        hours,
+        socialMedia
+      ] = await Promise.all([
+        GymConfiguration.getConfig(),
+        GymContactInfo.getContactInfo(),
+        GymHours.getWeeklySchedule(),
+        GymSocialMedia.getSocialMediaObject()
+      ]);
 
-    // ✅ Logo
-    const logoUrl = configuration.logoUrl || '';
+      // ✅ CORREGIDO: Proveer URL de logo válida o vacía
+      const logoUrl = configuration.logoUrl || ''; // No usar favicon.ico
 
-    // ✅ NUEVO: Extraer datos de video del contenido de secciones
-    const heroSection = sectionsContent.hero || {};
+      const response = {
+        name: configuration.gymName,
+        description: configuration.gymDescription,
+        tagline: configuration.gymTagline,
+        logo: {
+          url: logoUrl, // ✅ Si está vacío, frontend usará placeholder
+          alt: `${configuration.gymName} Logo`,
+          width: 200,
+          height: 80
+        },
+        contact: {
+          address: contactInfo.address || '',
+          phone: contactInfo.phone || '',
+          email: contactInfo.email || '',
+          whatsapp: contactInfo.phone || ''
+        },
+        hours: {
+          full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
+          weekdays: "5:00-22:00",
+          weekends: "6:00-20:00"
+        },
+        social: socialMedia
+      };
 
-    const response = {
-      name: configuration.gymName,
-      description: configuration.gymDescription,
-      tagline: configuration.gymTagline,
-      logo: {
-        url: logoUrl,
-        alt: `${configuration.gymName} Logo`,
-        width: 200,
-        height: 80
-      },
-      contact: {
-        address: contactInfo.address || '',
-        phone: contactInfo.phone || '',
-        email: contactInfo.email || '',
-        whatsapp: contactInfo.phone || ''
-      },
-      hours: {
-        full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
-        weekdays: "5:00-22:00",
-        weekends: "6:00-20:00"
-      },
-      social: socialMedia,
-      // ✅ NUEVO: Incluir datos de video/hero
-      hero: {
-        title: heroSection.title || `Bienvenido a ${configuration.gymName}`,
-        description: heroSection.description || configuration.gymDescription,
-        imageUrl: heroSection.imageUrl || '',
-        videoUrl: heroSection.videoUrl || '',  // ✅ AQUÍ ESTÁ EL VIDEO
-        ctaText: heroSection.ctaText || 'Comienza Hoy',
-        ctaButtons: heroSection.ctaButtons || [
-          {
-            text: 'Únete Ahora',
-            type: 'primary',
-            action: 'register',
-            icon: 'gift'
-          }
-        ]
-      },
-      // ✅ Para compatibilidad con el frontend actual
-      videoUrl: heroSection.videoUrl || '',  
-      imageUrl: heroSection.imageUrl || '',
-      hasVideo: !!(heroSection.videoUrl),
-      hasImage: !!(heroSection.imageUrl)
-    };
-
-    console.log('🎬 VIDEO DATA IN CONFIG:', {
-      videoUrl: response.videoUrl,
-      hasVideo: response.hasVideo,
-      heroVideoUrl: response.hero.videoUrl
-    });
-
-    res.json({
-      success: true,
-      data: response,
-      message: "Configuración obtenida exitosamente",
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error en getGymConfig:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener configuración del gym',
-      error: error.message
-    });
+      res.json({
+        success: true,
+        data: response,
+        message: "Configuración obtenida exitosamente",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error en getGymConfig:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener configuración del gym',
+        error: error.message
+      });
+    }
   }
-}
 
   // ✅ ENDPOINT: /api/content/landing (contenido de la landing page)
   async getLandingContent(req, res) {

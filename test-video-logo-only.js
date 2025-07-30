@@ -96,6 +96,25 @@ class VideoLogoTester {
       if (response.data.success) {
         console.log('   ✅ Servidor funcionando');
         console.log(`   📊 Versión: ${response.data.version}`);
+        
+        // 🎬 NUEVO: Verificar si las rutas multimedia están disponibles
+        if (response.data.services && response.data.services.multimedia) {
+          console.log('   🎬 ✅ Rutas multimedia disponibles');
+        } else {
+          console.log('   🎬 ⚠️ Rutas multimedia no disponibles - Verifica src/routes/index.js');
+        }
+      }
+      
+      // 🔍 NUEVO: Verificar endpoints multimedia específicos
+      try {
+        const mediaStatus = await axios.get(`${this.baseURL}/api/gym-media/status`);
+        if (mediaStatus.data.success) {
+          console.log('   📁 ✅ Endpoints multimedia funcionando');
+          console.log(`   ☁️ Cloudinary: ${mediaStatus.data.data.cloudinaryConfigured ? '✅ Configurado' : '❌ No configurado'}`);
+        }
+      } catch (mediaError) {
+        console.log('   📁 ❌ Endpoints multimedia no disponibles');
+        console.log('      💡 Asegúrate de agregar gymMediaRoutes en src/routes/index.js');
       }
     } catch (error) {
       throw new Error(`Servidor no responde: ${error.message}`);
@@ -228,8 +247,10 @@ class VideoLogoTester {
 
     } catch (error) {
       if (error.response) {
-        if (error.response.status === 503) {
-          throw new Error('Servicio de videos no configurado');
+        if (error.response.status === 404) {
+          throw new Error('Endpoints multimedia no encontrados (404) - Las rutas gymMediaRoutes no están registradas en src/routes/index.js');
+        } else if (error.response.status === 503) {
+          throw new Error('Servicio de videos no configurado - Configura Cloudinary');
         } else if (error.response.status === 400) {
           throw new Error(`Error de validación: ${error.response.data.message}`);
         } else {
@@ -308,8 +329,10 @@ class VideoLogoTester {
 
     } catch (error) {
       if (error.response) {
-        if (error.response.status === 503) {
-          throw new Error('Servicio de imágenes no configurado');
+        if (error.response.status === 404) {
+          throw new Error('Endpoints multimedia no encontrados (404) - Las rutas gymMediaRoutes no están registradas en src/routes/index.js');
+        } else if (error.response.status === 503) {
+          throw new Error('Servicio de imágenes no configurado - Configura Cloudinary');
         } else if (error.response.status === 400) {
           throw new Error(`Error de validación: ${error.response.data.message}`);
         } else {

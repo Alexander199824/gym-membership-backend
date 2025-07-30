@@ -1,4 +1,4 @@
-// src/routes/index.js - ACTUALIZADO: Incluir nuevas rutas para el frontend
+// src/routes/index.js - ACTUALIZADO: Incluir rutas multimedia
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -17,6 +17,9 @@ const dashboardRoutes = require('./dashboardRoutes');
 const contentRoutes = require('./contentRoutes');
 const brandingRoutes = require('./brandingRoutes');
 const promotionsRoutes = require('./promotionsRoutes');
+
+// 🎬 ✅ AGREGAR: Rutas multimedia (¡ESTA ERA LA LÍNEA FALTANTE!)
+const gymMediaRoutes = require('./gymMediaRoutes');
 
 const router = express.Router();
 
@@ -37,6 +40,7 @@ router.get('/health', (req, res) => {
       financial: 'Active',
       schedule: 'Active',
       frontend_integration: 'Active',
+      multimedia: 'Active', // ✅ NUEVO
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     frontend_endpoints: {
@@ -44,7 +48,9 @@ router.get('/health', (req, res) => {
       landing_content: '/api/content/landing',
       branding_theme: '/api/branding/theme',
       active_promotions: '/api/promotions/active',
-      featured_products: '/api/store/featured-products'
+      featured_products: '/api/store/featured-products',
+      upload_logo: '/api/gym-media/upload-logo', // ✅ NUEVO
+      upload_video: '/api/gym-media/upload-hero-video' // ✅ NUEVO
     }
   });
 });
@@ -75,6 +81,19 @@ router.get('/endpoints', (req, res) => {
         plans: 'GET /api/gym/plans',
         contact: 'GET /api/gym/contact',
         hours: 'GET /api/gym/hours'
+      },
+      // 🎬 ✅ NUEVO: Endpoints multimedia
+      'gym-media': {
+        uploadLogo: 'POST /api/gym-media/upload-logo (admin)',
+        uploadHeroVideo: 'POST /api/gym-media/upload-hero-video (admin)',
+        uploadHeroImage: 'POST /api/gym-media/upload-hero-image (admin)',
+        uploadServiceImage: 'POST /api/gym-media/upload-service-image/:serviceId (admin)',
+        uploadTestimonialImage: 'POST /api/gym-media/upload-testimonial-image/:testimonialId (admin)',
+        uploadProductImage: 'POST /api/gym-media/upload-product-image/:productId (staff)',
+        uploadUserProfile: 'POST /api/gym-media/upload-user-profile/:userId (staff)',
+        deleteMedia: 'DELETE /api/gym-media/delete/:type/:id?/:imageId? (admin)',
+        mediaInfo: 'GET /api/gym-media/media-info (staff)',
+        status: 'GET /api/gym-media/status (público)'
       },
       content: {
         landing: 'GET /api/content/landing (específico frontend)'
@@ -145,6 +164,9 @@ router.use('/content', contentRoutes);       // /api/content/*
 router.use('/branding', brandingRoutes);     // /api/branding/*
 router.use('/promotions', promotionsRoutes); // /api/promotions/*
 
+// 🎬 ✅ AGREGAR: Rutas multimedia (¡ESTA ERA LA LÍNEA FALTANTE!)
+router.use('/gym-media', gymMediaRoutes);    // /api/gym-media/*
+
 // ✅ Manejo de rutas no encontradas
 router.use('*', (req, res) => {
   res.status(404).json({
@@ -159,6 +181,11 @@ router.use('*', (req, res) => {
       'GET /api/branding/theme',
       'GET /api/promotions/active',
       'GET /api/store/featured-products'
+    ],
+    multimedia_endpoints: [
+      'POST /api/gym-media/upload-logo',
+      'POST /api/gym-media/upload-hero-video',
+      'GET /api/gym-media/status'
     ]
   });
 });
