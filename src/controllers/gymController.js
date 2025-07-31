@@ -36,7 +36,7 @@ class GymController {
     this.getMembershipPlans = this.getMembershipPlans.bind(this);
   }
 
- // ✅ ENDPOINT: /api/gym/config (configuración principal) - CORREGIDO FINAL
+  // ✅ ENDPOINT: /api/gym/config - SIN URLs DUPLICADAS
   async getGymConfig(req, res) {
     try {
       const [
@@ -51,70 +51,85 @@ class GymController {
         GymSocialMedia.getSocialMediaObject()
       ]);
 
-      // ✅ CORREGIDO: Leer datos reales de video/imagen de la BD
+      // ✅ Leer URLs reales de la BD
       const logoUrl = configuration.logoUrl || '';
       const heroVideoUrl = configuration.heroVideoUrl || '';
       const heroImageUrl = configuration.heroImageUrl || '';
       
-      // ✅ NUEVO: Obtener configuración completa usando métodos del modelo
-      const videoConfig = configuration.getVideoConfig();
-      const heroData = configuration.getHeroData();
-      const multimedia = configuration.hasMultimedia();
-
+      // ✅ Determinar tipo de imagen
+      const isImageFromPoster = heroImageUrl && heroImageUrl.includes('so_0');
+      const hasCustomImage = heroImageUrl && !isImageFromPoster;
+      
       const response = {
         name: configuration.gymName,
         description: configuration.gymDescription,
         tagline: configuration.gymTagline,
+        
         logo: {
           url: logoUrl,
           alt: `${configuration.gymName} Logo`,
           width: 200,
           height: 80
         },
+        
         contact: {
           address: contactInfo.address || '',
           phone: contactInfo.phone || '',
           email: contactInfo.email || '',
           whatsapp: contactInfo.phone || ''
         },
+        
         hours: {
           full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
           weekdays: "5:00-22:00",
           weekends: "6:00-20:00"
         },
+        
         social: socialMedia,
         
-        // ✅ NUEVO: Hero section con datos reales de la BD
+        // ✅ HERO: Toda la información multimedia SOLO AQUÍ
         hero: {
-          title: heroData.title,
-          description: heroData.description,
-          imageUrl: heroImageUrl,  // ✅ URL REAL de la BD
-          videoUrl: heroVideoUrl,  // ✅ URL REAL de la BD
-          ctaText: heroData.ctaText,
-          ctaButtons: heroData.ctaButtons
+          title: configuration.heroTitle || configuration.gymName,
+          description: configuration.heroDescription || configuration.gymDescription,
+          ctaText: "Comienza Hoy",
+          ctaButtons: [
+            {
+              text: "Primera Semana GRATIS",
+              type: "primary",
+              action: "register",
+              icon: "gift"
+            },
+            {
+              text: "Ver Tienda",
+              type: "secondary",
+              action: "store",
+              icon: "shopping-cart"
+            }
+          ],
+          
+          // 🎬 URLs SOLO UNA VEZ cada una
+          videoUrl: heroVideoUrl,           // ✅ Solo aquí
+          imageUrl: heroImageUrl,           // ✅ Solo aquí
+          hasVideo: !!heroVideoUrl,         // ✅ Estado del video
+          hasImage: !!heroImageUrl,         // ✅ Estado de la imagen
+          
+          // ✅ Configuración de video (solo si hay video)
+          videoConfig: heroVideoUrl ? {
+            autoplay: configuration.videoAutoplay || false,
+            muted: configuration.videoMuted !== false,
+            loop: configuration.videoLoop !== false,
+            controls: configuration.videoControls !== false,
+            posterUrl: heroImageUrl || '' // Poster para el video
+          } : null
         },
         
-        // ✅ NUEVO: Campos top-level con datos reales de la BD
-        videoUrl: heroVideoUrl,     // ✅ URL REAL de la BD
-        imageUrl: heroImageUrl,     // ✅ URL REAL de la BD
-        hasVideo: !!heroVideoUrl,   // ✅ Estado real basado en BD
-        hasImage: !!heroImageUrl,   // ✅ Estado real basado en BD
-        
-        // ✅ NUEVO: Configuración completa de video
-        videoConfig: videoConfig.available ? {
-          autoplay: configuration.videoAutoplay || false,
-          muted: configuration.videoMuted !== false,
-          loop: configuration.videoLoop !== false,
-          controls: configuration.videoControls !== false,
-          posterUrl: heroImageUrl
-        } : null,
-        
-        // ✅ NUEVO: Estado multimedia completo
+        // ✅ ESTADOS GENERALES: Solo booleans, no URLs
         multimedia: {
-          hasLogo: multimedia.hasLogo,
-          hasVideo: multimedia.hasVideo,
-          hasHeroImage: multimedia.hasHeroImage,
-          hasAnyMedia: multimedia.hasAnyMedia
+          hasLogo: !!logoUrl,
+          hasVideo: !!heroVideoUrl,
+          hasHeroImage: !!heroImageUrl,
+          hasAnyMedia: !!(logoUrl || heroVideoUrl || heroImageUrl),
+          imageType: hasCustomImage ? 'custom' : (isImageFromPoster ? 'poster' : 'none')
         }
       };
 
