@@ -6,8 +6,8 @@ const { EmailService, WhatsAppService } = require('../services/notificationServi
 
 class AuthController {
   constructor() {
-    this.emailService = new EmailService();
-    this.whatsappService = new WhatsAppService();
+   // this.emailService = new EmailService();
+   // this.whatsappService = new WhatsAppService();
   }
 
   // Registro de usuario
@@ -55,7 +55,8 @@ class AuthController {
       const refreshToken = generateRefreshToken(user);
 
       // Enviar email de bienvenida (no bloquear la respuesta)
-      this.sendWelcomeNotifications(user).catch(console.error);
+      console.log(`✅ Usuario registrado: ${user.email} (${user.role})`);
+      //this.sendWelcomeNotifications(user).catch(console.error);
 
       res.status(201).json({
         success: true,
