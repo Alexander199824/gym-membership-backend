@@ -1,4 +1,4 @@
-// src/routes/paymentRoutes.js - CORREGIDO: Orden de rutas y configuración
+// src/routes/paymentRoutes.js - CAMBIOS MÍNIMOS SEGUROS
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const { 
@@ -10,9 +10,15 @@ const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
 const { uploadLimiter } = require('../middleware/rateLimiter');
 
+// ✅ NUEVO: Importar middleware de autorización
+const { 
+  authorizeClientOwnData, 
+  authorizeResourceOwner
+} = require('../middleware/authorization');
+
 const router = express.Router();
 
-// Verificar si Cloudinary está configurado
+// Verificar si Cloudinary está configurado (sin cambios)
 const hasCloudinary = 
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -41,36 +47,34 @@ if (!uploadTransferProof) {
   };
 }
 
-// ✅ CORREGIDO: Rutas de reportes ANTES de rutas con parámetros
-// Reportes mejorados (nueva ruta principal)
+// ✅ Rutas de reportes ANTES de rutas con parámetros (sin cambios)
 router.get('/reports/enhanced', 
   authenticateToken, 
   requireAdmin,
   paymentController.getEnhancedPaymentReports
 );
 
-// Reportes básicos (compatibilidad)
 router.get('/reports', 
   authenticateToken,
   requireAdmin,
   paymentController.getPaymentReports
 );
 
-// ✅ Obtener todos los pagos
+// ✅ CAMBIO 1: Permitir a clientes ver sus propios pagos
 router.get('/', 
   authenticateToken,
-  requireStaff,
+  authorizeClientOwnData, // ✅ NUEVO MIDDLEWARE - Esta es la corrección principal
   paymentController.getPayments
 );
 
-// ✅ Obtener transferencias pendientes
+// Obtener transferencias pendientes (solo staff - sin cambios)
 router.get('/transfers/pending', 
   authenticateToken,
   requireStaff,
   paymentController.getPendingTransfers
 );
 
-// ✅ Crear nuevo pago
+// Crear nuevo pago (solo staff - sin cambios)
 router.post('/', 
   authenticateToken,
   requireStaff,
@@ -79,7 +83,7 @@ router.post('/',
   paymentController.createPayment
 );
 
-// ✅ Registrar ingresos diarios totales
+// Registrar ingresos diarios totales (solo staff - sin cambios)
 router.post('/daily-income', 
   authenticateToken,
   requireStaff,
@@ -88,7 +92,7 @@ router.post('/daily-income',
   paymentController.registerDailyIncome
 );
 
-// ✅ Crear pago desde orden de tienda
+// Crear pago desde orden de tienda (solo staff - sin cambios)
 router.post('/from-order', 
   authenticateToken, 
   requireStaff,
@@ -96,22 +100,24 @@ router.post('/from-order',
 );
 
 // ✅ RUTAS CON PARÁMETROS AL FINAL
-// Obtener pago por ID
+
+// ✅ CAMBIO 2: Permitir a clientes ver sus propios pagos por ID
 router.get('/:id', 
   authenticateToken,
-  requireStaff,
+  authorizeResourceOwner('Payment', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
   paymentController.getPaymentById
 );
 
-// Subir comprobante de transferencia
+// ✅ CAMBIO 3: Permitir a clientes subir comprobantes de sus propios pagos
 router.post('/:id/transfer-proof', 
   authenticateToken,
+  authorizeResourceOwner('Payment', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
   uploadLimiter,
   uploadTransferProof.single('proof'),
   paymentController.uploadTransferProof
 );
 
-// Validar transferencia
+// Validar transferencia (solo admin - sin cambios)
 router.post('/:id/validate-transfer', 
   authenticateToken,
   requireAdmin,
@@ -119,7 +125,5 @@ router.post('/:id/validate-transfer',
   handleValidationErrors,
   paymentController.validateTransfer
 );
-
-
 
 module.exports = router;

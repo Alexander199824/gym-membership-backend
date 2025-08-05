@@ -1,4 +1,4 @@
-// src/routes/authRoutes.js - ACTUALIZADO: Rutas con configuración OAuth mejorada
+// src/routes/authRoutes.js - ACTUALIZADO: Con endpoints específicos para clientes
 const express = require('express');
 const passport = require('passport');
 const authController = require('../controllers/authController');
@@ -114,25 +114,6 @@ if (hasGoogleOAuth) {
 } else {
   console.warn('⚠️ Rutas de Google OAuth deshabilitadas');
   
-  // ✅ Diagnóstico detallado
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    console.warn('   ❌ GOOGLE_CLIENT_ID no configurado');
-  } else if (process.env.GOOGLE_CLIENT_ID.startsWith('your_')) {
-    console.warn('   ❌ GOOGLE_CLIENT_ID tiene valor placeholder');
-  }
-  
-  if (!process.env.GOOGLE_CLIENT_SECRET) {
-    console.warn('   ❌ GOOGLE_CLIENT_SECRET no configurado');
-  }
-  
-  if (!process.env.GOOGLE_CALLBACK_URL) {
-    console.warn('   ❌ GOOGLE_CALLBACK_URL no configurado');
-  }
-  
-  if (!passport.availableStrategies?.google) {
-    console.warn('   ❌ Estrategia de Google no disponible en Passport');
-  }
-  
   // Rutas alternativas que informan que Google OAuth no está disponible
   router.get('/google', (req, res) => {
     res.status(503).json({
@@ -178,6 +159,219 @@ router.patch('/change-password',
   authController.changePassword
 );
 
+// ✅ ========== NUEVOS ENDPOINTS ESPECÍFICOS PARA CLIENTES ==========
+
+// 🎫 Mis Membresías - Cliente puede ver sus propias membresías
+router.get('/my-memberships', authenticateToken, async (req, res) => {
+  try {
+    const { Membership } = require('../models');
+    const { user } = req;
+    
+    // Buscar membresías del usuario autenticado
+    const memberships = await Membership.findAll({
+      where: { userId: user.id },
+      include: [
+        { 
+          association: 'registeredByUser', 
+          attributes: ['id', 'firstName', 'lastName'] 
+        }
+      ],
+      order: [['createdAt', 'DESC']]
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        memberships,
+        pagination: { total: memberships.length }
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener membresías del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener membresías',
+      error: error.message
+    });
+  }
+});
+
+// 💰 Mis Pagos - Cliente puede ver su historial de pagos
+router.get('/my-payments', authenticateToken, async (req, res) => {
+  try {
+    const { Payment } = require('../models');
+    const { user } = req;
+    const { limit = 10, page = 1 } = req.query;
+    
+    const offset = (page - 1) * limit;
+    
+    // Buscar pagos del usuario autenticado
+    const { count, rows } = await Payment.findAndCountAll({
+      where: { userId: user.id },
+      include: [
+        { 
+          association: 'membership', 
+          attributes: ['id', 'type', 'endDate'] 
+        },
+        { 
+          association: 'registeredByUser', 
+          attributes: ['id', 'firstName', 'lastName'] 
+        }
+      ],
+      limit: parseInt(limit),
+      offset,
+      order: [['paymentDate', 'DESC']]
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        payments: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          pages: Math.ceil(count / limit),
+          limit: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener pagos del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener pagos',
+      error: error.message
+    });
+  }
+});
+
+// 🛍️ Mi Carrito - Cliente puede ver su carrito
+router.get('/my-cart', authenticateToken, async (req, res) => {
+  try {
+    const { CartItem } = require('../models');
+    const { user } = req;
+    
+    // Buscar items del carrito del usuario
+    const cartItems = await CartItem.findAll({
+      where: { userId: user.id },
+      include: [
+        {
+          association: 'product',
+          include: [
+            { association: 'category' },
+            { association: 'brand' },
+            { association: 'images' }
+          ]
+        }
+      ]
+    });
+    
+    // Calcular resumen del carrito
+    const summary = {
+      itemsCount: cartItems.length,
+      subtotal: cartItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
+      taxAmount: 0, // Calcular si es necesario (12% IVA en Guatemala)
+      shippingAmount: 0,
+      totalAmount: 0
+    };
+    
+    // Calcular impuestos si es necesario
+    summary.taxAmount = summary.subtotal * 0.12; // 12% IVA Guatemala
+    summary.totalAmount = summary.subtotal + summary.taxAmount + summary.shippingAmount;
+    
+    res.json({
+      success: true,
+      data: {
+        cartItems,
+        summary
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener carrito del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener carrito',
+      error: error.message
+    });
+  }
+});
+
+// 📦 Mis Órdenes de Tienda - Cliente puede ver sus órdenes
+router.get('/my-orders', authenticateToken, async (req, res) => {
+  try {
+    const { StoreOrder } = require('../models');
+    const { user } = req;
+    const { limit = 10, page = 1 } = req.query;
+    
+    const offset = (page - 1) * limit;
+    
+    // Buscar órdenes del usuario autenticado
+    const { count, rows } = await StoreOrder.findAndCountAll({
+      where: { userId: user.id },
+      include: [
+        {
+          association: 'items',
+          include: [{ association: 'product' }]
+        }
+      ],
+      limit: parseInt(limit),
+      offset,
+      order: [['createdAt', 'DESC']]
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        orders: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          pages: Math.ceil(count / limit),
+          limit: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener órdenes del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener órdenes',
+      error: error.message
+    });
+  }
+});
+
+// 📅 Mi Horario - Cliente puede ver/actualizar su horario
+router.get('/my-schedule', authenticateToken, async (req, res) => {
+  try {
+    const { UserWorkoutSchedule } = require('../models');
+    const { user } = req;
+    
+    // Buscar horarios del usuario autenticado
+    const schedules = await UserWorkoutSchedule.findAll({
+      where: { userId: user.id },
+      order: [
+        ['dayOfWeek', 'ASC'],
+        ['preferredStartTime', 'ASC']
+      ]
+    });
+    
+    res.json({
+      success: true,
+      data: { schedules }
+    });
+  } catch (error) {
+    console.error('Error al obtener horario del usuario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener horario',
+      error: error.message
+    });
+  }
+});
+
+// ✅ ========== FIN NUEVOS ENDPOINTS ==========
+
 // Refresh token
 router.post('/refresh-token', 
   authController.refreshToken
@@ -206,6 +400,13 @@ router.get('/services', (req, res) => {
         admin: process.env.FRONTEND_ADMIN_URL,
         client: process.env.FRONTEND_CLIENT_URL,
         default: process.env.FRONTEND_URL
+      },
+      clientEndpoints: {
+        myMemberships: '/api/auth/my-memberships',
+        myPayments: '/api/auth/my-payments',
+        myCart: '/api/auth/my-cart',
+        myOrders: '/api/auth/my-orders',
+        mySchedule: '/api/auth/my-schedule'
       }
     }
   });
