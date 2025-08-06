@@ -1,4 +1,4 @@
-// src/middleware/authorization.js - VERSIÓN SEGURA SIN DEPENDENCIAS CIRCULARES
+// src/middleware/authorization.js - MEJORADO: Autorización completa para colaboradores
 
 // ✅ CORREGIDO: Permitir acceso de clientes a sus propios datos
 const authorizeClientOwnData = (req, res, next) => {
@@ -128,6 +128,202 @@ const authorizeResourceOwner = (modelName, resourceIdParam = 'id', userIdField =
   };
 };
 
+// ✅ NUEVO: Verificar acceso a pagos por colaborador
+const authorizePaymentAccess = async (req, res, next) => {
+  try {
+    const { user } = req;
+    const { id } = req.params;
+
+    console.log('🔍 PAYMENT ACCESS CHECK:');
+    console.log('  - User Role:', user.role);
+    console.log('  - Payment ID:', id);
+    
+    // Admin tiene acceso total
+    if (user.role === 'admin') {
+      console.log('✅ Access granted: Admin');
+      return next();
+    }
+
+    // Cliente solo puede ver sus propios pagos
+    if (user.role === 'cliente') {
+      const models = require('../models');
+      const Payment = models.Payment;
+      
+      const payment = await Payment.findByPk(id);
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Pago no encontrado'
+        });
+      }
+
+      if (payment.userId === user.id) {
+        console.log('✅ Access granted: Client owns payment');
+        return next();
+      } else {
+        console.log('❌ Access denied: Client does not own payment');
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver tus propios pagos'
+        });
+      }
+    }
+
+    // Colaborador solo puede ver pagos que registró
+    if (user.role === 'colaborador') {
+      const models = require('../models');
+      const Payment = models.Payment;
+      
+      const payment = await Payment.findByPk(id);
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Pago no encontrado'
+        });
+      }
+
+      if (payment.registeredBy === user.id) {
+        console.log('✅ Access granted: Collaborator registered this payment');
+        return next();
+      } else {
+        console.log('❌ Access denied: Collaborator did not register this payment');
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver los pagos que registraste'
+        });
+      }
+    }
+
+    console.log('❌ Access denied: Unknown role or unauthorized');
+    return res.status(403).json({
+      success: false,
+      message: 'Sin permisos para acceder a este pago'
+    });
+
+  } catch (error) {
+    console.error('❌ Error en autorización de pago:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al verificar permisos del pago',
+      error: error.message
+    });
+  }
+};
+
+// ✅ NUEVO: Filtrar consultas de pagos por colaborador
+const filterPaymentsByRole = (req, res, next) => {
+  const { user } = req;
+  
+  console.log('🔍 PAYMENT FILTER CHECK:');
+  console.log('  - User Role:', user.role);
+  console.log('  - Original Query:', req.query);
+  
+  if (user.role === 'colaborador') {
+    // Forzar filtros para colaborador: solo SUS pagos del día actual
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    req.query.registeredBy = user.id;
+    req.query.date = today.toISOString().split('T')[0];
+    
+    console.log('✅ Payment filters applied for collaborator');
+    console.log('  - Filtered to registeredBy:', user.id);
+    console.log('  - Filtered to date:', req.query.date);
+  } else {
+    console.log('✅ No payment filters applied - Admin or Client');
+  }
+  
+  next();
+};
+
+// ✅ NUEVO: Verificar acceso a membresía por colaborador
+const authorizeMembershipAccess = async (req, res, next) => {
+  try {
+    const { user } = req;
+    const { id } = req.params;
+
+    console.log('🔍 MEMBERSHIP ACCESS CHECK:');
+    console.log('  - User Role:', user.role);
+    console.log('  - Membership ID:', id);
+    
+    // Admin tiene acceso total
+    if (user.role === 'admin') {
+      console.log('✅ Access granted: Admin');
+      return next();
+    }
+
+    // Cliente solo puede ver sus propias membresías
+    if (user.role === 'cliente') {
+      const models = require('../models');
+      const Membership = models.Membership;
+      
+      const membership = await Membership.findByPk(id);
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'Membresía no encontrada'
+        });
+      }
+
+      if (membership.userId === user.id) {
+        console.log('✅ Access granted: Client owns membership');
+        return next();
+      } else {
+        console.log('❌ Access denied: Client does not own membership');
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver tus propias membresías'
+        });
+      }
+    }
+
+    // Colaborador puede ver membresías pero solo de usuarios con rol 'cliente'
+    if (user.role === 'colaborador') {
+      const models = require('../models');
+      const Membership = models.Membership;
+      
+      const membership = await Membership.findByPk(id, {
+        include: [{ 
+          association: 'user', 
+          attributes: ['id', 'role'] 
+        }]
+      });
+      
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'Membresía no encontrada'
+        });
+      }
+
+      if (membership.user.role === 'cliente') {
+        console.log('✅ Access granted: Membership belongs to client');
+        return next();
+      } else {
+        console.log('❌ Access denied: Membership does not belong to client');
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver membresías de usuarios clientes'
+        });
+      }
+    }
+
+    console.log('❌ Access denied: Unknown role or unauthorized');
+    return res.status(403).json({
+      success: false,
+      message: 'Sin permisos para acceder a esta membresía'
+    });
+
+  } catch (error) {
+    console.error('❌ Error en autorización de membresía:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al verificar permisos de membresía',
+      error: error.message
+    });
+  }
+};
+
 // ✅ Permitir acceso solo a staff (admin y colaborador)
 const requireStaff = (req, res, next) => {
   console.log('🔍 STAFF CHECK:', req.user?.role);
@@ -172,9 +368,48 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+// ✅ NUEVO: Verificar acceso específico para colaboradores a reportes
+const authorizeReportAccess = (req, res, next) => {
+  const { user } = req;
+  
+  console.log('🔍 REPORT ACCESS CHECK:');
+  console.log('  - User Role:', user.role);
+  console.log('  - Route:', req.originalUrl);
+  
+  if (!user) {
+    return res.status(401).json({
+      success: false,
+      message: 'Usuario no autenticado'
+    });
+  }
+
+  // Admin tiene acceso total a reportes
+  if (user.role === 'admin') {
+    console.log('✅ Report access granted: Admin');
+    return next();
+  }
+
+  // Colaborador tiene acceso limitado a reportes (filtrados en controlador)
+  if (user.role === 'colaborador') {
+    console.log('✅ Report access granted: Collaborator (filtered data)');
+    return next();
+  }
+
+  // Cliente no tiene acceso a reportes generales
+  console.log('❌ Report access denied: Client role');
+  return res.status(403).json({
+    success: false,
+    message: 'No tienes permisos para ver reportes'
+  });
+};
+
 module.exports = {
   authorizeClientOwnData,
   authorizeResourceOwner,
+  authorizePaymentAccess,
+  filterPaymentsByRole,
+  authorizeMembershipAccess,
   requireStaff,
-  requireAdmin
+  requireAdmin,
+  authorizeReportAccess
 };

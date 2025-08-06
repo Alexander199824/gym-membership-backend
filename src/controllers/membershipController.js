@@ -1,4 +1,4 @@
-// src/controllers/membershipController.js
+// src/controllers/membershipController.js - CORREGIDO: Colaboradores Y Clientes funcionando
 const { Membership, User, Payment, MembershipPlans } = require('../models');
 const { Op } = require('sequelize');
 const { EmailService, WhatsAppService } = require('../services/notificationServices');
@@ -9,9 +9,17 @@ class MembershipController {
     this.whatsappService = new WhatsAppService();
   }
 
-  // Crear nueva membresía
+  // ✅ CORREGIDO: Solo staff puede crear membresías
   async createMembership(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede crear membresías
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede crear membresías'
+        });
+      }
+
       const {
         userId,
         type,
@@ -29,6 +37,14 @@ class MembershipController {
         return res.status(404).json({
           success: false,
           message: 'Usuario no encontrado'
+        });
+      }
+
+      // Colaborador solo puede crear membresías para clientes
+      if (req.user.role === 'colaborador' && user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes crear membresías para usuarios con rol cliente'
         });
       }
 
@@ -71,6 +87,8 @@ class MembershipController {
         ]
       });
 
+      console.log(`✅ ${req.user.role} creó membresía: ${type} para ${user.firstName} ${user.lastName}`);
+
       res.status(201).json({
         success: true,
         message: 'Membresía creada exitosamente',
@@ -86,7 +104,7 @@ class MembershipController {
     }
   }
 
-  // Obtener todas las membresías con filtros
+  // ✅ CORREGIDO: Funciona para colaborador (membresías de clientes) Y cliente (sus membresías)
   async getMemberships(req, res) {
     try {
       const {
@@ -102,13 +120,25 @@ class MembershipController {
       const where = {};
       const userWhere = {};
 
-      // Aplicar filtros
+      // Aplicar filtros básicos
       if (status) where.status = status;
       if (type) where.type = type;
       if (userId) where.userId = userId;
 
-      // Búsqueda por nombre de usuario
-      if (search) {
+      // ✅ CORREGIDO: Lógica por rol específica
+      if (req.user.role === 'colaborador') {
+        // Colaborador puede ver membresías pero solo de usuarios clientes
+        userWhere.role = 'cliente';
+        console.log('🔍 Colaborador filtrando: solo membresías de usuarios clientes');
+      } else if (req.user.role === 'cliente') {
+        // ✅ CORREGIDO: Cliente solo puede ver SUS propias membresías
+        where.userId = req.user.id;
+        console.log(`🔍 Cliente ${req.user.id} filtrando: solo SUS propias membresías`);
+      }
+      // Admin puede ver todas sin restricción
+
+      // Búsqueda por nombre de usuario (solo si no es cliente)
+      if (search && req.user.role !== 'cliente') {
         userWhere[Op.or] = [
           { firstName: { [Op.iLike]: `%${search}%` } },
           { lastName: { [Op.iLike]: `%${search}%` } },
@@ -116,14 +146,20 @@ class MembershipController {
         ];
       }
 
+      const includeUser = {
+        association: 'user', 
+        attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'role']
+      };
+
+      // Solo aplicar filtro de usuario si hay condiciones
+      if (Object.keys(userWhere).length > 0) {
+        includeUser.where = userWhere;
+      }
+
       const { count, rows } = await Membership.findAndCountAll({
         where,
         include: [
-          { 
-            association: 'user', 
-            attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
-            where: Object.keys(userWhere).length > 0 ? userWhere : undefined
-          },
+          includeUser,
           { 
             association: 'registeredByUser', 
             attributes: ['id', 'firstName', 'lastName', 'role']
@@ -134,6 +170,8 @@ class MembershipController {
         offset,
         distinct: true
       });
+
+      console.log(`✅ ${req.user.role} obtuvo ${rows.length} membresías (total: ${count})`);
 
       res.json({
         success: true,
@@ -157,14 +195,21 @@ class MembershipController {
     }
   }
 
-  // Obtener membresías vencidas
+  // ✅ CORREGIDO: Solo staff puede ver membresías vencidas
   async getExpiredMemberships(req, res) {
     try {
-      const { days = 0 } = req.query; // days = 0 para vencidas hoy, > 0 para varios días
+      // ✅ CORREGIDO: Solo staff puede acceder
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede ver membresías vencidas'
+        });
+      }
+
+      const { days = 0 } = req.query;
 
       let dateCondition;
       if (parseInt(days) === 0) {
-        // Vencidas hoy
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
@@ -177,7 +222,6 @@ class MembershipController {
           ]
         };
       } else {
-        // Vencidas hace varios días
         const daysAgo = new Date();
         daysAgo.setDate(daysAgo.getDate() - parseInt(days));
         daysAgo.setHours(0, 0, 0, 0);
@@ -185,19 +229,26 @@ class MembershipController {
         dateCondition = { endDate: { [Op.lt]: daysAgo } };
       }
 
+      const userInclude = {
+        association: 'user', 
+        attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp', 'role']
+      };
+
+      // Colaborador solo ve membresías de clientes
+      if (req.user.role === 'colaborador') {
+        userInclude.where = { role: 'cliente' };
+      }
+
       const expiredMemberships = await Membership.findAll({
         where: {
           status: 'active',
           ...dateCondition
         },
-        include: [
-          { 
-            association: 'user', 
-            attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp']
-          }
-        ],
+        include: [userInclude],
         order: [['endDate', 'ASC']]
       });
+
+      console.log(`✅ ${req.user.role} obtuvo ${expiredMemberships.length} membresías vencidas`);
 
       res.json({
         success: true,
@@ -216,9 +267,17 @@ class MembershipController {
     }
   }
 
-  // Obtener membresías próximas a vencer
+  // ✅ CORREGIDO: Solo staff puede ver membresías próximas a vencer
   async getExpiringSoon(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede acceder
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede ver membresías próximas a vencer'
+        });
+      }
+
       const { days = 7 } = req.query;
 
       const today = new Date();
@@ -227,6 +286,16 @@ class MembershipController {
       const futureDate = new Date(today);
       futureDate.setDate(futureDate.getDate() + parseInt(days));
 
+      const userInclude = {
+        association: 'user', 
+        attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp', 'role']
+      };
+
+      // Colaborador solo ve membresías de clientes
+      if (req.user.role === 'colaborador') {
+        userInclude.where = { role: 'cliente' };
+      }
+
       const expiringSoon = await Membership.findAll({
         where: {
           status: 'active',
@@ -234,14 +303,11 @@ class MembershipController {
             [Op.between]: [today, futureDate]
           }
         },
-        include: [
-          { 
-            association: 'user', 
-            attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp']
-          }
-        ],
+        include: [userInclude],
         order: [['endDate', 'ASC']]
       });
+
+      console.log(`✅ ${req.user.role} obtuvo ${expiringSoon.length} membresías próximas a vencer`);
 
       res.json({
         success: true,
@@ -260,7 +326,7 @@ class MembershipController {
     }
   }
 
-  // Obtener membresía por ID
+  // ✅ CORREGIDO: Cliente puede ver su membresía, colaborador las de clientes
   async getMembershipById(req, res) {
     try {
       const { id } = req.params;
@@ -269,7 +335,7 @@ class MembershipController {
         include: [
           { 
             association: 'user', 
-            attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp']
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'whatsapp', 'role']
           },
           { 
             association: 'registeredByUser', 
@@ -289,6 +355,26 @@ class MembershipController {
         });
       }
 
+      // ✅ CORREGIDO: Validaciones por rol específico
+      if (req.user.role === 'cliente') {
+        // Cliente solo puede ver SUS propias membresías
+        if (membership.userId !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes ver tus propias membresías'
+          });
+        }
+      } else if (req.user.role === 'colaborador') {
+        // Colaborador solo puede ver membresías de clientes
+        if (membership.user.role !== 'cliente') {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes ver membresías de usuarios clientes'
+          });
+        }
+      }
+      // Admin puede ver todo
+
       res.json({
         success: true,
         data: { membership }
@@ -303,9 +389,17 @@ class MembershipController {
     }
   }
 
-  // Actualizar membresía
+  // ✅ CORREGIDO: Solo staff puede actualizar membresías
   async updateMembership(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede actualizar
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede actualizar membresías'
+        });
+      }
+
       const { id } = req.params;
       const {
         type,
@@ -317,11 +411,22 @@ class MembershipController {
         autoRenew
       } = req.body;
 
-      const membership = await Membership.findByPk(id);
+      const membership = await Membership.findByPk(id, {
+        include: [{ association: 'user', attributes: ['id', 'role'] }]
+      });
+
       if (!membership) {
         return res.status(404).json({
           success: false,
           message: 'Membresía no encontrada'
+        });
+      }
+
+      // Colaborador solo puede actualizar membresías de clientes
+      if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes modificar membresías de usuarios clientes'
         });
       }
 
@@ -343,6 +448,8 @@ class MembershipController {
         ]
       });
 
+      console.log(`✅ ${req.user.role} actualizó membresía ID: ${id}`);
+
       res.json({
         success: true,
         message: 'Membresía actualizada exitosamente',
@@ -358,14 +465,22 @@ class MembershipController {
     }
   }
 
-  // Renovar membresía
+  // ✅ CORREGIDO: Solo staff puede renovar membresías
   async renewMembership(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede renovar
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede renovar membresías'
+        });
+      }
+
       const { id } = req.params;
       const { months = 1, price } = req.body;
 
       const membership = await Membership.findByPk(id, {
-        include: ['user']
+        include: [{ association: 'user', attributes: ['role'] }]
       });
 
       if (!membership) {
@@ -375,22 +490,30 @@ class MembershipController {
         });
       }
 
+      // Colaborador solo puede renovar membresías de clientes
+      if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes renovar membresías de usuarios clientes'
+        });
+      }
+
       // Calcular nueva fecha de vencimiento
       const currentEndDate = new Date(membership.endDate);
       const today = new Date();
       
-      // Si la membresía ya venció, empezar desde hoy
       const startFrom = currentEndDate > today ? currentEndDate : today;
       
       const newEndDate = new Date(startFrom);
       newEndDate.setMonth(newEndDate.getMonth() + parseInt(months));
 
-      // Actualizar membresía
       membership.endDate = newEndDate;
       membership.status = 'active';
       if (price !== undefined) membership.price = price;
       
       await membership.save();
+
+      console.log(`✅ ${req.user.role} renovó membresía ID: ${id} por ${months} mes(es)`);
 
       res.json({
         success: true,
@@ -411,17 +534,36 @@ class MembershipController {
     }
   }
 
-  // Cancelar membresía
+  // ✅ CORREGIDO: Solo staff puede cancelar membresías
   async cancelMembership(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede cancelar
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede cancelar membresías'
+        });
+      }
+
       const { id } = req.params;
       const { reason } = req.body;
 
-      const membership = await Membership.findByPk(id);
+      const membership = await Membership.findByPk(id, {
+        include: [{ association: 'user', attributes: ['role'] }]
+      });
+
       if (!membership) {
         return res.status(404).json({
           success: false,
           message: 'Membresía no encontrada'
+        });
+      }
+
+      // Colaborador solo puede cancelar membresías de clientes
+      if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes cancelar membresías de usuarios clientes'
         });
       }
 
@@ -433,6 +575,8 @@ class MembershipController {
       }
 
       await membership.save();
+
+      console.log(`✅ ${req.user.role} canceló membresía ID: ${id}`);
 
       res.json({
         success: true,
@@ -448,56 +592,128 @@ class MembershipController {
     }
   }
 
-
-
-
-async getMembershipPlans(req, res) {
-  try {
-    const plans = await MembershipPlans.getActivePlans();
-    
-    // ✅ Formatear planes según especificación del frontend
-    const formattedPlans = plans.map(plan => ({
-      id: plan.id,
-      name: plan.planName,
-      price: parseFloat(plan.price),
-      originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
-      currency: 'GTQ',
-      duration: plan.durationType === 'monthly' ? 'mes' : 
-                plan.durationType === 'daily' ? 'día' : 'año',
-      popular: plan.isPopular,
-      iconName: plan.iconName,
-      color: '#3b82f6', // Color por defecto, se puede personalizar
-      features: plan.features || [],
-      benefits: plan.features ? plan.features.map(feature => ({
-        text: feature,
-        included: true
-      })) : [],
-      active: plan.isActive,
-      order: plan.displayOrder,
-      discountPercentage: plan.getDiscountPercentage()
-    }));
-    
-    res.json({
-      success: true,
-      data: formattedPlans
-    });
-  } catch (error) {
-    console.error('Error al obtener planes de membresía:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener planes de membresía',
-      error: error.message
-    });
+  // ✅ Planes de membresía (sin cambios - es público)
+  async getMembershipPlans(req, res) {
+    try {
+      const plans = await MembershipPlans.getActivePlans();
+      
+      const formattedPlans = plans.map(plan => ({
+        id: plan.id,
+        name: plan.planName,
+        price: parseFloat(plan.price),
+        originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
+        currency: 'GTQ',
+        duration: plan.durationType === 'monthly' ? 'mes' : 
+                  plan.durationType === 'daily' ? 'día' : 'año',
+        popular: plan.isPopular,
+        iconName: plan.iconName,
+        color: '#3b82f6',
+        features: plan.features || [],
+        benefits: plan.features ? plan.features.map(feature => ({
+          text: feature,
+          included: true
+        })) : [],
+        active: plan.isActive,
+        order: plan.displayOrder,
+        discountPercentage: plan.getDiscountPercentage()
+      }));
+      
+      res.json({
+        success: true,
+        data: formattedPlans
+      });
+    } catch (error) {
+      console.error('Error al obtener planes de membresía:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener planes de membresía',
+        error: error.message
+      });
+    }
   }
-}
 
-  // Obtener estadísticas de membresías
+  // ✅ CORREGIDO: Solo staff puede ver estadísticas
   async getMembershipStats(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede acceder
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede ver estadísticas de membresías'
+        });
+      }
+
+      if (req.user.role === 'colaborador') {
+        // Colaboradores ven estadísticas limitadas a clientes
+        const activeMemberships = await Membership.count({
+          include: [{
+            association: 'user',
+            where: { role: 'cliente' }
+          }],
+          where: { status: 'active' }
+        });
+
+        const membershipsByType = await Membership.findAll({
+          attributes: [
+            'type',
+            [Membership.sequelize.fn('COUNT', Membership.sequelize.col('Membership.id')), 'count']
+          ],
+          include: [{
+            association: 'user',
+            attributes: [],
+            where: { role: 'cliente' }
+          }],
+          where: { status: 'active' },
+          group: ['type']
+        });
+
+        const nextWeek = new Date();
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        
+        const expiringThisWeek = await Membership.count({
+          include: [{
+            association: 'user',
+            where: { role: 'cliente' }
+          }],
+          where: {
+            status: 'active',
+            endDate: {
+              [Op.between]: [new Date(), nextWeek]
+            }
+          }
+        });
+
+        const expiredMemberships = await Membership.count({
+          include: [{
+            association: 'user',
+            where: { role: 'cliente' }
+          }],
+          where: {
+            status: 'active',
+            endDate: { [Op.lt]: new Date() }
+          }
+        });
+
+        return res.json({
+          success: true,
+          data: {
+            activeMemberships,
+            membershipsByType: membershipsByType.reduce((acc, stat) => {
+              acc[stat.type] = parseInt(stat.dataValues.count);
+              return acc;
+            }, {}),
+            expiringThisWeek,
+            expiredMemberships,
+            role: 'colaborador'
+          }
+        });
+      }
+
+      // Solo admin puede ver estadísticas completas
       if (req.user.role !== 'admin') {
         return res.status(403).json({
           success: false,
-          message: 'Solo los administradores pueden ver estadísticas'
+          message: 'Solo los administradores pueden ver estadísticas completas'
         });
       }
 
@@ -560,7 +776,8 @@ async getMembershipPlans(req, res) {
           }, {}),
           expiringThisWeek,
           expiredMemberships,
-          monthlyIncome: monthlyIncome || 0
+          monthlyIncome: monthlyIncome || 0,
+          role: 'admin'
         }
       });
     } catch (error) {
@@ -573,13 +790,16 @@ async getMembershipPlans(req, res) {
     }
   }
 
-  // Actualizar horarios de una membresía
+  // ✅ CORREGIDO: Cliente puede actualizar SUS horarios, colaborador los de clientes
   async updateSchedule(req, res) {
     try {
       const { id } = req.params;
       const { preferredSchedule } = req.body;
 
-      const membership = await Membership.findByPk(id);
+      const membership = await Membership.findByPk(id, {
+        include: [{ association: 'user', attributes: ['id', 'role'] }]
+      });
+
       if (!membership) {
         return res.status(404).json({
           success: false,
@@ -587,13 +807,25 @@ async getMembershipPlans(req, res) {
         });
       }
 
-      // Verificar que el usuario pueda actualizar esta membresía
-      if (req.user.role === 'cliente' && membership.userId !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'Solo puedes actualizar tus propios horarios'
-        });
+      // ✅ CORREGIDO: Validaciones por rol específico
+      if (req.user.role === 'cliente') {
+        // Cliente solo puede actualizar SUS propios horarios
+        if (membership.userId !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes actualizar tus propios horarios'
+          });
+        }
+      } else if (req.user.role === 'colaborador') {
+        // Colaborador solo puede actualizar horarios de clientes
+        if (membership.user.role !== 'cliente') {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes actualizar horarios de usuarios clientes'
+          });
+        }
       }
+      // Admin puede actualizar cualquier horario
 
       membership.preferredSchedule = preferredSchedule;
       await membership.save();

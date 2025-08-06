@@ -1,10 +1,10 @@
-// src/controllers/userController.js
+// src/controllers/userController.js - CORREGIDO: Colaboradores Y Clientes funcionando
 const { User, Membership, Payment } = require('../models');
 const { Op } = require('sequelize');
 
 class UserController {
   
-  // Obtener todos los usuarios con filtros
+  // ✅ CORREGIDO: Funciona para colaborador (filtrado) Y cliente (sus datos)
   async getUsers(req, res) {
     try {
       const {
@@ -18,8 +18,21 @@ class UserController {
       const offset = (page - 1) * limit;
       const where = {};
 
-      // Aplicar filtros
-      if (role) where.role = role;
+      // ✅ CORREGIDO: Lógica por rol sin afectar clientes
+      if (req.user.role === 'colaborador') {
+        // Colaboradores solo pueden ver clientes
+        where.role = 'cliente';
+        console.log('🔍 Colaborador filtrando: solo usuarios clientes');
+      } else if (req.user.role === 'cliente') {
+        // ✅ CORREGIDO: Clientes solo pueden ver sus propios datos
+        where.id = req.user.id;
+        console.log('🔍 Cliente filtrando: solo sus propios datos');
+      } else {
+        // Admin puede ver todos los roles
+        if (role) where.role = role;
+      }
+
+      // Aplicar otros filtros
       if (isActive !== undefined) where.isActive = isActive === 'true';
       
       // Búsqueda por nombre o email
@@ -46,6 +59,8 @@ class UserController {
         offset
       });
 
+      console.log(`✅ ${req.user.role} obtuvo ${rows.length} usuarios (total: ${count})`);
+
       res.json({
         success: true,
         data: {
@@ -68,7 +83,7 @@ class UserController {
     }
   }
 
-  // Obtener usuario por ID
+  // ✅ CORREGIDO: Cliente puede ver su propio perfil, colaborador solo clientes
   async getUserById(req, res) {
     try {
       const { id } = req.params;
@@ -98,6 +113,26 @@ class UserController {
         });
       }
 
+      // ✅ CORREGIDO: Validaciones por rol
+      if (req.user.role === 'cliente') {
+        // Cliente solo puede ver su propio perfil
+        if (user.id !== req.user.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes ver tu propio perfil'
+          });
+        }
+      } else if (req.user.role === 'colaborador') {
+        // Colaborador solo puede ver clientes
+        if (user.role !== 'cliente') {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes ver información de usuarios clientes'
+          });
+        }
+      }
+      // Admin puede ver todo (no necesita validación)
+
       res.json({
         success: true,
         data: { user }
@@ -112,9 +147,17 @@ class UserController {
     }
   }
 
-  // Crear usuario (solo admin/colaborador)
+  // ✅ CORREGIDO: Solo staff puede crear usuarios (clientes no pueden)
   async createUser(req, res) {
     try {
+      // ✅ CORREGIDO: Solo staff puede crear usuarios
+      if (!['admin', 'colaborador'].includes(req.user.role)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo el personal puede crear usuarios'
+        });
+      }
+
       const {
         firstName,
         lastName,
@@ -127,12 +170,23 @@ class UserController {
         emergencyContact
       } = req.body;
 
-      // Solo admin puede crear otros admins
-      if (role === 'admin' && req.user.role !== 'admin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Solo los administradores pueden crear otros administradores'
-        });
+      // Validaciones por rol del usuario creador
+      if (req.user.role === 'colaborador') {
+        // Colaborador solo puede crear clientes
+        if (role !== 'cliente') {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo puedes crear usuarios con rol cliente'
+          });
+        }
+      } else {
+        // Solo admin puede crear otros admins
+        if (role === 'admin' && req.user.role !== 'admin') {
+          return res.status(403).json({
+            success: false,
+            message: 'Solo los administradores pueden crear otros administradores'
+          });
+        }
       }
 
       const userData = {
@@ -141,7 +195,7 @@ class UserController {
         email: email.toLowerCase(),
         phone,
         whatsapp,
-        role,
+        role: req.user.role === 'colaborador' ? 'cliente' : role, // Forzar cliente para colaborador
         dateOfBirth,
         emergencyContact,
         createdBy: req.user.id,
@@ -154,6 +208,8 @@ class UserController {
       }
 
       const user = await User.create(userData);
+
+      console.log(`✅ ${req.user.role} creó usuario: ${user.email} (rol: ${user.role})`);
 
       res.status(201).json({
         success: true,
@@ -170,7 +226,7 @@ class UserController {
     }
   }
 
-  // Actualizar usuario
+  // ✅ CORREGIDO: Clientes no pueden modificar usuarios, colaboradores tampoco
   async updateUser(req, res) {
     try {
       const { id } = req.params;
@@ -185,6 +241,21 @@ class UserController {
         emergencyContact,
         notificationPreferences
       } = req.body;
+
+      // ✅ CORREGIDO: Solo admin puede modificar usuarios
+      if (req.user.role === 'colaborador') {
+        return res.status(403).json({
+          success: false,
+          message: 'Los colaboradores no pueden modificar usuarios existentes'
+        });
+      }
+
+      if (req.user.role === 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Los clientes no pueden modificar usuarios'
+        });
+      }
 
       const user = await User.findByPk(id);
       if (!user) {
@@ -243,12 +314,11 @@ class UserController {
     }
   }
 
-  // Eliminar usuario (soft delete - desactivar)
+  // ✅ Solo admin puede eliminar usuarios (sin cambios)
   async deleteUser(req, res) {
     try {
       const { id } = req.params;
 
-      // Solo admin puede eliminar usuarios
       if (req.user.role !== 'admin') {
         return res.status(403).json({
           success: false,
@@ -290,13 +360,56 @@ class UserController {
     }
   }
 
-  // Obtener estadísticas de usuarios (solo admin)
+  // ✅ CORREGIDO: Estadísticas según rol SIN afectar permisos de cliente
   async getUserStats(req, res) {
     try {
+      // ✅ CORREGIDO: Clientes no deben acceder a estadísticas generales
+      if (req.user.role === 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Los clientes no tienen acceso a estadísticas generales'
+        });
+      }
+
+      if (req.user.role === 'colaborador') {
+        // Colaborador solo ve estadísticas de sus clientes
+        const clientsCreatedByMe = await User.count({
+          where: { 
+            isActive: true,
+            role: 'cliente',
+            createdBy: req.user.id
+          }
+        });
+
+        const thisMonth = new Date();
+        thisMonth.setDate(1);
+        thisMonth.setHours(0, 0, 0, 0);
+
+        const newClientsThisMonth = await User.count({
+          where: {
+            createdAt: { [Op.gte]: thisMonth },
+            isActive: true,
+            role: 'cliente',
+            createdBy: req.user.id
+          }
+        });
+
+        return res.json({
+          success: true,
+          data: {
+            myClients: clientsCreatedByMe,
+            newClientsThisMonth,
+            totalActiveClients: clientsCreatedByMe,
+            role: 'colaborador'
+          }
+        });
+      }
+
+      // Admin ve estadísticas completas
       if (req.user.role !== 'admin') {
         return res.status(403).json({
           success: false,
-          message: 'Solo los administradores pueden ver estadísticas'
+          message: 'Solo los administradores pueden ver estadísticas completas'
         });
       }
 
@@ -347,7 +460,8 @@ class UserController {
           }, {}),
           newUsersThisMonth,
           usersWithActiveMemberships,
-          totalActiveUsers
+          totalActiveUsers,
+          role: 'admin'
         }
       });
     } catch (error) {
@@ -360,7 +474,7 @@ class UserController {
     }
   }
 
-  // Buscar usuarios para autocompletado
+  // ✅ CORREGIDO: Solo staff puede buscar usuarios
   async searchUsers(req, res) {
     try {
       const { q: query, role } = req.query;
@@ -369,6 +483,14 @@ class UserController {
         return res.json({
           success: true,
           data: { users: [] }
+        });
+      }
+
+      // ✅ CORREGIDO: Solo staff puede buscar usuarios
+      if (req.user.role === 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Los clientes no pueden buscar otros usuarios'
         });
       }
 
@@ -381,7 +503,12 @@ class UserController {
         ]
       };
 
-      if (role) where.role = role;
+      // Colaborador solo busca clientes
+      if (req.user.role === 'colaborador') {
+        where.role = 'cliente';
+      } else if (role) {
+        where.role = role;
+      }
 
       const users = await User.findAll({
         where,
@@ -404,7 +531,7 @@ class UserController {
     }
   }
 
-  // Obtener clientes que pagan por día frecuentemente (para promociones)
+  // Obtener clientes que pagan por día frecuentemente (sin cambios)
   async getFrequentDailyClients(req, res) {
     try {
       const { days = 30, minVisits = 10 } = req.query;

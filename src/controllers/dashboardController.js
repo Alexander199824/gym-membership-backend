@@ -1,517 +1,435 @@
-// src/controllers/dashboardController.js - CORREGIDO: Problemas de consultas y métodos auxiliares
-const { 
-  Payment, 
-  Membership, 
-  User, 
-  StoreOrder,
-  StoreProduct,
-  FinancialMovements
-} = require('../models');
+// src/controllers/dashboardController.js - CORREGIDO: Dashboard con filtros para colaborador
+const { User, Membership, Payment, StoreOrder, StoreProduct, FinancialMovements } = require('../models');
 const { Op } = require('sequelize');
 
 class DashboardController {
 
-  // ✅ Dashboard principal unificado - CORREGIDO
+  // ✅ CORREGIDO: Dashboard unificado con filtros por rol
   async getUnifiedDashboard(req, res) {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      const { period = 'month' } = req.query;
+      const now = new Date();
 
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
+      // ✅ NUEVO: Definir período según rol
+      let dateRange = {};
+      if (req.user.role === 'colaborador') {
+        // Colaborador solo ve datos del día actual
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        dateRange = { [Op.between]: [today, tomorrow] };
+        console.log('🔍 Colaborador consultando dashboard del DÍA ACTUAL');
+      } else {
+        // Admin puede ver diferentes períodos
+        switch (period) {
+          case 'today':
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            dateRange = { [Op.between]: [today, tomorrow] };
+            break;
+          case 'week':
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            dateRange = { [Op.gte]: weekAgo };
+            break;
+          case 'month':
+            const monthAgo = new Date();
+            monthAgo.setMonth(monthAgo.getMonth() - 1);
+            dateRange = { [Op.gte]: monthAgo };
+            break;
+          default:
+            const defaultStart = new Date();
+            defaultStart.setMonth(defaultStart.getMonth() - 1);
+            dateRange = { [Op.gte]: defaultStart };
+        }
+      }
 
-      // ✅ CORREGIDO: Obtener datos de forma más segura con manejo individual de errores
-      const dashboardData = {
-        today: {
-          totalIncome: 0,
-          breakdown: {
-            memberships: 0,
-            daily: 0,
-            products: 0
-          }
-        },
-        stats: {
-          totalUsers: 0,
-          activeMemberships: 0,
-          ordersToday: 0,
-          productsLowStock: 0
-        },
-        monthlyFinancial: {
-          totalIncome: 0,
-          totalExpenses: 0,
-          netProfit: 0
-        },
-        weeklyTrend: []
+      // ✅ NUEVO: Construir whereClause base para pagos
+      const paymentsBaseWhere = {
+        status: 'completed',
+        paymentDate: dateRange
       };
 
-      // ✅ 1. Ingresos por membresías (hoy) - con manejo de errores
-      try {
-        const membershipIncome = await this.safeSum(Payment, 'amount', {
-          paymentType: 'membership',
-          status: 'completed',
-          paymentDate: { [Op.between]: [today, tomorrow] }
-        });
-        dashboardData.today.breakdown.memberships = parseFloat((membershipIncome || 0).toFixed(2));
-      } catch (error) {
-        console.warn('⚠️ Error al obtener ingresos de membresías:', error.message);
-      }
-
-      // ✅ 2. Ingresos de pagos diarios (hoy)
-      try {
-        const dailyIncome = await this.safeSum(Payment, 'amount', {
-          paymentType: ['daily', 'bulk_daily'],
-          status: 'completed',
-          paymentDate: { [Op.between]: [today, tomorrow] }
-        });
-        dashboardData.today.breakdown.daily = parseFloat((dailyIncome || 0).toFixed(2));
-      } catch (error) {
-        console.warn('⚠️ Error al obtener ingresos diarios:', error.message);
-      }
-
-      // ✅ 3. Ingresos de productos (hoy)
-      try {
-        const productsIncome = await this.safeSum(Payment, 'amount', {
-          paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
-          status: 'completed',
-          paymentDate: { [Op.between]: [today, tomorrow] }
-        });
-        dashboardData.today.breakdown.products = parseFloat((productsIncome || 0).toFixed(2));
-      } catch (error) {
-        console.warn('⚠️ Error al obtener ingresos de productos:', error.message);
-      }
-
-      // ✅ 4. Calcular total
-      dashboardData.today.totalIncome = 
-        dashboardData.today.breakdown.memberships + 
-        dashboardData.today.breakdown.daily + 
-        dashboardData.today.breakdown.products;
-
-      // ✅ 5. Estadísticas generales - cada una con su propio try-catch
-      try {
-        dashboardData.stats.totalUsers = await this.safeCount(User, { isActive: true });
-      } catch (error) {
-        console.warn('⚠️ Error al contar usuarios:', error.message);
+      // Colaborador solo ve SUS pagos
+      if (req.user.role === 'colaborador') {
+        paymentsBaseWhere.registeredBy = req.user.id;
       }
 
       try {
-        dashboardData.stats.activeMemberships = await this.safeCount(Membership, { status: 'active' });
-      } catch (error) {
-        console.warn('⚠️ Error al contar membresías activas:', error.message);
-      }
-
-      try {
-        if (this.isModelAvailable('StoreOrder')) {
-          dashboardData.stats.ordersToday = await this.safeCount(StoreOrder, { 
-            createdAt: { [Op.between]: [today, tomorrow] } 
-          });
-        }
-      } catch (error) {
-        console.warn('⚠️ Error al contar órdenes de hoy:', error.message);
-      }
-
-      try {
-        dashboardData.stats.productsLowStock = await this.getProductsLowStockCount();
-      } catch (error) {
-        console.warn('⚠️ Error al obtener productos con stock bajo:', error.message);
-      }
-
-      // ✅ 6. Resumen financiero del mes
-      try {
-        dashboardData.monthlyFinancial = await this.getMonthlyFinancialSummary(thisMonth, new Date());
-      } catch (error) {
-        console.warn('⚠️ Error al obtener resumen financiero mensual:', error.message);
-      }
-
-      // ✅ 7. Tendencia semanal - simplificada para evitar errores
-      try {
-        dashboardData.weeklyTrend = await this.getSimpleWeeklyTrend();
-      } catch (error) {
-        console.warn('⚠️ Error al obtener tendencia semanal:', error.message);
-        dashboardData.weeklyTrend = [];
-      }
-
-      res.json({
-        success: true,
-        data: dashboardData
-      });
-
-    } catch (error) {
-      console.error('Error al obtener dashboard unificado:', error);
-      
-      // ✅ Respuesta de fallback en caso de error crítico
-      res.status(200).json({
-        success: true,
-        data: {
-          today: {
-            totalIncome: 0,
-            breakdown: { memberships: 0, daily: 0, products: 0 }
-          },
-          stats: {
-            totalUsers: 0,
-            activeMemberships: 0,
-            ordersToday: 0,
-            productsLowStock: 0
-          },
-          monthlyFinancial: {
-            totalIncome: 0,
-            totalExpenses: 0,
-            netProfit: 0
-          },
-          weeklyTrend: [],
-          warning: 'Algunos datos pueden no estar disponibles durante la inicialización del sistema'
-        }
-      });
-    }
-  }
-
-  // ✅ NUEVO: Verificar si un modelo está disponible
-  isModelAvailable(modelName) {
-    try {
-      const models = require('../models');
-      return !!(models[modelName] && typeof models[modelName].findAll === 'function');
-    } catch (error) {
-      return false;
-    }
-  }
-
-  // ✅ CORREGIDO: Método auxiliar para obtener productos con stock bajo
-  async getProductsLowStockCount() {
-    try {
-      if (!this.isModelAvailable('StoreProduct')) {
-        return 0;
-      }
-
-      const count = await StoreProduct.count({
-        where: {
-          isActive: true,
-          [Op.and]: [
-            StoreProduct.sequelize.where(
-              StoreProduct.sequelize.col('stockQuantity'),
-              Op.lte,
-              StoreProduct.sequelize.col('minStock')
-            )
-          ]
-        }
-      });
-      
-      return count || 0;
-    } catch (error) {
-      console.warn('⚠️ Error al obtener productos con stock bajo:', error.message);
-      return 0;
-    }
-  }
-
-  // ✅ CORREGIDO: Método auxiliar para obtener resumen financiero mensual
-  async getMonthlyFinancialSummary(startDate, endDate) {
-    try {
-      if (!this.isModelAvailable('FinancialMovements')) {
-        // Fallback: calcular desde pagos
-        const totalIncome = await this.safeSum(Payment, 'amount', {
-          status: 'completed',
-          paymentDate: { [Op.between]: [startDate, endDate] }
-        });
-
-        return {
-          totalIncome: totalIncome || 0,
-          totalExpenses: 0,
-          netProfit: totalIncome || 0
-        };
-      }
-
-      // Intentar usar FinancialMovements si está disponible
-      if (typeof FinancialMovements.getFinancialSummary === 'function') {
-        return await FinancialMovements.getFinancialSummary(startDate, endDate);
-      } else {
-        // Fallback manual
-        const [totalIncome, totalExpenses] = await Promise.all([
-          this.safeSum(FinancialMovements, 'amount', {
-            type: 'income',
-            movementDate: { [Op.between]: [startDate, endDate] }
+        // ✅ Obtener datos en paralelo con manejo de errores individual
+        const [
+          totalIncome,
+          paymentsCount,
+          paymentsBreakdown,
+          activeMemberships,
+          expiringSoonCount,
+          newUsersCount,
+          topPaymentMethods
+        ] = await Promise.allSettled([
+          // Total de ingresos
+          Payment.sum('amount', { where: paymentsBaseWhere }),
+          
+          // Cantidad de pagos
+          Payment.count({ where: paymentsBaseWhere }),
+          
+          // Desglose de pagos por tipo
+          Payment.findAll({
+            attributes: [
+              'paymentType',
+              [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+              [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+            ],
+            where: paymentsBaseWhere,
+            group: ['paymentType']
           }),
-          this.safeSum(FinancialMovements, 'amount', {
-            type: 'expense',
-            movementDate: { [Op.between]: [startDate, endDate] }
+          
+          // Membresías activas (colaborador solo ve de clientes)
+          this.getActiveMembershipsCount(req.user.role),
+          
+          // Membresías próximas a vencer (colaborador solo ve de clientes)
+          this.getExpiringSoonCount(req.user.role),
+          
+          // Nuevos usuarios (colaborador solo ve clientes que creó)
+          this.getNewUsersCount(req.user.role, req.user.id, dateRange),
+          
+          // Métodos de pago más usados
+          Payment.findAll({
+            attributes: [
+              'paymentMethod',
+              [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+            ],
+            where: paymentsBaseWhere,
+            group: ['paymentMethod'],
+            order: [[Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'DESC']],
+            limit: 5
           })
         ]);
 
-        return {
-          totalIncome: totalIncome || 0,
-          totalExpenses: totalExpenses || 0,
-          netProfit: (totalIncome || 0) - (totalExpenses || 0)
-        };
-      }
-    } catch (error) {
-      console.warn('⚠️ Error al obtener resumen financiero mensual:', error.message);
-      return {
-        totalIncome: 0,
-        totalExpenses: 0,
-        netProfit: 0
-      };
-    }
-  }
-
-  // ✅ NUEVO: Tendencia semanal simplificada
-  async getSimpleWeeklyTrend() {
-    try {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-
-      const dailyPayments = await Payment.findAll({
-        attributes: [
-          [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
-          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total']
-        ],
-        where: {
-          status: 'completed',
-          paymentDate: { [Op.gte]: weekAgo }
-        },
-        group: [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate'))],
-        order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
-      });
-
-      return dailyPayments.map(item => ({
-        date: item.dataValues.date,
-        memberships: 0, // Simplificado
-        daily: 0,       // Simplificado
-        products: 0,    // Simplificado
-        other: 0,       // Simplificado
-        total: parseFloat(item.dataValues.total || 0)
-      }));
-    } catch (error) {
-      console.warn('⚠️ Error en tendencia semanal simplificada:', error.message);
-      return [];
-    }
-  }
-
-  // ✅ NUEVO: Método auxiliar para suma segura
-  async safeSum(model, field, where) {
-    try {
-      if (!model || typeof model.sum !== 'function') {
-        return 0;
-      }
-      const result = await model.sum(field, { where });
-      return result || 0;
-    } catch (error) {
-      console.warn(`⚠️ Error en suma segura de ${model?.name || 'modelo'}.${field}:`, error.message);
-      return 0;
-    }
-  }
-
-  // ✅ NUEVO: Método auxiliar para conteo seguro
-  async safeCount(model, where) {
-    try {
-      if (!model || typeof model.count !== 'function') {
-        return 0;
-      }
-      const result = await model.count({ where });
-      return result || 0;
-    } catch (error) {
-      console.warn(`⚠️ Error en conteo seguro de ${model?.name || 'modelo'}:`, error.message);
-      return 0;
-    }
-  }
-
-  // ✅ Obtener métricas de rendimiento - SIMPLIFICADO
-  async getPerformanceMetrics(req, res) {
-    try {
-      const { period = 'month' } = req.query;
-      
-      // ✅ Definir fechas según período
-      let startDate, endDate = new Date();
-      
-      switch (period) {
-        case 'week':
-          startDate = new Date();
-          startDate.setDate(startDate.getDate() - 7);
-          break;
-        case 'month':
-          startDate = new Date();
-          startDate.setMonth(startDate.getMonth() - 1);
-          break;
-        case 'quarter':
-          startDate = new Date();
-          startDate.setMonth(startDate.getMonth() - 3);
-          break;
-        case 'year':
-          startDate = new Date();
-          startDate.setFullYear(startDate.getFullYear() - 1);
-          break;
-        default:
-          startDate = new Date();
-          startDate.setMonth(startDate.getMonth() - 1);
-      }
-
-      // ✅ Métricas de rendimiento con mejor manejo de errores
-      const [
-        avgOrderValue,
-        conversionRate,
-        customerRetention,
-        productPerformance,
-        revenueGrowth
-      ] = await Promise.all([
-        // Valor promedio de orden
-        this.getAvgOrderValue(startDate, endDate),
-
-        // Tasa de conversión (órdenes completadas vs creadas)
-        this.getConversionRate(startDate, endDate),
-
-        // Retención de clientes
-        this.getCustomerRetention(),
-
-        // Productos más vendidos
-        this.getProductPerformance(startDate, endDate),
-
-        // Crecimiento de ingresos
-        this.getRevenueGrowth(startDate, endDate)
-      ]);
-
-      res.json({
-        success: true,
-        data: {
-          period,
-          metrics: {
-            avgOrderValue: parseFloat((avgOrderValue || 0).toFixed(2)),
-            conversionRate,
-            customerRetention: customerRetention || 0,
-            revenueGrowth: parseFloat((revenueGrowth || 0).toFixed(2))
+        // ✅ Procesar resultados con valores por defecto en caso de error
+        const dashboardData = {
+          period: req.user.role === 'colaborador' ? 'today' : period,
+          userRole: req.user.role,
+          summary: {
+            totalIncome: totalIncome.status === 'fulfilled' ? (totalIncome.value || 0) : 0,
+            paymentsCount: paymentsCount.status === 'fulfilled' ? (paymentsCount.value || 0) : 0,
+            activeMemberships: activeMemberships.status === 'fulfilled' ? (activeMemberships.value || 0) : 0,
+            expiringSoon: expiringSoonCount.status === 'fulfilled' ? (expiringSoonCount.value || 0) : 0,
+            newUsers: newUsersCount.status === 'fulfilled' ? (newUsersCount.value || 0) : 0
           },
-          topProducts: productPerformance || []
+          breakdown: {
+            paymentsBy: paymentsBreakdown.status === 'fulfilled' 
+              ? paymentsBreakdown.value.map(item => ({
+                  type: item.paymentType,
+                  total: parseFloat(item.dataValues.total || 0),
+                  count: parseInt(item.dataValues.count || 0)
+                }))
+              : [],
+            topPaymentMethods: topPaymentMethods.status === 'fulfilled'
+              ? topPaymentMethods.value.map(item => ({
+                  method: item.paymentMethod,
+                  count: parseInt(item.dataValues.count || 0)
+                }))
+              : []
+          }
+        };
+
+        // ✅ NUEVO: Información específica para colaboradores
+        if (req.user.role === 'colaborador') {
+          dashboardData.collaboratorInfo = {
+            id: req.user.id,
+            name: req.user.getFullName(),
+            todayOnly: true,
+            message: 'Dashboard personal del día actual'
+          };
         }
-      });
+
+        // ✅ Datos adicionales para admin (solo si no es colaborador)
+        if (req.user.role === 'admin') {
+          try {
+            // Órdenes de tienda recientes
+            const recentOrders = await StoreOrder.findAll({
+              where: { 
+                createdAt: dateRange 
+              },
+              limit: 5,
+              order: [['createdAt', 'DESC']],
+              include: [
+                { 
+                  association: 'user', 
+                  attributes: ['firstName', 'lastName'] 
+                }
+              ]
+            });
+
+            dashboardData.store = {
+              recentOrders: recentOrders.length,
+              ordersList: recentOrders
+            };
+          } catch (storeError) {
+            console.warn('⚠️ Error al obtener datos de tienda:', storeError.message);
+            dashboardData.store = { recentOrders: 0, ordersList: [] };
+          }
+        }
+
+        console.log(`✅ ${req.user.role} obtuvo dashboard unificado - Ingresos: $${dashboardData.summary.totalIncome}`);
+
+        res.json({
+          success: true,
+          data: dashboardData
+        });
+
+      } catch (dataError) {
+        console.error('Error al obtener datos del dashboard:', dataError);
+        // Respuesta de fallback con datos vacíos pero estructura válida
+        res.json({
+          success: true,
+          data: {
+            period: req.user.role === 'colaborador' ? 'today' : period,
+            userRole: req.user.role,
+            summary: {
+              totalIncome: 0,
+              paymentsCount: 0,
+              activeMemberships: 0,
+              expiringSoon: 0,
+              newUsers: 0
+            },
+            breakdown: {
+              paymentsBy: [],
+              topPaymentMethods: []
+            },
+            error: 'Algunos datos no pudieron cargarse completamente'
+          }
+        });
+      }
+
     } catch (error) {
-      console.error('Error al obtener métricas de rendimiento:', error);
+      console.error('Error crítico en dashboard unificado:', error);
       res.status(500).json({
         success: false,
-        message: 'Error al obtener métricas',
+        message: 'Error al obtener dashboard',
         error: error.message
       });
     }
   }
 
-  // ✅ CORREGIDO: Métodos auxiliares para métricas
-  async getAvgOrderValue(startDate, endDate) {
+  // ✅ CORREGIDO: Métricas de rendimiento filtradas por rol
+  async getPerformanceMetrics(req, res) {
     try {
-      if (!this.isModelAvailable('StoreOrder')) return 0;
+      const { days = 30 } = req.query;
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - parseInt(days));
 
-      const result = await StoreOrder.findOne({
-        attributes: [[StoreOrder.sequelize.fn('AVG', StoreOrder.sequelize.col('totalAmount')), 'avg_order']],
-        where: {
-          status: 'delivered',
-          createdAt: { [Op.between]: [startDate, endDate] }
-        }
-      });
-      
-      return parseFloat(result?.dataValues?.avg_order || 0);
-    } catch (error) {
-      console.warn('⚠️ Error al calcular valor promedio de orden:', error.message);
-      return 0;
-    }
-  }
+      // ✅ NUEVO: Base where para colaboradores
+      const baseWhere = {
+        paymentDate: { [Op.gte]: startDate },
+        status: 'completed'
+      };
 
-  async getConversionRate(startDate, endDate) {
-    try {
-      if (!this.isModelAvailable('StoreOrder')) {
-        return { total: 0, completed: 0, rate: 0 };
+      if (req.user.role === 'colaborador') {
+        baseWhere.registeredBy = req.user.id;
+        console.log(`🔍 Colaborador ${req.user.id} consultando métricas de últimos ${days} días`);
       }
 
-      const [total, completed] = await Promise.all([
-        StoreOrder.count({ where: { createdAt: { [Op.between]: [startDate, endDate] } } }),
-        StoreOrder.count({ 
-          where: { 
-            status: 'delivered',
-            createdAt: { [Op.between]: [startDate, endDate] } 
-          } 
-        })
-      ]);
+      try {
+        // ✅ Métricas diarias
+        const dailyMetrics = await Payment.findAll({
+          attributes: [
+            [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'date'],
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'income'],
+            [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'transactions']
+          ],
+          where: baseWhere,
+          group: [Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate'))],
+          order: [[Payment.sequelize.fn('DATE', Payment.sequelize.col('paymentDate')), 'ASC']]
+        });
+
+        // ✅ Promedio de ingresos diarios
+        const avgDailyIncome = dailyMetrics.length > 0 
+          ? dailyMetrics.reduce((sum, day) => sum + parseFloat(day.dataValues.income), 0) / dailyMetrics.length
+          : 0;
+
+        // ✅ Mejor día
+        const bestDay = dailyMetrics.length > 0 
+          ? dailyMetrics.reduce((best, current) => 
+              parseFloat(current.dataValues.income) > parseFloat(best.dataValues.income) ? current : best
+            )
+          : null;
+
+        // ✅ Tendencia (comparar primera y última semana)
+        const weeklyTrend = this.calculateWeeklyTrend(dailyMetrics);
+
+        // ✅ Métricas específicas para colaboradores
+        let collaboratorSpecific = {};
+        if (req.user.role === 'colaborador') {
+          collaboratorSpecific = {
+            personalMetrics: true,
+            collaboratorId: req.user.id,
+            collaboratorName: req.user.getFullName(),
+            period: `Últimos ${days} días - Solo tus registros`,
+            note: 'Estas métricas incluyen únicamente los pagos que registraste'
+          };
+        }
+
+        const metricsData = {
+          period: parseInt(days),
+          userRole: req.user.role,
+          totalDays: dailyMetrics.length,
+          averageDailyIncome: parseFloat(avgDailyIncome.toFixed(2)),
+          bestDay: bestDay ? {
+            date: bestDay.dataValues.date,
+            income: parseFloat(bestDay.dataValues.income),
+            transactions: parseInt(bestDay.dataValues.transactions)
+          } : null,
+          weeklyTrend: weeklyTrend,
+          dailyMetrics: dailyMetrics.map(day => ({
+            date: day.dataValues.date,
+            income: parseFloat(day.dataValues.income),
+            transactions: parseInt(day.dataValues.transactions)
+          })),
+          ...collaboratorSpecific
+        };
+
+        console.log(`✅ ${req.user.role} obtuvo métricas de rendimiento - Promedio diario: $${avgDailyIncome.toFixed(2)}`);
+
+        res.json({
+          success: true,
+          data: metricsData
+        });
+
+      } catch (metricsError) {
+        console.warn('⚠️ Error al calcular métricas:', metricsError.message);
+        res.json({
+          success: true,
+          data: {
+            period: parseInt(days),
+            userRole: req.user.role,
+            totalDays: 0,
+            averageDailyIncome: 0,
+            bestDay: null,
+            weeklyTrend: { direction: 'stable', percentage: 0 },
+            dailyMetrics: [],
+            error: 'No se pudieron calcular las métricas completamente'
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error al obtener métricas de rendimiento:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener métricas de rendimiento',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ MÉTODOS AUXILIARES
+
+  async getActiveMembershipsCount(userRole) {
+    try {
+      const where = { status: 'active' };
+      const include = [];
+
+      if (userRole === 'colaborador') {
+        include.push({
+          association: 'user',
+          where: { role: 'cliente' }
+        });
+      }
+
+      return await Membership.count({ 
+        where,
+        ...(include.length > 0 && { include })
+      });
+    } catch (error) {
+      console.warn('⚠️ Error al contar membresías activas:', error.message);
+      return 0;
+    }
+  }
+
+  async getExpiringSoonCount(userRole) {
+    try {
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+
+      const where = {
+        status: 'active',
+        endDate: { [Op.between]: [new Date(), nextWeek] }
+      };
+
+      const include = [];
+      if (userRole === 'colaborador') {
+        include.push({
+          association: 'user',
+          where: { role: 'cliente' }
+        });
+      }
+
+      return await Membership.count({ 
+        where,
+        ...(include.length > 0 && { include })
+      });
+    } catch (error) {
+      console.warn('⚠️ Error al contar membresías próximas a vencer:', error.message);
+      return 0;
+    }
+  }
+
+  async getNewUsersCount(userRole, userId, dateRange) {
+    try {
+      const where = {
+        isActive: true,
+        createdAt: dateRange
+      };
+
+      if (userRole === 'colaborador') {
+        // Colaborador solo ve usuarios que él creó y que son clientes
+        where.createdBy = userId;
+        where.role = 'cliente';
+      }
+
+      return await User.count({ where });
+    } catch (error) {
+      console.warn('⚠️ Error al contar nuevos usuarios:', error.message);
+      return 0;
+    }
+  }
+
+  calculateWeeklyTrend(dailyMetrics) {
+    try {
+      if (dailyMetrics.length < 14) {
+        return { direction: 'insufficient_data', percentage: 0 };
+      }
+
+      // Primeros 7 días vs últimos 7 días
+      const firstWeek = dailyMetrics.slice(0, 7);
+      const lastWeek = dailyMetrics.slice(-7);
+
+      const firstWeekTotal = firstWeek.reduce((sum, day) => sum + parseFloat(day.dataValues.income), 0);
+      const lastWeekTotal = lastWeek.reduce((sum, day) => sum + parseFloat(day.dataValues.income), 0);
+
+      if (firstWeekTotal === 0) {
+        return { direction: 'up', percentage: 100 };
+      }
+
+      const percentageChange = ((lastWeekTotal - firstWeekTotal) / firstWeekTotal) * 100;
+      
+      let direction = 'stable';
+      if (percentageChange > 5) direction = 'up';
+      else if (percentageChange < -5) direction = 'down';
 
       return {
-        total: total || 0,
-        completed: completed || 0,
-        rate: total > 0 ? ((completed / total) * 100).toFixed(1) : '0'
+        direction,
+        percentage: Math.abs(parseFloat(percentageChange.toFixed(1))),
+        firstWeekTotal: parseFloat(firstWeekTotal.toFixed(2)),
+        lastWeekTotal: parseFloat(lastWeekTotal.toFixed(2))
       };
     } catch (error) {
-      console.warn('⚠️ Error al calcular tasa de conversión:', error.message);
-      return { total: 0, completed: 0, rate: '0' };
-    }
-  }
-
-  async getCustomerRetention() {
-    try {
-      if (!this.isModelAvailable('User') || !this.isModelAvailable('StoreOrder')) return 0;
-
-      const result = await User.sequelize.query(`
-        SELECT COUNT(DISTINCT user_id) as retention_count
-        FROM store_orders 
-        WHERE status = 'delivered' 
-        AND user_id IN (
-          SELECT user_id 
-          FROM store_orders 
-          WHERE status = 'delivered' 
-          AND user_id IS NOT NULL
-          GROUP BY user_id 
-          HAVING COUNT(*) > 1
-        )
-      `, {
-        type: User.sequelize.QueryTypes.SELECT
-      });
-
-      return parseInt(result[0]?.retention_count || 0);
-    } catch (error) {
-      console.warn('⚠️ Error al calcular retención de clientes:', error.message);
-      return 0;
-    }
-  }
-
-  async getProductPerformance(startDate, endDate) {
-    try {
-      if (!this.isModelAvailable('StoreOrder') || !this.isModelAvailable('StoreProduct')) return [];
-
-      const performance = await User.sequelize.query(`
-        SELECT 
-          soi.product_id as id,
-          sp.name,
-          SUM(soi.quantity) as total_sold,
-          SUM(soi.total_price) as total_revenue
-        FROM store_order_items soi
-        JOIN store_orders so ON soi.order_id = so.id
-        JOIN store_products sp ON soi.product_id = sp.id
-        WHERE so.status = 'delivered'
-        AND so.created_at BETWEEN :startDate AND :endDate
-        GROUP BY soi.product_id, sp.name
-        ORDER BY SUM(soi.quantity) DESC
-        LIMIT 10
-      `, {
-        replacements: { startDate, endDate },
-        type: User.sequelize.QueryTypes.SELECT
-      });
-
-      return performance.map(item => ({
-        id: item.id,
-        name: item.name || 'Producto desconocido',
-        totalSold: parseInt(item.total_sold || 0),
-        totalRevenue: parseFloat(item.total_revenue || 0)
-      }));
-    } catch (error) {
-      console.warn('⚠️ Error al obtener rendimiento de productos:', error.message);
-      return [];
-    }
-  }
-
-  async getRevenueGrowth(startDate, endDate) {
-    try {
-      const result = await this.safeSum(Payment, 'amount', {
-        paymentType: ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer'],
-        status: 'completed',
-        paymentDate: { [Op.between]: [startDate, endDate] }
-      });
-
-      return result || 0;
-    } catch (error) {
-      console.warn('⚠️ Error al calcular crecimiento de ingresos:', error.message);
-      return 0;
+      console.warn('⚠️ Error al calcular tendencia semanal:', error.message);
+      return { direction: 'error', percentage: 0 };
     }
   }
 }

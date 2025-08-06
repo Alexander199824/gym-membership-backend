@@ -1,4 +1,4 @@
-// src/routes/membershipRoutes.js - CAMBIOS MÍNIMOS SEGUROS
+// src/routes/membershipRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados
 
 const express = require('express');
 const membershipController = require('../controllers/membershipController');
@@ -9,13 +9,6 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
 
-// ✅ NUEVO: Importar middleware de autorización
-const { 
-  authorizeClientOwnData, 
-  authorizeResourceOwner, 
-  requireAdmin 
-} = require('../middleware/authorization');
-
 const router = express.Router();
 
 // ✅ RUTAS PÚBLICAS (sin cambios)
@@ -23,76 +16,78 @@ router.get('/plans', membershipController.getMembershipPlans);
 
 // ✅ RUTAS QUE REQUIEREN AUTENTICACIÓN
 
-// ✅ CAMBIO 1: Permitir a clientes ver sus propias membresías
+// ✅ CORREGIDO: Cliente puede ver SUS membresías, staff ve según permisos
+// Nota: El filtrado específico se hace en el controlador
 router.get('/', 
   authenticateToken,
-  authorizeClientOwnData, // ✅ NUEVO MIDDLEWARE - Esta es la corrección principal
+  // ✅ Permitir a clientes acceso - el controlador filtra por userId para clientes
   membershipController.getMemberships
 );
 
-// Obtener membresías vencidas (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede ver membresías vencidas - CLIENTES NO PUEDEN
 router.get('/expired', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   membershipController.getExpiredMemberships
 );
 
-// Obtener membresías próximas a vencer (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede ver membresías próximas a vencer - CLIENTES NO PUEDEN
 router.get('/expiring-soon', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   membershipController.getExpiringSoon
 );
 
-// Obtener estadísticas de membresías (sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede ver estadísticas - CLIENTES NO PUEDEN
 router.get('/stats', 
   authenticateToken,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   membershipController.getMembershipStats
 );
 
-// Crear nueva membresía (solo staff - sin cambios)
+// ✅ Solo STAFF puede crear membresías (sin cambios)
 router.post('/', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN CREAR
   createMembershipValidator,
   handleValidationErrors,
   membershipController.createMembership
 );
 
-// ✅ CAMBIO 2: Permitir a clientes ver sus propias membresías por ID
+// ✅ CORREGIDO: Cliente puede ver SUS membresías por ID, staff ve según permisos
 router.get('/:id', 
   authenticateToken,
-  authorizeResourceOwner('Membership', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
+  // ✅ Permitir a clientes acceso - validación específica en controlador
   membershipController.getMembershipById
 );
 
-// Actualizar membresía (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede actualizar membresías - CLIENTES NO PUEDEN
 router.patch('/:id', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN MODIFICAR
   updateMembershipValidator,
   handleValidationErrors,
   membershipController.updateMembership
 );
 
-// Renovar membresía (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede renovar membresías - CLIENTES NO PUEDEN
 router.post('/:id/renew', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN RENOVAR
   membershipController.renewMembership
 );
 
-// Cancelar membresía (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede cancelar membresías - CLIENTES NO PUEDEN
 router.post('/:id/cancel', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN CANCELAR
   membershipController.cancelMembership
 );
 
-// ✅ CAMBIO 3: Permitir a clientes actualizar sus propios horarios
+// ✅ CORREGIDO: Cliente puede actualizar horarios de SUS membresías, staff según permisos
 router.patch('/:id/schedule', 
   authenticateToken,
-  authorizeResourceOwner('Membership', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
+  // ✅ Permitir a clientes acceso - validación específica en controlador
   membershipController.updateSchedule
 );
 

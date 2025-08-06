@@ -1,4 +1,4 @@
-// src/routes/paymentRoutes.js - CAMBIOS MÍNIMOS SEGUROS
+// src/routes/paymentRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const { 
@@ -9,12 +9,6 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
 const { uploadLimiter } = require('../middleware/rateLimiter');
-
-// ✅ NUEVO: Importar middleware de autorización
-const { 
-  authorizeClientOwnData, 
-  authorizeResourceOwner
-} = require('../middleware/authorization');
 
 const router = express.Router();
 
@@ -47,80 +41,169 @@ if (!uploadTransferProof) {
   };
 }
 
-// ✅ Rutas de reportes ANTES de rutas con parámetros (sin cambios)
+// ✅ ========== NUEVAS RUTAS ESPECÍFICAS PARA COLABORADORES ==========
+
+// 📊 NUEVO: Reporte diario personal del colaborador (solo colaboradores)
+router.get('/my-daily-report', 
+  authenticateToken,
+  paymentController.getMyDailyReport
+);
+
+// 📈 NUEVO: Estadísticas diarias personales del colaborador (solo colaboradores)
+router.get('/my-daily-stats',
+  authenticateToken, 
+  paymentController.getMyDailyStats
+);
+
+// 💰 NUEVO: Pagos anónimos solo para tipo 'daily' (solo staff)
+router.post('/daily-anonymous',
+  authenticateToken,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
+  async (req, res) => {
+    try {
+      const {
+        amount,
+        paymentMethod = 'cash',
+        description = 'Pago diario anónimo',
+        notes,
+        dailyPaymentCount = 1,
+        paymentDate,
+        anonymousClientInfo
+      } = req.body;
+
+      if (!anonymousClientInfo || !anonymousClientInfo.name) {
+        return res.status(400).json({
+          success: false,
+          message: 'Se requiere información del cliente anónimo (al menos nombre)'
+        });
+      }
+
+      const paymentData = {
+        userId: null,
+        membershipId: null,
+        amount,
+        paymentMethod,
+        paymentType: 'daily',
+        description,
+        notes,
+        anonymousClientInfo,
+        registeredBy: req.user.id,
+        dailyPaymentCount: parseInt(dailyPaymentCount),
+        paymentDate: paymentDate || new Date(),
+        status: 'completed'
+      };
+
+      const { Payment, FinancialMovements } = require('../models');
+      const payment = await Payment.create(paymentData);
+
+      try {
+        await FinancialMovements.createFromAnyPayment(payment);
+      } catch (financialError) {
+        console.warn('⚠️ Error al crear movimiento financiero (no crítico):', financialError.message);
+      }
+
+      console.log(`✅ ${req.user.role} creó pago anónimo: $${amount} para ${anonymousClientInfo.name}`);
+
+      res.status(201).json({
+        success: true,
+        message: 'Pago anónimo registrado exitosamente',
+        data: { 
+          payment: {
+            ...payment.toJSON(),
+            clientInfo: anonymousClientInfo
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al crear pago anónimo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al registrar pago anónimo',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ ========== RUTAS DE REPORTES (Solo STAFF) ==========
+
+// ✅ CORREGIDO: Solo STAFF puede ver reportes - CLIENTES NO PUEDEN
 router.get('/reports/enhanced', 
   authenticateToken, 
-  requireAdmin,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   paymentController.getEnhancedPaymentReports
 );
 
+// ✅ CORREGIDO: Solo STAFF puede ver reportes - CLIENTES NO PUEDEN
 router.get('/reports', 
   authenticateToken,
-  requireAdmin,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   paymentController.getPaymentReports
 );
 
-// ✅ CAMBIO 1: Permitir a clientes ver sus propios pagos
+// ✅ ========== RUTAS PRINCIPALES ==========
+
+// ✅ CORREGIDO: Cliente puede ver SUS pagos, staff ve según permisos
 router.get('/', 
   authenticateToken,
-  authorizeClientOwnData, // ✅ NUEVO MIDDLEWARE - Esta es la corrección principal
+  // ✅ Permitir a clientes acceso - el controlador filtra por userId para clientes
   paymentController.getPayments
 );
 
-// Obtener transferencias pendientes (solo staff - sin cambios)
+// ✅ CORREGIDO: Solo STAFF puede ver transferencias pendientes - CLIENTES NO PUEDEN
 router.get('/transfers/pending', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   paymentController.getPendingTransfers
 );
 
-// Crear nuevo pago (solo staff - sin cambios)
+// ✅ Solo STAFF puede crear pagos (sin cambios)
 router.post('/', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN CREAR PAGOS
   createPaymentValidator,
   handleValidationErrors,
   paymentController.createPayment
 );
 
-// Registrar ingresos diarios totales (solo staff - sin cambios)
+// ✅ Solo STAFF puede registrar ingresos diarios (sin cambios)
 router.post('/daily-income', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
   dailyIncomeValidator,
   handleValidationErrors,
   paymentController.registerDailyIncome
 );
 
-// Crear pago desde orden de tienda (solo staff - sin cambios)
+// ✅ Solo STAFF puede crear pagos desde órdenes (sin cambios)
 router.post('/from-order', 
   authenticateToken, 
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
   paymentController.createPaymentFromOrder
 );
 
-// ✅ RUTAS CON PARÁMETROS AL FINAL
+// ✅ ========== RUTAS CON PARÁMETROS ==========
 
-// ✅ CAMBIO 2: Permitir a clientes ver sus propios pagos por ID
+// ✅ CORREGIDO: Cliente puede ver SUS pagos por ID, staff ve según permisos
 router.get('/:id', 
   authenticateToken,
-  authorizeResourceOwner('Payment', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
+  // ✅ Permitir a clientes acceso - validación específica en controlador
   paymentController.getPaymentById
 );
 
-// ✅ CAMBIO 3: Permitir a clientes subir comprobantes de sus propios pagos
+// ✅ CORREGIDO: Cliente puede subir comprobantes de SUS pagos, staff también
 router.post('/:id/transfer-proof', 
   authenticateToken,
-  authorizeResourceOwner('Payment', 'id', 'userId'), // ✅ NUEVO MIDDLEWARE
+  // ✅ Permitir a clientes acceso - validación específica en controlador
   uploadLimiter,
   uploadTransferProof.single('proof'),
   paymentController.uploadTransferProof
 );
 
-// Validar transferencia (solo admin - sin cambios)
+// ✅ Solo ADMIN puede validar transferencias (sin cambios)
 router.post('/:id/validate-transfer', 
   authenticateToken,
-  requireAdmin,
+  requireAdmin, // ✅ SOLO ADMIN
   validateTransferValidator,
   handleValidationErrors,
   paymentController.validateTransfer

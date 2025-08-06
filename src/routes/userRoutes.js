@@ -1,4 +1,4 @@
-// src/routes/userRoutes.js
+// src/routes/userRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados
 const express = require('express');
 const userController = require('../controllers/userController');
 const { 
@@ -12,67 +12,68 @@ const { authenticateToken, requireAdmin, requireStaff } = require('../middleware
 
 const router = express.Router();
 
-// Obtener todos los usuarios (con filtros)
+// ✅ CORREGIDO: Solo STAFF puede ver lista de usuarios (colaborador ve solo clientes)
+// Los CLIENTES NO pueden acceder a esta ruta (como estaba antes)
 router.get('/', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   getUsersValidator,
   handleValidationErrors,
   userController.getUsers
 );
 
-// Buscar usuarios (autocompletado)
+// ✅ CORREGIDO: Solo STAFF puede buscar usuarios - CLIENTES NO PUEDEN
 router.get('/search', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   userController.searchUsers
 );
 
-// Obtener estadísticas de usuarios
+// ✅ CORREGIDO: Solo STAFF puede ver estadísticas - CLIENTES NO PUEDEN
 router.get('/stats', 
   authenticateToken,
-  requireAdmin,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS  
   userController.getUserStats
 );
 
-// Obtener clientes que pagan por día frecuentemente
+// ✅ Solo STAFF puede ver clientes frecuentes (sin cambios)
 router.get('/frequent-daily-clients', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
   userController.getFrequentDailyClients
 );
 
-// Crear usuario
+// ✅ Solo STAFF puede crear usuarios (sin cambios)
 router.post('/', 
   authenticateToken,
-  requireStaff,
+  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN CREAR USUARIOS
   createUserValidator,
   handleValidationErrors,
   userController.createUser
 );
 
-// Obtener usuario por ID
+// ✅ CORREGIDO: Cliente puede ver SU PROPIO perfil por ID, staff puede ver según permisos
 router.get('/:id', 
   authenticateToken,
-  requireStaff,
+  // ✅ CORREGIDO: Permitir a clientes acceso - validación específica en controlador
   userIdValidator,
   handleValidationErrors,
   userController.getUserById
 );
 
-// Actualizar usuario
+// ✅ Solo ADMIN puede actualizar usuarios (colaboradores y clientes NO pueden)
 router.patch('/:id', 
   authenticateToken,
-  requireStaff,
+  requireAdmin, // ✅ SOLO ADMIN - colaboradores y clientes NO pueden modificar usuarios
   updateUserValidator,
   handleValidationErrors,
   userController.updateUser
 );
 
-// Eliminar usuario (desactivar)
+// ✅ Solo ADMIN puede eliminar usuarios (sin cambios)
 router.delete('/:id', 
   authenticateToken,
-  requireAdmin,
+  requireAdmin, // ✅ SOLO ADMIN
   userIdValidator,
   handleValidationErrors,
   userController.deleteUser
