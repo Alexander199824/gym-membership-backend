@@ -1,4 +1,4 @@
-// src/server.js - ACTUALIZADO para Gmail
+// src/server.js - CORREGIDO para Render: HTTP server primero
 const app = require('./app');
 const { 
   testConnection, 
@@ -12,7 +12,7 @@ const { runSeeds } = require('./config/seeds');
 class Server {
   constructor() {
     this.port = process.env.PORT || 5000;
-    this.host = process.env.HOST || '0.0.0.0';
+    this.host = '0.0.0.0'; // ✅ FORZAR 0.0.0.0 para Render
     this.server = null;
   }
 
@@ -20,54 +20,109 @@ class Server {
     try {
       console.log('🚀 Iniciando Elite Fitness Club Management System...');
       console.log('🌍 Entorno:', process.env.NODE_ENV || 'development');
+      console.log(`🔗 Puerto configurado: ${this.port}`);
+      console.log(`🔗 Host configurado: ${this.host}`);
 
-      // ✅ Verificar variables de entorno críticas
+      // ✅ RENDER FIX: Iniciar servidor HTTP PRIMERO
+      console.log('⚡ INICIANDO SERVIDOR HTTP PRIMERO (Render Fix)...');
+      await this.startHttpServerFirst();
+
+      // ✅ Ahora hacer inicializaciones en segundo plano
+      console.log('🔄 Iniciando procesos de inicialización en segundo plano...');
+      this.initializeInBackground();
+
+    } catch (error) {
+      console.error('❌ Error crítico al iniciar el servidor:', error.message);
+      console.log('\n💡 Soluciones sugeridas:');
+      console.log('   1. Verifica las variables de entorno en Render');
+      console.log('   2. Verifica la conexión a la base de datos');
+      console.log('   3. Revisa los logs completos en Render');
+      process.exit(1);
+    }
+  }
+
+  // ✅ NUEVO: Iniciar servidor HTTP inmediatamente
+  async startHttpServerFirst() {
+    return new Promise((resolve, reject) => {
+      this.server = app.listen(this.port, this.host, (error) => {
+        if (error) {
+          console.error('❌ Error al iniciar servidor HTTP:', error);
+          reject(error);
+        } else {
+          console.log('\n🎯 ¡SERVIDOR HTTP INICIADO EXITOSAMENTE!');
+          console.log(`✅ URL: http://${this.host}:${this.port}`);
+          console.log(`📚 Health Check: http://${this.host}:${this.port}/api/health`);
+          console.log(`🌐 Endpoints: http://${this.host}:${this.port}/api/endpoints`);
+          console.log('\n📱 Endpoints principales:');
+          console.log(`   🔐 Auth: http://${this.host}:${this.port}/api/auth`);
+          console.log(`   👥 Users: http://${this.host}:${this.port}/api/users`);
+          console.log(`   🎫 Memberships: http://${this.host}:${this.port}/api/memberships`);
+          console.log(`   💰 Payments: http://${this.host}:${this.port}/api/payments`);
+          console.log(`   🏢 Gym Config: http://${this.host}:${this.port}/api/gym`);
+          console.log(`   🛍️ Store: http://${this.host}:${this.port}/api/store`);
+          console.log('\n🎉 Servidor respondiendo en Render! ');
+          console.log('⏳ Inicializando base de datos en segundo plano...');
+          resolve();
+        }
+      });
+    });
+  }
+
+  // ✅ NUEVO: Inicialización completa en segundo plano
+  async initializeInBackground() {
+    try {
+      // ✅ Verificar variables de entorno críticas (sin salir)
       this.checkEnvironmentVariables();
 
       // ✅ Probar conexión a la base de datos
+      console.log('🔄 Conectando a base de datos...');
       await testConnection();
+      console.log('✅ Base de datos conectada');
 
       // ✅ Mostrar estado actual de la base de datos
       await this.showDatabaseStatus();
 
       // ✅ Inicializar base de datos (con reset automático si es necesario)
+      console.log('🔄 Inicializando base de datos...');
       await initializeDatabase();
+      console.log('✅ Base de datos inicializada');
 
       // ✅ Inicializar modelos y relaciones
+      console.log('🔄 Cargando modelos...');
       require('./models');
+      console.log('✅ Modelos cargados');
 
       // ✅ Verificar e inicializar datos del gimnasio
       await this.initializeGymData();
 
-      // ✅ Ejecutar seeds
+      // ✅ Ejecutar seeds (opcional y sin fallar)
       await this.runSeedsWithErrorHandling();
 
       // ✅ Mostrar estado final de la base de datos
       await this.showFinalDatabaseStatus();
 
-      // ✅ Verificar servicios de notificación
+      // ✅ Verificar servicios de notificación (sin fallar)
       await this.checkNotificationServices();
 
-      // ✅ Iniciar programador de notificaciones
+      // ✅ Iniciar programador de notificaciones (solo si no es test)
       if (process.env.NODE_ENV !== 'test') {
         this.startNotificationScheduler();
       }
 
-      // ✅ Iniciar servidor HTTP
-      await this.startHttpServer();
-
       // ✅ Configurar graceful shutdown
       this.setupGracefulShutdown();
 
+      console.log('\n🎉 ¡INICIALIZACIÓN COMPLETA! Sistema listo para usar');
+      console.log('\n💡 Para testing completo ejecuta:');
+      console.log('   GET /api/health (verificar estado)');
+      console.log('   GET /api/endpoints (ver todos los endpoints)');
+
     } catch (error) {
-      console.error('❌ Error crítico al iniciar el servidor:', error.message);
-      console.log('\n💡 Soluciones sugeridas:');
-      console.log('   1. Verifica tu conexión a internet');
-      console.log('   2. Verifica las credenciales de la base de datos en .env');
-      console.log('   3. Verifica la configuración de Gmail (GMAIL_USER, GMAIL_APP_PASSWORD)');
-      console.log('   4. Intenta con RESET_DATABASE=true');
-      console.log('   5. Contacta al administrador del sistema');
-      process.exit(1);
+      console.error('❌ Error en inicialización en segundo plano:', error.message);
+      console.log('⚠️ El servidor HTTP sigue funcionando, pero algunas funciones pueden estar limitadas');
+      
+      // No terminar el proceso, solo logear el error
+      console.log('💡 El servidor continuará funcionando con funcionalidad básica');
     }
   }
 
@@ -111,29 +166,6 @@ class Server {
         console.log('   ✅ Sistema de gimnasio completamente instalado');
       } else {
         console.log('   ⚠️ Instalación del sistema incompleta');
-      }
-
-      // ✅ Mostrar nuevas tablas instaladas
-      try {
-        const { sequelize } = require('./config/database');
-        const [tables] = await sequelize.query(`
-          SELECT table_name 
-          FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name LIKE 'gym_%' OR table_name LIKE 'store_%'
-          ORDER BY table_name;
-        `);
-
-        if (tables.length > 0) {
-          console.log('\n📋 Nuevas tablas del sistema Elite Fitness:');
-          tables.forEach(table => {
-            const emoji = table.table_name.startsWith('gym_') ? '🏢' : 
-                         table.table_name.startsWith('store_') ? '🛍️' : '📊';
-            console.log(`   ${emoji} ${table.table_name}`);
-          });
-        }
-      } catch (error) {
-        // Ignorar errores de consulta de tablas
       }
     } catch (error) {
       console.log('   ⚠️ Error al verificar estado final:', error.message);
@@ -206,7 +238,7 @@ class Server {
     }
   }
 
-  // ✅ ACTUALIZADO: Verificar servicios de notificación con Gmail
+  // ✅ Verificar servicios de notificación con Gmail
   async checkNotificationServices() {
     try {
       console.log('\n📧 Verificando servicios de notificación...');
@@ -218,7 +250,7 @@ class Server {
       if (emailService.isConfigured) {
         console.log('   ✅ Gmail Email Service configurado correctamente');
         
-        // Opcional: Obtener información de la cuenta
+        // ✅ NO enviar email de prueba automáticamente en Render
         try {
           const stats = await emailService.getEmailStats();
           if (stats.success) {
@@ -255,42 +287,7 @@ class Server {
     }
   }
 
-  async startHttpServer() {
-    return new Promise((resolve, reject) => {
-      this.server = app.listen(this.port, this.host, (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          console.log('\n🎯 ¡ELITE FITNESS CLUB INICIADO EXITOSAMENTE!');
-          console.log(`✅ URL: http://${this.host}:${this.port}`);
-          console.log(`📚 Health Check: http://${this.host}:${this.port}/api/health`);
-          console.log(`🌐 Endpoints: http://${this.host}:${this.port}/api/endpoints`);
-          console.log('\n📱 Endpoints principales:');
-          console.log(`   🔐 Auth: http://${this.host}:${this.port}/api/auth`);
-          console.log(`   👥 Users: http://${this.host}:${this.port}/api/users`);
-          console.log(`   🎫 Memberships: http://${this.host}:${this.port}/api/memberships`);
-          console.log(`   💰 Payments: http://${this.host}:${this.port}/api/payments`);
-          console.log(`   🏢 Gym Config: http://${this.host}:${this.port}/api/gym`);
-          console.log(`   🛍️ Store: http://${this.host}:${this.port}/api/store`);
-          console.log(`   📊 Dashboard: http://${this.host}:${this.port}/api/dashboard`);
-          console.log(`   💸 Financial: http://${this.host}:${this.port}/api/financial`);
-          console.log('\n🎉 Sistema completo listo para recibir peticiones');
-          console.log('\n💡 Para testing completo ejecuta:');
-          console.log('   npm run test:enhanced  (sistema general)');
-          console.log('   npm run test:store     (sistema de tienda)');
-          console.log('\n🧹 Para limpiar datos de prueba:');
-          console.log('   POST /api/data-cleanup/clean-test-users');
-          console.log('\n🔄 Para reset completo: Cambia RESET_DATABASE=true y reinicia');
-          console.log('\n📧 Servicios de notificación:');
-          console.log('   - Email: Gmail (configurar GMAIL_USER y GMAIL_APP_PASSWORD)');
-          console.log('   - WhatsApp: Twilio (configurar TWILIO_ACCOUNT_SID)');
-          resolve();
-        }
-      });
-    });
-  }
-
-  // ✅ ACTUALIZADO: Verificación de variables de entorno para Gmail
+  // ✅ ACTUALIZADO: Verificación de variables de entorno para Gmail (sin process.exit)
   checkEnvironmentVariables() {
     const required = [
       'DB_HOST',
@@ -305,8 +302,9 @@ class Server {
     
     if (missing.length > 0) {
       console.error('❌ Variables de entorno faltantes:', missing.join(', '));
-      console.error('💡 Revisa tu archivo .env');
-      process.exit(1);
+      console.error('💡 Revisa tu configuración en Render');
+      // ✅ NO hacer process.exit(1) en Render - continuar
+      return false;
     }
 
     // ✅ Mostrar estado de RESET_DATABASE
@@ -316,7 +314,7 @@ class Server {
       console.log('✅ Modo normal: Se mantendrán los datos existentes');
     }
 
-    // ✅ ACTUALIZADO: Verificar servicios opcionales con Gmail
+    // ✅ Verificar servicios opcionales
     const serviceStatus = {
       cloudinary: process.env.CLOUDINARY_CLOUD_NAME && !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_') ? 'Configurado' : 'Pendiente',
       gmail: process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD && !process.env.GMAIL_USER.includes('yourEmail') ? 'Configurado' : 'Pendiente',
@@ -325,54 +323,15 @@ class Server {
       stripe: process.env.STRIPE_SECRET_KEY && !process.env.STRIPE_SECRET_KEY.startsWith('sk_test_51234') ? 'Configurado' : 'Pendiente'
     };
 
-    const pendingServices = Object.entries(serviceStatus)
-      .filter(([service, status]) => status === 'Pendiente')
-      .map(([service]) => service);
-
-    if (pendingServices.length > 0) {
-      console.log(`⚠️ Servicios opcionales pendientes: ${pendingServices.join(', ')}`);
-      console.log('💡 Se pueden configurar más tarde para funcionalidades completas');
-      
-      // ✅ Mensaje específico para Gmail
-      if (pendingServices.includes('gmail')) {
-        console.log('   📧 Para emails: Configura GMAIL_USER y GMAIL_APP_PASSWORD');
-        console.log('   💡 Usa elitefitnesnoreply@gmail.com y tu App Password de Gmail');
-      }
-    } else {
-      console.log('✅ Todos los servicios opcionales están configurados');
-    }
-
-    // ✅ Mostrar servicios configurados
     const configuredServices = Object.entries(serviceStatus)
       .filter(([service, status]) => status === 'Configurado')
       .map(([service]) => service);
 
     if (configuredServices.length > 0) {
       console.log(`🟢 Servicios configurados: ${configuredServices.join(', ')}`);
-      
-      // ✅ Mensaje específico para Gmail
-      if (configuredServices.includes('gmail')) {
-        console.log('   📧 Gmail configurado - Notificaciones por email habilitadas');
-      }
     }
 
-    // ✅ NUEVO: Advertencia sobre migración de Brevo a Gmail
-    if (process.env.BREVO_API_KEY || process.env.EMAIL_HOST || process.env.EMAIL_USER) {
-      console.log('\n🔄 MIGRACIÓN DETECTADA:');
-      console.log('   ⚠️ Variables de Brevo/SMTP detectadas en el .env');
-      console.log('   ✅ Sistema migrado a Gmail - usa GMAIL_USER y GMAIL_APP_PASSWORD');
-      console.log('   💡 Puedes eliminar las variables BREVO_* y EMAIL_* del archivo .env');
-    }
-
-    // ✅ Instrucciones específicas para Gmail
-    if (serviceStatus.gmail === 'Pendiente') {
-      console.log('\n📧 CONFIGURACIÓN DE GMAIL:');
-      console.log('   1. Habilita 2FA en tu cuenta de Gmail');
-      console.log('   2. Ve a Configuración > Seguridad > Contraseñas de aplicaciones');
-      console.log('   3. Genera una contraseña de aplicación para "Correo"');
-      console.log('   4. Usa esa contraseña en GMAIL_APP_PASSWORD (no la contraseña normal)');
-      console.log('   5. GMAIL_USER=elitefitnesnoreply@gmail.com');
-    }
+    return true;
   }
 
   setupGracefulShutdown() {
