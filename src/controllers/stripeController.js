@@ -1,4 +1,4 @@
-// src/controllers/stripeController.js - Controlador completo para Stripe
+// src/controllers/stripeController.js - Controlador completo para Stripe - CORREGIDO
 const stripeService = require('../services/stripeService');
 const paymentController = require('./paymentController');
 const { User, Membership, Payment, StoreOrder, FinancialMovements } = require('../models');
@@ -174,8 +174,8 @@ class StripeController {
         });
       }
 
-      // ✅ Verificar permisos
-      if (user && order.userId !== user.id) {
+      // ✅ Verificar permisos CORREGIDO: Permitir usuarios invitados
+      if (user && order.userId && order.userId !== user.id) {
         return res.status(403).json({
           success: false,
           message: 'No tienes permisos para pagar esta orden'
@@ -190,9 +190,9 @@ class StripeController {
         itemCount: order.items?.length || 0
       };
 
-      // ✅ Información del cliente
+      // ✅ Información del cliente CORREGIDO: Manejar usuarios invitados
       const customerInfo = {
-        name: order.user ? order.user.getFullName() : (order.customerInfo?.name || 'Cliente'),
+        name: order.user ? order.user.getFullName() : (order.customerInfo?.name || 'Cliente Invitado'),
         email: order.user ? order.user.email : order.customerInfo?.email,
         address: order.shippingAddress
       };
@@ -235,11 +235,11 @@ class StripeController {
     }
   }
 
-  // ✅ Confirmar pago exitoso
+  // ✅ CORREGIDO: Confirmar pago exitoso
   async confirmPayment(req, res) {
     try {
       const { paymentIntentId } = req.body;
-      const user = req.user;
+      const user = req.user; // Puede ser null para invitados
 
       // ✅ Obtener detalles del pago de Stripe
       const stripeResult = await stripeService.confirmPayment(paymentIntentId);
@@ -271,25 +271,29 @@ class StripeController {
         }
       }
 
-      // ✅ Formatear datos para el modelo Payment
+      // ✅ CORREGIDO: Formatear datos para el modelo Payment
       const paymentData = stripeService.formatPaymentData(paymentIntent, {
         userId: user?.id || null,
-        registeredBy: user?.id || null,
+        registeredBy: user?.id || null, // ✅ FIX: Usar null si no hay usuario
         cardLast4: cardDetails?.last4 || null
       });
 
-      // ✅ Agregar información específica basada en el tipo de pago
+      // ✅ CORREGIDO: Agregar información específica basada en el tipo de pago
       const metadata = paymentIntent.metadata || {};
       await this.processPaymentByType(paymentData, metadata, user);
 
       // ✅ Crear registro en la base de datos
       const payment = await Payment.create(paymentData);
 
-      // ✅ Crear movimiento financiero
-      try {
-        await FinancialMovements.createFromAnyPayment(payment);
-      } catch (financialError) {
-        console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+      // ✅ CORREGIDO: Crear movimiento financiero solo si hay registeredBy
+      if (payment.registeredBy) {
+        try {
+          await FinancialMovements.createFromAnyPayment(payment);
+        } catch (financialError) {
+          console.warn('⚠️ Error al crear movimiento financiero (no crítico):', financialError.message);
+        }
+      } else {
+        console.log('ℹ️ Saltando movimiento financiero para pago sin registeredBy');
       }
 
       // ✅ Notificar al usuario si corresponde
@@ -330,7 +334,7 @@ class StripeController {
     }
   }
 
-  // ✅ Procesar pago según su tipo
+  // ✅ CORREGIDO: Procesar pago según su tipo (ahora como método de clase)
   async processPaymentByType(paymentData, metadata, user) {
     switch (metadata.type) {
       case 'membership':

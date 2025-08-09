@@ -1,4 +1,4 @@
-// src/models/Payment.js
+// src/models/Payment.js - CORREGIDO para manejar usuarios invitados
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -11,7 +11,7 @@ const Payment = sequelize.define('Payment', {
   // ✅ CORREGIDO: Permitir pagos sin usuario registrado
   userId: {
     type: DataTypes.UUID,
-    allowNull: true, // ← Cambiar a true para pagos anónimos
+    allowNull: true, // ✅ Permite pagos anónimos/invitados
     references: {
       model: 'users',
       key: 'id'
@@ -53,7 +53,7 @@ const Payment = sequelize.define('Payment', {
   anonymousClientInfo: {
     type: DataTypes.JSONB,
     allowNull: true,
-    // Estructura: { name: 'Juan Pérez', phone: '+502...', notes: 'Cliente ocasional' }
+    // Estructura: { name: 'Juan Pérez', phone: '+502...', email: 'juan@example.com', notes: 'Cliente ocasional' }
   },
   // Para pagos por transferencia
   transferProof: {
@@ -94,10 +94,10 @@ const Payment = sequelize.define('Payment', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  // Quien registró el pago
+  // ✅ CORREGIDO: Quien registró el pago - Permitir NULL para pagos de invitados
   registeredBy: {
     type: DataTypes.UUID,
-    allowNull: false,
+    allowNull: true, // ✅ FIX: Permitir null para pagos de usuarios invitados
     references: {
       model: 'users',
       key: 'id'
@@ -150,7 +150,7 @@ const Payment = sequelize.define('Payment', {
     { fields: ['transferValidated'] },
     { fields: ['referenceId', 'referenceType'] }
   ],
-  // ✅ VALIDACIONES PERSONALIZADAS
+  // ✅ VALIDACIONES PERSONALIZADAS CORREGIDAS
   validate: {
     membershipRequiresUser() {
       if (this.paymentType === 'membership' && !this.userId) {
@@ -162,14 +162,32 @@ const Payment = sequelize.define('Payment', {
         throw new Error('Los pagos de membresía requieren un ID de membresía');
       }
     },
+    // ✅ CORREGIDO: Validación mejorada para pagos diarios
     dailyPaymentsValidation() {
-      if ((this.paymentType === 'daily' || this.paymentType === 'bulk_daily') && !this.userId && !this.anonymousClientInfo) {
-        throw new Error('Los pagos diarios sin usuario requieren información del cliente (anonymousClientInfo)');
+      if ((this.paymentType === 'daily' || this.paymentType === 'bulk_daily')) {
+        // Si no hay usuario, debe haber información anónima
+        if (!this.userId && !this.anonymousClientInfo) {
+          throw new Error('Los pagos diarios sin usuario requieren información del cliente (anonymousClientInfo)');
+        }
       }
     },
     bulkPaymentValidation() {
       if (this.paymentType === 'bulk_daily' && (!this.dailyPaymentCount || this.dailyPaymentCount < 2)) {
         throw new Error('Los pagos en lote deben tener al menos 2 entradas');
+      }
+    },
+    // ✅ NUEVO: Validación para pagos de tienda
+    storePaymentValidation() {
+      const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
+      if (storeTypes.includes(this.paymentType)) {
+        // Para pagos de tienda, debe haber usuario O información anónima
+        if (!this.userId && !this.anonymousClientInfo) {
+          throw new Error('Los pagos de tienda requieren usuario registrado o información del cliente');
+        }
+        // Para pagos de tienda, se recomienda tener referencia a la orden
+        if (!this.referenceId || this.referenceType !== 'store_order') {
+          console.warn('⚠️ Pago de tienda sin referencia a orden - se recomienda vincular');
+        }
       }
     }
   },
@@ -185,6 +203,13 @@ const Payment = sequelize.define('Payment', {
       if (payment.paymentType === 'daily') {
         payment.dailyPaymentCount = 1;
         payment.unitPrice = payment.amount;
+      }
+
+      // ✅ NUEVO: Para pagos de Stripe sin registeredBy, usar el userId si existe
+      const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
+      if (storeTypes.includes(payment.paymentType) && !payment.registeredBy && payment.userId) {
+        console.log('ℹ️ Asignando userId como registeredBy para pago de tienda');
+        payment.registeredBy = payment.userId;
       }
     }
   }
@@ -226,6 +251,7 @@ Payment.prototype.getClientInfo = function() {
     return {
       type: 'anonymous',
       name: this.anonymousClientInfo.name || 'Anónimo',
+      email: this.anonymousClientInfo.email || null,
       phone: this.anonymousClientInfo.phone || null,
       notes: this.anonymousClientInfo.notes || null
     };
@@ -234,6 +260,17 @@ Payment.prototype.getClientInfo = function() {
     type: 'unknown',
     name: 'Cliente anónimo'
   };
+};
+
+// ✅ NUEVO: Método para verificar si es pago de invitado
+Payment.prototype.isGuestPayment = function() {
+  return !this.userId && !!this.anonymousClientInfo;
+};
+
+// ✅ NUEVO: Método para verificar si es pago de tienda
+Payment.prototype.isStorePayment = function() {
+  const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
+  return storeTypes.includes(this.paymentType);
 };
 
 // Métodos estáticos existentes...
@@ -277,7 +314,22 @@ Payment.findByDateRange = function(startDate, endDate, paymentType = null) {
   });
 };
 
-// ✅ NUEVO: Método para obtener estadísticas de pagos diarios
+// ✅ NUEVO: Método para obtener pagos de invitados
+Payment.findGuestPayments = function(limit = null) {
+  const options = {
+    where: {
+      userId: null,
+      anonymousClientInfo: { [sequelize.Sequelize.Op.not]: null }
+    },
+    order: [['paymentDate', 'DESC']]
+  };
+  
+  if (limit) options.limit = limit;
+  
+  return this.findAll(options);
+};
+
+// ✅ MEJORADO: Método para obtener estadísticas de pagos diarios
 Payment.getDailyPaymentStats = async function(startDate, endDate) {
   const dailyPayments = await this.findAll({
     where: {
@@ -303,6 +355,33 @@ Payment.getDailyPaymentStats = async function(startDate, endDate) {
     totalAmount: parseFloat(payment.dataValues.totalAmount),
     totalTransactions: parseInt(payment.dataValues.totalTransactions),
     averagePerEntry: parseFloat(payment.dataValues.totalAmount) / parseInt(payment.dataValues.totalEntries)
+  }));
+};
+
+// ✅ NUEVO: Método para obtener estadísticas de tienda
+Payment.getStorePaymentStats = async function(startDate, endDate) {
+  const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
+  
+  const storePayments = await this.findAll({
+    where: {
+      paymentType: storeTypes,
+      status: 'completed',
+      paymentDate: {
+        [sequelize.Sequelize.Op.between]: [startDate, endDate]
+      }
+    },
+    attributes: [
+      'paymentType',
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('COUNT', sequelize.col('id')), 'totalTransactions']
+    ],
+    group: ['paymentType']
+  });
+
+  return storePayments.map(payment => ({
+    paymentType: payment.paymentType,
+    totalAmount: parseFloat(payment.dataValues.totalAmount),
+    totalTransactions: parseInt(payment.dataValues.totalTransactions)
   }));
 };
 

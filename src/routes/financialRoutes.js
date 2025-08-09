@@ -1,4 +1,4 @@
-// src/routes/financialRoutes.js 
+// src/routes/financialRoutes.js - ACTUALIZADO con rutas para movimientos automáticos
 const express = require('express');
 const financialController = require('../controllers/financialController');
 const { 
@@ -8,6 +8,7 @@ const {
 } = require('../validators/financialValidators');
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
+const { FinancialMovements } = require('../models');
 
 const router = express.Router();
 
@@ -26,7 +27,147 @@ router.get('/movements',
   financialController.getMovements
 );
 
-// ✅ Reportes financieros
+// ✅ NUEVO: Obtener movimientos automáticos sin asignar
+router.get('/movements/unassigned', 
+  authenticateToken, 
+  requireStaff, 
+  async (req, res) => {
+    try {
+      const { limit = 20 } = req.query;
+
+      const movements = await FinancialMovements.findUnassignedAutomatic(parseInt(limit));
+
+      res.json({
+        success: true,
+        data: {
+          movements,
+          total: movements.length,
+          message: movements.length > 0 
+            ? 'Movimientos automáticos pendientes de asignar a un usuario'
+            : 'No hay movimientos automáticos sin asignar'
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener movimientos sin asignar:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener movimientos sin asignar',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ NUEVO: Adoptar movimiento automático
+router.post('/movements/:movementId/adopt', 
+  authenticateToken, 
+  requireStaff, 
+  async (req, res) => {
+    try {
+      const { movementId } = req.params;
+      const userId = req.user.id;
+
+      const movement = await FinancialMovements.adoptAutomaticMovement(movementId, userId);
+
+      res.json({
+        success: true,
+        message: 'Movimiento adoptado exitosamente',
+        data: {
+          movement: {
+            id: movement.id,
+            description: movement.description,
+            amount: movement.amount,
+            registeredBy: movement.registeredBy,
+            adoptedAt: new Date(),
+            adoptedBy: req.user.getFullName()
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al adoptar movimiento:', error);
+      const statusCode = error.message.includes('no encontrado') ? 404 : 
+                         error.message.includes('ya tiene un usuario') ? 400 : 500;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'Error al adoptar movimiento',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ NUEVO: Estadísticas de movimientos automáticos
+router.get('/movements/automatic-stats', 
+  authenticateToken, 
+  requireAdmin, 
+  async (req, res) => {
+    try {
+      const { period = 'month' } = req.query;
+      
+      let startDate, endDate;
+      const now = new Date();
+      
+      switch (period) {
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          endDate = now;
+          break;
+        case 'month':
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+          break;
+        default:
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          endDate = now;
+      }
+
+      const { Op } = require('sequelize');
+
+      const [totalAutomatic, unassigned, totalAmount] = await Promise.all([
+        FinancialMovements.count({
+          where: {
+            isAutomatic: true,
+            movementDate: { [Op.between]: [startDate, endDate] }
+          }
+        }),
+        FinancialMovements.count({
+          where: {
+            isAutomatic: true,
+            registeredBy: null,
+            movementDate: { [Op.between]: [startDate, endDate] }
+          }
+        }),
+        FinancialMovements.sum('amount', {
+          where: {
+            isAutomatic: true,
+            movementDate: { [Op.between]: [startDate, endDate] }
+          }
+        })
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          period,
+          totalAutomatic,
+          unassigned,
+          assigned: totalAutomatic - unassigned,
+          totalAmount: parseFloat(totalAmount) || 0,
+          assignmentRate: totalAutomatic > 0 ? ((totalAutomatic - unassigned) / totalAutomatic * 100).toFixed(1) : '0'
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener estadísticas automáticas:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener estadísticas',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ Reportes financieros (existentes)
 router.get('/reports', 
   authenticateToken, 
   requireAdmin, 

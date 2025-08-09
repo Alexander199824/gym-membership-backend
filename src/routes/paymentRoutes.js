@@ -1,4 +1,4 @@
-// src/routes/paymentRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados
+// src/routes/paymentRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados + RUTAS PARA INVITADOS
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const { 
@@ -119,6 +119,318 @@ router.post('/daily-anonymous',
       res.status(500).json({
         success: false,
         message: 'Error al registrar pago anónimo',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ ========== NUEVAS RUTAS PARA ESTADÍSTICAS DE INVITADOS ==========
+
+// ✅ NUEVO: Estadísticas de pagos de invitados
+router.get('/guest-stats', 
+  authenticateToken, 
+  requireStaff, 
+  async (req, res) => {
+    try {
+      const { period = 'month', startDate, endDate } = req.query;
+      const { Payment, StoreOrder, StoreOrderItem } = require('../models');
+      const { Op } = require('sequelize');
+
+      let dateRange = {};
+      const now = new Date();
+
+      // Establecer rango de fechas
+      switch (period) {
+        case 'week':
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          dateRange = { [Op.gte]: weekAgo };
+          break;
+        case 'month':
+          const monthAgo = new Date();
+          monthAgo.setMonth(monthAgo.getMonth() - 1);
+          dateRange = { [Op.gte]: monthAgo };
+          break;
+        case 'custom':
+          if (startDate && endDate) {
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            dateRange = { [Op.between]: [start, end] };
+          }
+          break;
+        default:
+          dateRange = { [Op.gte]: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000) };
+      }
+
+      const baseWhere = {
+        status: 'completed',
+        paymentDate: dateRange
+      };
+
+      // Estadísticas de pagos de invitados
+      const guestPayments = await Payment.findAll({
+        where: {
+          ...baseWhere,
+          userId: null,
+          anonymousClientInfo: { [Op.not]: null }
+        },
+        attributes: [
+          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'total'],
+          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'totalAmount'],
+          [Payment.sequelize.fn('AVG', Payment.sequelize.col('amount')), 'averageAmount']
+        ]
+      });
+
+      // Estadísticas de pagos de usuarios registrados
+      const registeredPayments = await Payment.findAll({
+        where: {
+          ...baseWhere,
+          userId: { [Op.not]: null }
+        },
+        attributes: [
+          [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'total'],
+          [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'totalAmount'],
+          [Payment.sequelize.fn('AVG', Payment.sequelize.col('amount')), 'averageAmount']
+        ]
+      });
+
+      // Productos más comprados por invitados (si hay modelos de tienda disponibles)
+      let topGuestProducts = [];
+      try {
+        topGuestProducts = await StoreOrderItem.findAll({
+          attributes: [
+            'productName',
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('quantity')), 'totalQuantity'],
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('totalPrice')), 'totalRevenue']
+          ],
+          include: [{
+            model: StoreOrder,
+            as: 'order',
+            where: {
+              userId: null,
+              status: { [Op.in]: ['confirmed', 'delivered'] },
+              createdAt: dateRange
+            },
+            attributes: []
+          }],
+          group: ['productName'],
+          order: [[Payment.sequelize.fn('SUM', Payment.sequelize.col('quantity')), 'DESC']],
+          limit: 10
+        });
+      } catch (error) {
+        console.warn('⚠️ No se pudieron obtener productos de invitados:', error.message);
+        topGuestProducts = [];
+      }
+
+      // Convertir datos de respuesta
+      const guestData = guestPayments[0]?.dataValues || { total: 0, totalAmount: 0, averageAmount: 0 };
+      const registeredData = registeredPayments[0]?.dataValues || { total: 0, totalAmount: 0, averageAmount: 0 };
+
+      const guestTotal = parseInt(guestData.total) || 0;
+      const guestAmount = parseFloat(guestData.totalAmount) || 0;
+      const guestAverage = parseFloat(guestData.averageAmount) || 0;
+
+      const registeredTotal = parseInt(registeredData.total) || 0;
+      const registeredAmount = parseFloat(registeredData.totalAmount) || 0;
+      const registeredAverage = parseFloat(registeredData.averageAmount) || 0;
+
+      // Calcular métricas adicionales
+      const totalPayments = guestTotal + registeredTotal;
+      const guestPercentage = totalPayments > 0 ? (guestTotal / totalPayments * 100).toFixed(1) : '0';
+
+      res.json({
+        success: true,
+        data: {
+          period,
+          guestPayments: {
+            total: guestTotal,
+            totalAmount: guestAmount,
+            averageOrderValue: guestAverage,
+            percentage: parseFloat(guestPercentage)
+          },
+          registeredPayments: {
+            total: registeredTotal,
+            totalAmount: registeredAmount,
+            averageOrderValue: registeredAverage,
+            percentage: parseFloat((100 - guestPercentage).toFixed(1))
+          },
+          comparison: {
+            totalPayments,
+            guestVsRegisteredRatio: registeredTotal > 0 ? (guestTotal / registeredTotal).toFixed(2) : 'N/A',
+            averageOrderComparison: registeredAverage > 0 ? ((guestAverage / registeredAverage) * 100).toFixed(1) + '%' : 'N/A'
+          },
+          topGuestProducts: topGuestProducts.map(item => ({
+            productName: item.productName,
+            totalQuantity: parseInt(item.dataValues.totalQuantity),
+            totalRevenue: parseFloat(item.dataValues.totalRevenue)
+          })),
+          insights: {
+            guestConversionOpportunity: guestTotal > 0,
+            averageOrderHigher: guestAverage > registeredAverage,
+            significantGuestVolume: guestTotal > (totalPayments * 0.2)
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener estadísticas de invitados:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener estadísticas de invitados',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ NUEVO: Pagos de invitados detallados
+router.get('/guest-payments', 
+  authenticateToken, 
+  requireStaff, 
+  async (req, res) => {
+    try {
+      const { page = 1, limit = 20, startDate, endDate } = req.query;
+      const { Payment } = require('../models');
+      const { Op } = require('sequelize');
+      const offset = (page - 1) * limit;
+
+      let dateFilter = {};
+      if (startDate || endDate) {
+        dateFilter.paymentDate = {};
+        if (startDate) dateFilter.paymentDate[Op.gte] = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          dateFilter.paymentDate[Op.lte] = end;
+        }
+      }
+
+      const { count, rows } = await Payment.findAndCountAll({
+        where: {
+          userId: null,
+          anonymousClientInfo: { [Op.not]: null },
+          ...dateFilter
+        },
+        include: [
+          { 
+            association: 'registeredByUser', 
+            attributes: ['id', 'firstName', 'lastName', 'role']
+          }
+        ],
+        order: [['paymentDate', 'DESC']],
+        limit: parseInt(limit),
+        offset
+      });
+
+      const paymentsWithClientInfo = rows.map(payment => ({
+        id: payment.id,
+        amount: payment.amount,
+        paymentMethod: payment.paymentMethod,
+        paymentType: payment.paymentType,
+        status: payment.status,
+        paymentDate: payment.paymentDate,
+        description: payment.description,
+        clientInfo: payment.getClientInfo(),
+        registeredBy: payment.registeredByUser ? {
+          id: payment.registeredByUser.id,
+          name: `${payment.registeredByUser.firstName} ${payment.registeredByUser.lastName}`,
+          role: payment.registeredByUser.role
+        } : null,
+        isGuestPayment: true
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          payments: paymentsWithClientInfo,
+          pagination: {
+            total: count,
+            page: parseInt(page),
+            pages: Math.ceil(count / limit),
+            limit: parseInt(limit)
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener pagos de invitados:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener pagos de invitados',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✅ NUEVO: Convertir pago de invitado en usuario registrado
+router.post('/convert-guest-to-user', 
+  authenticateToken, 
+  requireStaff, 
+  async (req, res) => {
+    try {
+      const { paymentId, userEmail } = req.body;
+      const { Payment, User } = require('../models');
+
+      if (!paymentId || !userEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'Payment ID y email son requeridos'
+        });
+      }
+
+      // Buscar el pago de invitado
+      const payment = await Payment.findByPk(paymentId);
+      
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Pago no encontrado'
+        });
+      }
+
+      if (payment.userId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este pago ya está asociado a un usuario'
+        });
+      }
+
+      // Buscar usuario por email
+      const user = await User.findOne({ where: { email: userEmail } });
+      
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuario no encontrado con ese email'
+        });
+      }
+
+      // Actualizar el pago
+      payment.userId = user.id;
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\nConvertido de pago de invitado a usuario ${user.email} por ${req.user.getFullName()}`
+        : `Convertido de pago de invitado a usuario ${user.email} por ${req.user.getFullName()}`;
+      
+      await payment.save();
+
+      res.json({
+        success: true,
+        message: 'Pago convertido exitosamente',
+        data: {
+          payment: {
+            id: payment.id,
+            previousStatus: 'guest',
+            newStatus: 'registered',
+            userId: user.id,
+            userEmail: user.email
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error al convertir pago de invitado:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al convertir pago',
         error: error.message
       });
     }
