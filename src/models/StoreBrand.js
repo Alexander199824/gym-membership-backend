@@ -1,3 +1,4 @@
+// ===== StoreBrand.js - CORREGIDO =====
 // src/models/StoreBrand.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
@@ -8,7 +9,6 @@ const StoreBrand = sequelize.define('StoreBrand', {
     primaryKey: true,
     autoIncrement: true
   },
-  // ✅ Información de la marca
   name: {
     type: DataTypes.STRING(100),
     allowNull: false
@@ -22,7 +22,6 @@ const StoreBrand = sequelize.define('StoreBrand', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  // ✅ Si está activa
   isActive: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
@@ -34,22 +33,24 @@ const StoreBrand = sequelize.define('StoreBrand', {
   timestamps: true
 });
 
-// ✅ Crear marcas por defecto
-StoreBrand.seedDefaultBrands = async function() {
-  const defaultBrands = [
-    { name: 'MuscleTech', description: 'Suplementos deportivos de alta calidad' },
-    { name: 'Nike', description: 'Ropa y accesorios deportivos' },
-    { name: 'Under Armour', description: 'Equipamiento deportivo profesional' },
-    { name: 'Optimum Nutrition', description: 'Nutrición deportiva premium' },
-    { name: 'BSN', description: 'Suplementos para rendimiento atlético' }
-  ];
-
-  for (const brand of defaultBrands) {
-    await this.findOrCreate({
-      where: { name: brand.name },
-      defaults: brand
+// ✅ AGREGAR ASOCIACIONES
+StoreBrand.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreBrand...');
+  
+  if (models.StoreProduct) {
+    StoreBrand.hasMany(models.StoreProduct, {
+      foreignKey: 'brandId',
+      as: 'products'
     });
+    console.log('   ✅ StoreBrand -> StoreProduct (products)');
   }
 };
 
 module.exports = StoreBrand;
+
+
+
+
+
+
+

@@ -1,3 +1,4 @@
+// ===== StoreOrderItem.js - CORREGIDO =====
 // src/models/StoreOrderItem.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
@@ -8,7 +9,6 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
-  // ✅ Relaciones
   orderId: {
     type: DataTypes.UUID,
     allowNull: false,
@@ -27,7 +27,6 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
       key: 'id'
     }
   },
-  // ✅ Snapshot del producto (por si cambia después)
   productName: {
     type: DataTypes.STRING(255),
     allowNull: false,
@@ -38,7 +37,6 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
     allowNull: false,
     field: 'product_sku'
   },
-  // ✅ Cantidad y precios
   quantity: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -56,12 +54,10 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
     allowNull: false,
     field: 'total_price'
   },
-  // ✅ Variantes seleccionadas (si las hubiera)
   selectedVariants: {
     type: DataTypes.JSON,
     allowNull: true,
     field: 'selected_variants'
-    // { color: 'rojo', size: 'L', flavor: 'chocolate' }
   }
 }, {
   tableName: 'store_order_items',
@@ -71,5 +67,26 @@ const StoreOrderItem = sequelize.define('StoreOrderItem', {
     { fields: ['product_id'] }
   ]
 });
+
+// ✅ AGREGAR ASOCIACIONES
+StoreOrderItem.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreOrderItem...');
+  
+  if (models.StoreOrder) {
+    StoreOrderItem.belongsTo(models.StoreOrder, {
+      foreignKey: 'orderId',
+      as: 'order'
+    });
+    console.log('   ✅ StoreOrderItem -> StoreOrder (order)');
+  }
+  
+  if (models.StoreProduct) {
+    StoreOrderItem.belongsTo(models.StoreProduct, {
+      foreignKey: 'productId',
+      as: 'product'
+    });
+    console.log('   ✅ StoreOrderItem -> StoreProduct (product)');
+  }
+};
 
 module.exports = StoreOrderItem;

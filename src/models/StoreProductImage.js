@@ -1,3 +1,4 @@
+// ===== StoreProductImage.js - CORREGIDO =====
 // src/models/StoreProductImage.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
@@ -8,7 +9,6 @@ const StoreProductImage = sequelize.define('StoreProductImage', {
     primaryKey: true,
     autoIncrement: true
   },
-  // ✅ Relación con producto
   productId: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -18,7 +18,6 @@ const StoreProductImage = sequelize.define('StoreProductImage', {
       key: 'id'
     }
   },
-  // ✅ Información de la imagen
   imageUrl: {
     type: DataTypes.STRING(500),
     allowNull: false,
@@ -29,14 +28,12 @@ const StoreProductImage = sequelize.define('StoreProductImage', {
     allowNull: true,
     field: 'alt_text'
   },
-  // ✅ Si es imagen principal
   isPrimary: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false,
     field: 'is_primary'
   },
-  // ✅ Orden de visualización
   displayOrder: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -52,5 +49,18 @@ const StoreProductImage = sequelize.define('StoreProductImage', {
     { fields: ['display_order'] }
   ]
 });
+
+// ✅ AGREGAR ASOCIACIONES
+StoreProductImage.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreProductImage...');
+  
+  if (models.StoreProduct) {
+    StoreProductImage.belongsTo(models.StoreProduct, {
+      foreignKey: 'productId',
+      as: 'product'
+    });
+    console.log('   ✅ StoreProductImage -> StoreProduct (product)');
+  }
+};
 
 module.exports = StoreProductImage;

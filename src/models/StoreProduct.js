@@ -1,4 +1,4 @@
-// src/models/StoreProduct.js
+// src/models/StoreProduct.js - CORREGIDO con asociaciones
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -148,6 +148,56 @@ const StoreProduct = sequelize.define('StoreProduct', {
   ]
 });
 
+// ✅ CORREGIDO: DEFINIR ASOCIACIONES CORRECTAMENTE
+StoreProduct.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreProduct...');
+  
+  // ✅ Relación con categoria
+  if (models.StoreCategory) {
+    StoreProduct.belongsTo(models.StoreCategory, {
+      foreignKey: 'categoryId',
+      as: 'category'
+    });
+    console.log('   ✅ StoreProduct -> StoreCategory (category)');
+  }
+  
+  // ✅ Relación con marca
+  if (models.StoreBrand) {
+    StoreProduct.belongsTo(models.StoreBrand, {
+      foreignKey: 'brandId',
+      as: 'brand'
+    });
+    console.log('   ✅ StoreProduct -> StoreBrand (brand)');
+  }
+  
+  // ✅ Relación con imágenes
+  if (models.StoreProductImage) {
+    StoreProduct.hasMany(models.StoreProductImage, {
+      foreignKey: 'productId',
+      as: 'images'
+    });
+    console.log('   ✅ StoreProduct -> StoreProductImage (images)');
+  }
+  
+  // ✅ Relación con items del carrito
+  if (models.StoreCart) {
+    StoreProduct.hasMany(models.StoreCart, {
+      foreignKey: 'productId',
+      as: 'cartItems'
+    });
+    console.log('   ✅ StoreProduct -> StoreCart (cartItems)');
+  }
+  
+  // ✅ Relación con items de órdenes
+  if (models.StoreOrderItem) {
+    StoreProduct.hasMany(models.StoreOrderItem, {
+      foreignKey: 'productId',
+      as: 'orderItems'
+    });
+    console.log('   ✅ StoreProduct -> StoreOrderItem (orderItems)');
+  }
+};
+
 // ✅ Métodos de instancia
 StoreProduct.prototype.getDiscountPercentage = function() {
   if (this.originalPrice && this.originalPrice > this.price) {
@@ -164,120 +214,257 @@ StoreProduct.prototype.isLowStock = function() {
   return this.stockQuantity <= this.minStock;
 };
 
-// ✅ Métodos estáticos
+// ✅ CORREGIDO: Métodos estáticos SIN includes problemáticos
 StoreProduct.getFeaturedProducts = async function(limit = 8) {
-  return await this.findAll({
-    where: { 
-      isFeatured: true, 
-      isActive: true,
-      stockQuantity: { [sequelize.Sequelize.Op.gt]: 0 }
-    },
-    include: ['category', 'brand', 'images'],
-    limit,
-    order: [['rating', 'DESC'], ['reviewsCount', 'DESC']]
-  });
-};
-
-StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
-  return await this.findAndCountAll({
-    where: { 
-      categoryId, 
-      isActive: true 
-    },
-    include: ['category', 'brand', 'images'],
-    limit,
-    offset,
-    order: [['name', 'ASC']]
-  });
-};
-
-StoreProduct.searchProducts = async function(query, filters = {}) {
-  const where = {
-    isActive: true,
-    [sequelize.Sequelize.Op.or]: [
-      { name: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
-      { description: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } }
-    ]
-  };
-
-  if (filters.categoryId) where.categoryId = filters.categoryId;
-  if (filters.brandId) where.brandId = filters.brandId;
-  if (filters.minPrice) where.price = { [sequelize.Sequelize.Op.gte]: filters.minPrice };
-  if (filters.maxPrice) {
-    where.price = where.price || {};
-    where.price[sequelize.Sequelize.Op.lte] = filters.maxPrice;
-  }
-
-  return await this.findAll({
-    where,
-    include: ['category', 'brand', 'images'],
-    order: [['rating', 'DESC'], ['name', 'ASC']]
-  });
-};
-
-// ✅ Crear productos de ejemplo
-StoreProduct.seedSampleProducts = async function() {
-  const { StoreCategory, StoreBrand } = require('./index');
-  
-  const sampleProducts = [
-    {
-      name: 'Whey Protein Gold Standard',
-      description: 'Proteína de suero de alta calidad con aminoácidos esenciales',
-      price: 299.99,
-      originalPrice: 349.99,
-      sku: 'WPG-001',
-      stockQuantity: 50,
-      categoryName: 'Suplementos',
-      brandName: 'Optimum Nutrition',
-      isFeatured: true,
-      rating: 4.8,
-      reviewsCount: 150,
-      weight: 2270,
-      allowOnlinePayment: true,
-      allowCardPayment: true,
-      allowCashOnDelivery: true
-    },
-    {
-      name: 'Playera Deportiva Dri-FIT',
-      description: 'Playera transpirable para entrenamientos intensos',
-      price: 89.99,
-      originalPrice: 120.00,
-      sku: 'PDM-002',
-      stockQuantity: 30,
-      categoryName: 'Ropa Deportiva',
-      brandName: 'Nike',
-      isFeatured: true,
-      rating: 4.5,
-      reviewsCount: 89
-    },
-    {
-      name: 'Guantes de Entrenamiento',
-      description: 'Guantes acolchados para levantamiento de pesas',
-      price: 45.00,
-      sku: 'GLE-003',
-      stockQuantity: 25,
-      categoryName: 'Accesorios',
-      brandName: 'Under Armour',
-      rating: 4.3,
-      reviewsCount: 67
-    }
-  ];
-
-  for (const product of sampleProducts) {
-    // ✅ Buscar categoría y marca
-    const category = await StoreCategory.findOne({ where: { name: product.categoryName } });
-    const brand = await StoreBrand.findOne({ where: { name: product.brandName } });
+  try {
+    console.log('🔍 Buscando productos destacados...');
     
-    if (category) {
+    // ✅ VERSIÓN SIMPLE SIN INCLUDES (para evitar errores de asociación)
+    const products = await this.findAll({
+      where: { 
+        isFeatured: true, 
+        isActive: true,
+        stockQuantity: { [sequelize.Sequelize.Op.gt]: 0 }
+      },
+      limit,
+      order: [['rating', 'DESC'], ['reviewsCount', 'DESC']]
+    });
+    
+    console.log(`✅ Encontrados ${products.length} productos destacados`);
+    return products;
+    
+  } catch (error) {
+    console.error('❌ Error en getFeaturedProducts:', error.message);
+    
+    // ✅ FALLBACK: Devolver productos básicos sin filtros complejos
+    try {
+      const basicProducts = await this.findAll({
+        where: { isActive: true },
+        limit,
+        order: [['id', 'DESC']]
+      });
+      console.log(`⚠️ Fallback: devolviendo ${basicProducts.length} productos básicos`);
+      return basicProducts;
+    } catch (fallbackError) {
+      console.error('❌ Error en fallback:', fallbackError.message);
+      return [];
+    }
+  }
+};
+
+// ✅ CORREGIDO: Método mejorado para productos por categoría
+StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
+  try {
+    console.log(`🔍 Buscando productos de categoría ${categoryId}...`);
+    
+    const result = await this.findAndCountAll({
+      where: { 
+        categoryId, 
+        isActive: true 
+      },
+      limit,
+      offset,
+      order: [['name', 'ASC']]
+    });
+    
+    console.log(`✅ Encontrados ${result.count} productos en categoría ${categoryId}`);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Error en getProductsByCategory:', error.message);
+    return { rows: [], count: 0 };
+  }
+};
+
+// ✅ CORREGIDO: Búsqueda de productos simplificada
+StoreProduct.searchProducts = async function(query, filters = {}) {
+  try {
+    console.log(`🔍 Buscando productos con query: "${query}"...`);
+    
+    const where = {
+      isActive: true,
+      [sequelize.Sequelize.Op.or]: [
+        { name: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
+        { description: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } }
+      ]
+    };
+
+    if (filters.categoryId) where.categoryId = filters.categoryId;
+    if (filters.brandId) where.brandId = filters.brandId;
+    if (filters.minPrice) where.price = { [sequelize.Sequelize.Op.gte]: filters.minPrice };
+    if (filters.maxPrice) {
+      where.price = where.price || {};
+      where.price[sequelize.Sequelize.Op.lte] = filters.maxPrice;
+    }
+
+    const products = await this.findAll({
+      where,
+      order: [['rating', 'DESC'], ['name', 'ASC']]
+    });
+    
+    console.log(`✅ Búsqueda completada: ${products.length} productos encontrados`);
+    return products;
+    
+  } catch (error) {
+    console.error('❌ Error en searchProducts:', error.message);
+    return [];
+  }
+};
+
+// ✅ NUEVO: Método para obtener producto por ID con verificación de asociaciones
+StoreProduct.getProductWithDetails = async function(productId) {
+  try {
+    console.log(`🔍 Buscando producto ${productId} con detalles...`);
+    
+    // ✅ Primero obtener el producto básico
+    const product = await this.findByPk(productId);
+    
+    if (!product) {
+      console.log('❌ Producto no encontrado');
+      return null;
+    }
+    
+    // ✅ Intentar cargar relaciones si están disponibles
+    const db = require('./index');
+    
+    // Cargar categoría si existe
+    if (db.StoreCategory && product.categoryId) {
+      try {
+        const category = await db.StoreCategory.findByPk(product.categoryId);
+        product.dataValues.category = category;
+      } catch (error) {
+        console.warn('⚠️ No se pudo cargar categoría:', error.message);
+      }
+    }
+    
+    // Cargar marca si existe
+    if (db.StoreBrand && product.brandId) {
+      try {
+        const brand = await db.StoreBrand.findByPk(product.brandId);
+        product.dataValues.brand = brand;
+      } catch (error) {
+        console.warn('⚠️ No se pudo cargar marca:', error.message);
+      }
+    }
+    
+    // Cargar imágenes si existe
+    if (db.StoreProductImage) {
+      try {
+        const images = await db.StoreProductImage.findAll({
+          where: { productId: product.id },
+          order: [['displayOrder', 'ASC']]
+        });
+        product.dataValues.images = images;
+      } catch (error) {
+        console.warn('⚠️ No se pudieron cargar imágenes:', error.message);
+      }
+    }
+    
+    console.log('✅ Producto cargado con detalles');
+    return product;
+    
+  } catch (error) {
+    console.error('❌ Error en getProductWithDetails:', error.message);
+    return null;
+  }
+};
+
+// ✅ Crear productos de ejemplo - SIN dependencias problemáticas
+StoreProduct.seedSampleProducts = async function() {
+  try {
+    console.log('🌱 Iniciando seed de productos de ejemplo...');
+    
+    // ✅ Buscar modelos relacionados con verificación
+    const db = require('./index');
+    
+    const sampleProducts = [
+      {
+        name: 'Whey Protein Gold Standard',
+        description: 'Proteína de suero de alta calidad con aminoácidos esenciales',
+        price: 299.99,
+        originalPrice: 349.99,
+        sku: 'WPG-001',
+        stockQuantity: 50,
+        categoryName: 'Suplementos',
+        brandName: 'Optimum Nutrition',
+        isFeatured: true,
+        rating: 4.8,
+        reviewsCount: 150,
+        weight: 2270,
+        allowOnlinePayment: true,
+        allowCardPayment: true,
+        allowCashOnDelivery: true
+      },
+      {
+        name: 'Playera Deportiva Dri-FIT',
+        description: 'Playera transpirable para entrenamientos intensos',
+        price: 89.99,
+        originalPrice: 120.00,
+        sku: 'PDM-002',
+        stockQuantity: 30,
+        categoryName: 'Ropa Deportiva',
+        brandName: 'Nike',
+        isFeatured: true,
+        rating: 4.5,
+        reviewsCount: 89
+      },
+      {
+        name: 'Guantes de Entrenamiento',
+        description: 'Guantes acolchados para levantamiento de pesas',
+        price: 45.00,
+        sku: 'GLE-003',
+        stockQuantity: 25,
+        categoryName: 'Accesorios',
+        brandName: 'Under Armour',
+        rating: 4.3,
+        reviewsCount: 67
+      }
+    ];
+
+    for (const productData of sampleProducts) {
+      // ✅ Buscar categoría y marca de forma segura
+      let categoryId = 1; // Fallback
+      let brandId = null;
+      
+      if (db.StoreCategory) {
+        try {
+          const category = await db.StoreCategory.findOne({ 
+            where: { name: productData.categoryName } 
+          });
+          if (category) categoryId = category.id;
+        } catch (error) {
+          console.warn('⚠️ No se pudo buscar categoría:', error.message);
+        }
+      }
+      
+      if (db.StoreBrand) {
+        try {
+          const brand = await db.StoreBrand.findOne({ 
+            where: { name: productData.brandName } 
+          });
+          if (brand) brandId = brand.id;
+        } catch (error) {
+          console.warn('⚠️ No se pudo buscar marca:', error.message);
+        }
+      }
+      
+      // ✅ Crear producto con datos seguros
       await this.findOrCreate({
-        where: { sku: product.sku },
+        where: { sku: productData.sku },
         defaults: {
-          ...product,
-          categoryId: category.id,
-          brandId: brand?.id || null
+          ...productData,
+          categoryId,
+          brandId
         }
       });
+      
+      console.log(`✅ Producto ${productData.sku} procesado`);
     }
+    
+    console.log('🌱 Seed de productos completado');
+    
+  } catch (error) {
+    console.error('❌ Error en seedSampleProducts:', error.message);
   }
 };
 

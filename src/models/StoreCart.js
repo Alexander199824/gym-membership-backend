@@ -1,3 +1,4 @@
+// ===== StoreCart.js - CORREGIDO =====
 // src/models/StoreCart.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
@@ -8,7 +9,6 @@ const StoreCart = sequelize.define('StoreCart', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
-  // ✅ Usuario (puede ser null para carritos de invitados)
   userId: {
     type: DataTypes.UUID,
     allowNull: true,
@@ -18,13 +18,11 @@ const StoreCart = sequelize.define('StoreCart', {
       key: 'id'
     }
   },
-  // ✅ ID de sesión para carritos de invitados
   sessionId: {
     type: DataTypes.STRING(255),
     allowNull: true,
     field: 'session_id'
   },
-  // ✅ Producto
   productId: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -34,7 +32,6 @@ const StoreCart = sequelize.define('StoreCart', {
       key: 'id'
     }
   },
-  // ✅ Cantidad
   quantity: {
     type: DataTypes.INTEGER,
     allowNull: false,
@@ -43,13 +40,11 @@ const StoreCart = sequelize.define('StoreCart', {
       min: 1
     }
   },
-  // ✅ Variantes seleccionadas
   selectedVariants: {
     type: DataTypes.JSON,
     allowNull: true,
     field: 'selected_variants'
   },
-  // ✅ Precio unitario al momento de agregar
   unitPrice: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
@@ -66,29 +61,25 @@ const StoreCart = sequelize.define('StoreCart', {
   ]
 });
 
-// ✅ Métodos estáticos
-StoreCart.getCartByUser = async function(userId) {
-  return await this.findAll({
-    where: { userId },
-    include: ['product'],
-    order: [['createdAt', 'ASC']]
-  });
-};
-
-StoreCart.getCartBySession = async function(sessionId) {
-  return await this.findAll({
-    where: { sessionId },
-    include: ['product'],
-    order: [['createdAt', 'ASC']]
-  });
-};
-
-StoreCart.clearCart = async function(userId = null, sessionId = null) {
-  const where = {};
-  if (userId) where.userId = userId;
-  if (sessionId) where.sessionId = sessionId;
+// ✅ AGREGAR ASOCIACIONES
+StoreCart.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreCart...');
   
-  return await this.destroy({ where });
+  if (models.User) {
+    StoreCart.belongsTo(models.User, {
+      foreignKey: 'userId',
+      as: 'user'
+    });
+    console.log('   ✅ StoreCart -> User (user)');
+  }
+  
+  if (models.StoreProduct) {
+    StoreCart.belongsTo(models.StoreProduct, {
+      foreignKey: 'productId',
+      as: 'product'
+    });
+    console.log('   ✅ StoreCart -> StoreProduct (product)');
+  }
 };
 
 module.exports = StoreCart;
