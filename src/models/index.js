@@ -1,168 +1,296 @@
-// src/models/index.js - VERSIÓN CORREGIDA (reemplazar todo el archivo)
-const User = require('./User');
-const Membership = require('./Membership');
-const Payment = require('./Payment');
-const DailyIncome = require('./DailyIncome');
-const Notification = require('./Notification');
+// src/models/index.js - ESTRUCTURA COMPLETAMENTE CORREGIDA
+'use strict';
 
-// ✅ Modelos del gimnasio existentes
-const GymConfiguration = require('./GymConfiguration');
-const GymContactInfo = require('./GymContactInfo');
-const GymHours = require('./GymHours');
-const GymStatistics = require('./GymStatistics');
-const GymServices = require('./GymServices');
-const MembershipPlans = require('./MembershipPlans');
-const FinancialMovements = require('./FinancialMovements');
-const UserSchedulePreferences = require('./UserSchedulePreferences');
+const fs = require('fs');
+const path = require('path');
+const Sequelize = require('sequelize');
+const process = require('process');
+const basename = path.basename(__filename);
+const env = process.env.NODE_ENV || 'development';
+const config = require(__dirname + '/../config/database.js')[env];
+const db = {};
 
-// ✅ NUEVOS MODELOS para contenido dinámico
-const GymTestimonials = require('./GymTestimonials');
-const GymSocialMedia = require('./GymSocialMedia');
-const GymSectionsContent = require('./GymSectionsContent');
-const GymNavigation = require('./GymNavigation');
-const GymPromotionalContent = require('./GymPromotionalContent');
-const GymFormsConfig = require('./GymFormsConfig');
-const GymSystemMessages = require('./GymSystemMessages');
-const GymBrandingConfig = require('./GymBrandingConfig');
+// ✅ Inicializar Sequelize
+let sequelize;
+if (config.use_env_variable) {
+  sequelize = new Sequelize(process.env[config.use_env_variable], config);
+} else {
+  sequelize = new Sequelize(config.database, config.username, config.password, config);
+}
 
-// ✅ Modelos de tienda
-const StoreCategory = require('./StoreCategory');
-const StoreBrand = require('./StoreBrand');
-const StoreProduct = require('./StoreProduct');
-const StoreProductImage = require('./StoreProductImage');
-const StoreOrder = require('./StoreOrder');
-const StoreOrderItem = require('./StoreOrderItem');
-const StoreCart = require('./StoreCart');
+// ✅ PASO 1: Cargar TODOS los modelos automáticamente
+console.log('🔄 Cargando modelos desde:', __dirname);
 
-// ✅ RELACIONES EXISTENTES (User, Membership, Payment, etc.)
+fs
+  .readdirSync(__dirname)
+  .filter(file => {
+    return (
+      file.indexOf('.') !== 0 &&
+      file !== basename &&
+      file.slice(-3) === '.js' &&
+      file.indexOf('.test.js') === -1
+    );
+  })
+  .forEach(file => {
+    console.log('📁 Cargando modelo:', file);
+    try {
+      const model = require(path.join(__dirname, file))(sequelize, Sequelize.DataTypes);
+      db[model.name] = model;
+      console.log('✅ Modelo cargado:', model.name);
+    } catch (error) {
+      console.error('❌ Error cargando modelo', file, ':', error.message);
+    }
+  });
 
-// Relaciones User - Membership (Un usuario puede tener múltiples membresías)
-User.hasMany(Membership, { foreignKey: 'userId', as: 'memberships' });
-Membership.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+console.log('📋 Modelos cargados:', Object.keys(db));
 
-// Relaciones User - Payment (Un usuario puede tener múltiples pagos)
-User.hasMany(Payment, { foreignKey: 'userId', as: 'payments' });
-Payment.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+// ✅ PASO 2: Configurar asociaciones automáticamente
+Object.keys(db).forEach(modelName => {
+  if (db[modelName].associate) {
+    console.log('🔗 Configurando asociaciones para:', modelName);
+    try {
+      db[modelName].associate(db);
+      console.log('✅ Asociaciones configuradas para:', modelName);
+    } catch (error) {
+      console.error('❌ Error en asociaciones de', modelName, ':', error.message);
+    }
+  }
+});
 
-// Relaciones Membership - Payment (Una membresía puede tener múltiples pagos)
-Membership.hasMany(Payment, { foreignKey: 'membershipId', as: 'payments' });
-Payment.belongsTo(Membership, { foreignKey: 'membershipId', as: 'membership' });
+// ✅ PASO 3: Definir asociaciones manuales adicionales SOLO si los modelos existen
+console.log('🔗 Configurando asociaciones manuales adicionales...');
 
-// Relaciones de auditoría - User - User (Quien registró a quien)
-User.hasMany(User, { foreignKey: 'createdBy', as: 'createdUsers' });
-User.belongsTo(User, { foreignKey: 'createdBy', as: 'creator' });
+// User - Membership
+if (db.User && db.Membership) {
+  try {
+    if (!db.User.associations.memberships) {
+      db.User.hasMany(db.Membership, { foreignKey: 'userId', as: 'memberships' });
+    }
+    if (!db.Membership.associations.user) {
+      db.Membership.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+    }
+    console.log('✅ Asociaciones User-Membership configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-Membership:', error.message);
+  }
+}
 
-// Relaciones de auditoría - User - Membership (Quien registró la membresía)
-User.hasMany(Membership, { foreignKey: 'registeredBy', as: 'registeredMemberships' });
-Membership.belongsTo(User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
-
-// Relaciones de auditoría - User - Payment (Quien registró el pago)
-User.hasMany(Payment, { foreignKey: 'registeredBy', as: 'registeredPayments' });
-Payment.belongsTo(User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
-
-// Relaciones de validación - User - Payment (Quien validó transferencia)
-User.hasMany(Payment, { foreignKey: 'transferValidatedBy', as: 'validatedTransfers' });
-Payment.belongsTo(User, { foreignKey: 'transferValidatedBy', as: 'transferValidator' });
-
-// Relaciones User - DailyIncome
-User.hasMany(DailyIncome, { foreignKey: 'registeredBy', as: 'registeredIncomes' });
-DailyIncome.belongsTo(User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
-
-// Relaciones User - Notification
-User.hasMany(Notification, { foreignKey: 'userId', as: 'notifications' });
-Notification.belongsTo(User, { foreignKey: 'userId', as: 'user' });
-
-// Relaciones Membership - Notification
-Membership.hasMany(Notification, { foreignKey: 'membershipId', as: 'notifications' });
-Notification.belongsTo(Membership, { foreignKey: 'membershipId', as: 'membership' });
-
-// Relaciones Payment - Notification
-Payment.hasMany(Notification, { foreignKey: 'paymentId', as: 'notifications' });
-Notification.belongsTo(Payment, { foreignKey: 'paymentId', as: 'payment' });
-
-// ✅ RELACIONES DE MODELOS NUEVOS
+// User - Payment
+if (db.User && db.Payment) {
+  try {
+    if (!db.User.associations.payments) {
+      db.User.hasMany(db.Payment, { foreignKey: 'userId', as: 'payments' });
+    }
+    if (!db.Payment.associations.user) {
+      db.Payment.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+    }
+    
+    // Relación para registeredBy
+    if (!db.User.associations.registeredPayments) {
+      db.User.hasMany(db.Payment, { foreignKey: 'registeredBy', as: 'registeredPayments' });
+    }
+    if (!db.Payment.associations.registeredByUser) {
+      db.Payment.belongsTo(db.User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
+    }
+    
+    console.log('✅ Asociaciones User-Payment configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-Payment:', error.message);
+  }
+}
 
 // User - FinancialMovements
-User.hasMany(FinancialMovements, { foreignKey: 'registeredBy', as: 'financialMovements' });
-FinancialMovements.belongsTo(User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
+if (db.User && db.FinancialMovements) {
+  try {
+    if (!db.User.associations.financialMovements) {
+      db.User.hasMany(db.FinancialMovements, { 
+        foreignKey: 'registeredBy', 
+        as: 'financialMovements' 
+      });
+    }
+    if (!db.FinancialMovements.associations.registeredByUser) {
+      db.FinancialMovements.belongsTo(db.User, { 
+        foreignKey: 'registeredBy', 
+        as: 'registeredByUser' 
+      });
+    }
+    console.log('✅ Asociaciones User-FinancialMovements configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-FinancialMovements:', error.message);
+  }
+}
 
-// User - UserSchedulePreferences
-User.hasMany(UserSchedulePreferences, { foreignKey: 'userId', as: 'schedulePreferences' });
-UserSchedulePreferences.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+// Payment - Membership
+if (db.Payment && db.Membership) {
+  try {
+    if (!db.Payment.associations.membership) {
+      db.Payment.belongsTo(db.Membership, { foreignKey: 'membershipId', as: 'membership' });
+    }
+    if (!db.Membership.associations.payments) {
+      db.Membership.hasMany(db.Payment, { foreignKey: 'membershipId', as: 'payments' });
+    }
+    console.log('✅ Asociaciones Payment-Membership configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones Payment-Membership:', error.message);
+  }
+}
 
-// ✅ RELACIONES DE TIENDA
+// ✅ ASOCIACIONES DE TIENDA
+if (db.StoreCategory && db.StoreProduct) {
+  try {
+    if (!db.StoreCategory.associations.products) {
+      db.StoreCategory.hasMany(db.StoreProduct, { foreignKey: 'categoryId', as: 'products' });
+    }
+    if (!db.StoreProduct.associations.category) {
+      db.StoreProduct.belongsTo(db.StoreCategory, { foreignKey: 'categoryId', as: 'category' });
+    }
+    console.log('✅ Asociaciones StoreCategory-StoreProduct configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreCategory-StoreProduct:', error.message);
+  }
+}
 
-// StoreCategory - StoreProduct
-StoreCategory.hasMany(StoreProduct, { foreignKey: 'categoryId', as: 'products' });
-StoreProduct.belongsTo(StoreCategory, { foreignKey: 'categoryId', as: 'category' });
+if (db.StoreBrand && db.StoreProduct) {
+  try {
+    if (!db.StoreBrand.associations.products) {
+      db.StoreBrand.hasMany(db.StoreProduct, { foreignKey: 'brandId', as: 'products' });
+    }
+    if (!db.StoreProduct.associations.brand) {
+      db.StoreProduct.belongsTo(db.StoreBrand, { foreignKey: 'brandId', as: 'brand' });
+    }
+    console.log('✅ Asociaciones StoreBrand-StoreProduct configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreBrand-StoreProduct:', error.message);
+  }
+}
 
-// StoreBrand - StoreProduct
-StoreBrand.hasMany(StoreProduct, { foreignKey: 'brandId', as: 'products' });
-StoreProduct.belongsTo(StoreBrand, { foreignKey: 'brandId', as: 'brand' });
+if (db.StoreProduct && db.StoreProductImage) {
+  try {
+    if (!db.StoreProduct.associations.images) {
+      db.StoreProduct.hasMany(db.StoreProductImage, { foreignKey: 'productId', as: 'images' });
+    }
+    if (!db.StoreProductImage.associations.product) {
+      db.StoreProductImage.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
+    }
+    console.log('✅ Asociaciones StoreProduct-StoreProductImage configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreProduct-StoreProductImage:', error.message);
+  }
+}
 
-// StoreProduct - StoreProductImage
-StoreProduct.hasMany(StoreProductImage, { foreignKey: 'productId', as: 'images' });
-StoreProductImage.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+if (db.User && db.StoreCart) {
+  try {
+    if (!db.User.associations.cartItems) {
+      db.User.hasMany(db.StoreCart, { foreignKey: 'userId', as: 'cartItems' });
+    }
+    if (!db.StoreCart.associations.user) {
+      db.StoreCart.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+    }
+    console.log('✅ Asociaciones User-StoreCart configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-StoreCart:', error.message);
+  }
+}
 
-// User - StoreOrder
-User.hasMany(StoreOrder, { foreignKey: 'userId', as: 'storeOrders' });
-StoreOrder.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+if (db.StoreProduct && db.StoreCart) {
+  try {
+    if (!db.StoreCart.associations.product) {
+      db.StoreCart.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
+    }
+    if (!db.StoreProduct.associations.cartItems) {
+      db.StoreProduct.hasMany(db.StoreCart, { foreignKey: 'productId', as: 'cartItems' });
+    }
+    console.log('✅ Asociaciones StoreProduct-StoreCart configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreProduct-StoreCart:', error.message);
+  }
+}
 
-// User - StoreOrder (procesado por)
-User.hasMany(StoreOrder, { foreignKey: 'processedBy', as: 'processedOrders' });
-StoreOrder.belongsTo(User, { foreignKey: 'processedBy', as: 'processor' });
+if (db.User && db.StoreOrder) {
+  try {
+    if (!db.User.associations.storeOrders) {
+      db.User.hasMany(db.StoreOrder, { foreignKey: 'userId', as: 'storeOrders' });
+    }
+    if (!db.StoreOrder.associations.user) {
+      db.StoreOrder.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+    }
+    
+    // Relación para processedBy
+    if (!db.User.associations.processedOrders) {
+      db.User.hasMany(db.StoreOrder, { foreignKey: 'processedBy', as: 'processedOrders' });
+    }
+    if (!db.StoreOrder.associations.processor) {
+      db.StoreOrder.belongsTo(db.User, { foreignKey: 'processedBy', as: 'processor' });
+    }
+    
+    console.log('✅ Asociaciones User-StoreOrder configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-StoreOrder:', error.message);
+  }
+}
 
-// StoreOrder - StoreOrderItem
-StoreOrder.hasMany(StoreOrderItem, { foreignKey: 'orderId', as: 'items' });
-StoreOrderItem.belongsTo(StoreOrder, { foreignKey: 'orderId', as: 'order' });
+if (db.StoreOrder && db.StoreOrderItem) {
+  try {
+    if (!db.StoreOrder.associations.items) {
+      db.StoreOrder.hasMany(db.StoreOrderItem, { foreignKey: 'orderId', as: 'items' });
+    }
+    if (!db.StoreOrderItem.associations.order) {
+      db.StoreOrderItem.belongsTo(db.StoreOrder, { foreignKey: 'orderId', as: 'order' });
+    }
+    console.log('✅ Asociaciones StoreOrder-StoreOrderItem configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreOrder-StoreOrderItem:', error.message);
+  }
+}
 
-// StoreProduct - StoreOrderItem
-StoreProduct.hasMany(StoreOrderItem, { foreignKey: 'productId', as: 'orderItems' });
-StoreOrderItem.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+if (db.StoreProduct && db.StoreOrderItem) {
+  try {
+    if (!db.StoreOrderItem.associations.product) {
+      db.StoreOrderItem.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
+    }
+    if (!db.StoreProduct.associations.orderItems) {
+      db.StoreProduct.hasMany(db.StoreOrderItem, { foreignKey: 'productId', as: 'orderItems' });
+    }
+    console.log('✅ Asociaciones StoreProduct-StoreOrderItem configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones StoreProduct-StoreOrderItem:', error.message);
+  }
+}
 
-// User - StoreCart
-User.hasMany(StoreCart, { foreignKey: 'userId', as: 'cartItems' });
-StoreCart.belongsTo(User, { foreignKey: 'userId', as: 'user' });
+// ✅ ASOCIACIONES ADICIONALES
+if (db.User && db.DailyIncome) {
+  try {
+    if (!db.User.associations.registeredIncomes) {
+      db.User.hasMany(db.DailyIncome, { foreignKey: 'registeredBy', as: 'registeredIncomes' });
+    }
+    if (!db.DailyIncome.associations.registeredByUser) {
+      db.DailyIncome.belongsTo(db.User, { foreignKey: 'registeredBy', as: 'registeredByUser' });
+    }
+    console.log('✅ Asociaciones User-DailyIncome configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-DailyIncome:', error.message);
+  }
+}
 
-// StoreProduct - StoreCart
-StoreProduct.hasMany(StoreCart, { foreignKey: 'productId', as: 'cartItems' });
-StoreCart.belongsTo(StoreProduct, { foreignKey: 'productId', as: 'product' });
+if (db.User && db.Notification) {
+  try {
+    if (!db.User.associations.notifications) {
+      db.User.hasMany(db.Notification, { foreignKey: 'userId', as: 'notifications' });
+    }
+    if (!db.Notification.associations.user) {
+      db.Notification.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+    }
+    console.log('✅ Asociaciones User-Notification configuradas');
+  } catch (error) {
+    console.error('❌ Error en asociaciones User-Notification:', error.message);
+  }
+}
 
-// ✅ EXPORTACIÓN COMPLETA
-module.exports = {
-  // Modelos principales
-  User,
-  Membership,
-  Payment,
-  DailyIncome,
-  Notification,
-  
-  // Modelos del gimnasio
-  GymConfiguration,
-  GymContactInfo,
-  GymHours,
-  GymStatistics,
-  GymServices,
-  MembershipPlans,
-  FinancialMovements,
-  UserSchedulePreferences,
-  
-  // ✅ NUEVOS MODELOS para contenido dinámico
-  GymTestimonials,
-  GymSocialMedia,
-  GymSectionsContent,
-  GymNavigation,
-  GymPromotionalContent,
-  GymFormsConfig,
-  GymSystemMessages,
-  GymBrandingConfig,
-  
-  // Modelos de tienda
-  StoreCategory,
-  StoreBrand,
-  StoreProduct,
-  StoreProductImage,
-  StoreOrder,
-  StoreOrderItem,
-  StoreCart
-};
+// ✅ Agregar sequelize y Sequelize al objeto db
+db.sequelize = sequelize;
+db.Sequelize = Sequelize;
+
+console.log('✅ Todos los modelos y asociaciones configurados exitosamente');
+console.log('📊 Modelos disponibles:', Object.keys(db).filter(key => key !== 'sequelize' && key !== 'Sequelize'));
+
+module.exports = db;

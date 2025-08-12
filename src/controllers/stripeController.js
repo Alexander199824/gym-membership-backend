@@ -1,4 +1,4 @@
-// src/controllers/stripeController.js - Controlador completo para Stripe - CORREGIDO
+// src/controllers/stripeController.js - VALIDACIONES COMPLETAMENTE CORREGIDAS
 const stripeService = require('../services/stripeService');
 const paymentController = require('./paymentController');
 const { User, Membership, Payment, StoreOrder, FinancialMovements } = require('../models');
@@ -235,11 +235,17 @@ class StripeController {
     }
   }
 
-  // ✅ CORREGIDO: Confirmar pago exitoso
+  // ✅ COMPLETAMENTE CORREGIDO: Confirmar pago exitoso
   async confirmPayment(req, res) {
     try {
       const { paymentIntentId } = req.body;
       const user = req.user; // Puede ser null para invitados
+
+      console.log('💳 Iniciando confirmación de pago Stripe:', {
+        paymentIntentId,
+        hasUser: !!user,
+        userId: user?.id
+      });
 
       // ✅ Obtener detalles del pago de Stripe
       const stripeResult = await stripeService.confirmPayment(paymentIntentId);
@@ -262,48 +268,48 @@ class StripeController {
         });
       }
 
+      console.log('✅ Pago confirmado en Stripe:', paymentIntent.id);
+
       // ✅ Obtener detalles del método de pago
       let cardDetails = null;
       if (paymentIntent.payment_method) {
-        const paymentMethodResult = await stripeService.getPaymentMethodDetails(paymentIntent.payment_method);
-        if (paymentMethodResult.success) {
-          cardDetails = paymentMethodResult.card;
+        try {
+          const paymentMethodResult = await stripeService.getPaymentMethodDetails(paymentIntent.payment_method);
+          if (paymentMethodResult.success) {
+            cardDetails = paymentMethodResult.card;
+          }
+        } catch (cardError) {
+          console.warn('⚠️ Error obteniendo detalles de tarjeta:', cardError.message);
         }
       }
 
       // ✅ CORREGIDO: Formatear datos para el modelo Payment
       const paymentData = stripeService.formatPaymentData(paymentIntent, {
         userId: user?.id || null,
-        registeredBy: user?.id || null, // ✅ FIX: Usar null si no hay usuario
+        registeredBy: user?.id || null,
         cardLast4: cardDetails?.last4 || null
       });
 
-      // ✅ CORREGIDO: Agregar información específica basada en el tipo de pago
+      console.log('📝 Datos del pago a crear:', {
+        userId: paymentData.userId,
+        registeredBy: paymentData.registeredBy,
+        amount: paymentData.amount,
+        paymentMethod: paymentData.paymentMethod
+      });
+
+      // ✅ CORREGIDO: Procesar información específica del tipo de pago
       const metadata = paymentIntent.metadata || {};
       await this.processPaymentByType(paymentData, metadata, user);
 
       // ✅ Crear registro en la base de datos
       const payment = await Payment.create(paymentData);
+      console.log('✅ Pago creado en base de datos:', payment.id);
 
-      // ✅ CORREGIDO: Crear movimiento financiero solo si hay registeredBy
-      if (payment.registeredBy) {
-        try {
-          await FinancialMovements.createFromAnyPayment(payment);
-        } catch (financialError) {
-          console.warn('⚠️ Error al crear movimiento financiero (no crítico):', financialError.message);
-        }
-      } else {
-        console.log('ℹ️ Saltando movimiento financiero para pago sin registeredBy');
-      }
+      // ✅ COMPLETAMENTE CORREGIDO: Crear movimiento financiero
+      await this.createFinancialMovement(payment, user, paymentIntentId);
 
-      // ✅ Notificar al usuario si corresponde
-      if (user) {
-        try {
-          await paymentController.sendPaymentNotifications(payment, user);
-        } catch (notificationError) {
-          console.warn('⚠️ Error al enviar notificaciones:', notificationError.message);
-        }
-      }
+      // ✅ CORREGIDO: Enviar notificaciones apropiadas
+      await this.sendNotifications(payment, user, metadata);
 
       res.json({
         success: true,
@@ -324,8 +330,9 @@ class StripeController {
           }
         }
       });
+
     } catch (error) {
-      console.error('Error al confirmar pago:', error);
+      console.error('❌ Error al confirmar pago:', error);
       res.status(500).json({
         success: false,
         message: 'Error al confirmar pago',
@@ -334,44 +341,146 @@ class StripeController {
     }
   }
 
-  // ✅ CORREGIDO: Procesar pago según su tipo (DENTRO de la clase)
+  // ✅ NUEVO MÉTODO: Procesar pago según su tipo
   async processPaymentByType(paymentData, metadata, user) {
-    switch (metadata.type) {
-      case 'membership':
-        if (metadata.userId) {
-          paymentData.userId = metadata.userId;
-          // Aquí podrías buscar/actualizar la membresía correspondiente
-        }
-        break;
-
-      case 'daily_payment':
-        if (!user && metadata.clientName) {
-          paymentData.anonymousClientInfo = {
-            name: metadata.clientName,
-            phone: metadata.clientPhone || null
-          };
-        }
-        paymentData.dailyPaymentCount = parseInt(metadata.dailyCount) || 1;
-        break;
-
-      case 'store_purchase':
-        if (metadata.orderId) {
-          paymentData.referenceId = metadata.orderId;
-          paymentData.referenceType = 'store_order';
-          
-          // Actualizar estado de la orden
-          try {
-            const order = await StoreOrder.findByPk(metadata.orderId);
-            if (order) {
-              order.paymentStatus = 'paid';
-              order.status = 'confirmed';
-              await order.save();
+    console.log('🔄 Procesando pago por tipo:', metadata.type);
+    
+    try {
+      switch (metadata.type) {
+        case 'membership':
+          if (metadata.userId) {
+            paymentData.userId = metadata.userId;
+            paymentData.paymentType = 'membership';
+            // Actualizar membresía si es necesario
+            if (metadata.membershipId) {
+              const membership = await Membership.findByPk(metadata.membershipId);
+              if (membership) {
+                membership.status = 'active';
+                await membership.save();
+              }
             }
-          } catch (orderError) {
-            console.warn('⚠️ Error al actualizar orden:', orderError.message);
           }
+          break;
+
+        case 'daily_payment':
+          paymentData.paymentType = 'daily';
+          if (!user && metadata.clientName) {
+            paymentData.anonymousClientInfo = {
+              name: metadata.clientName,
+              phone: metadata.clientPhone || null,
+              email: metadata.clientEmail || null
+            };
+          }
+          paymentData.dailyPaymentCount = parseInt(metadata.dailyCount) || 1;
+          break;
+
+        case 'store_purchase':
+          paymentData.paymentType = 'store_online';
+          if (metadata.orderId) {
+            paymentData.referenceId = metadata.orderId;
+            paymentData.referenceType = 'store_order';
+            
+            // Actualizar estado de la orden
+            try {
+              const order = await StoreOrder.findByPk(metadata.orderId);
+              if (order) {
+                order.paymentStatus = 'paid';
+                order.status = 'confirmed';
+                await order.save();
+                console.log('✅ Orden actualizada a estado confirmed:', order.id);
+              }
+            } catch (orderError) {
+              console.warn('⚠️ Error al actualizar orden:', orderError.message);
+            }
+          }
+          break;
+
+        default:
+          console.log('ℹ️ Tipo de pago no específico, usando valores por defecto');
+          paymentData.paymentType = paymentData.paymentType || 'store_online';
+      }
+
+      console.log('✅ Pago procesado por tipo:', {
+        type: metadata.type,
+        paymentType: paymentData.paymentType,
+        hasReference: !!paymentData.referenceId
+      });
+
+    } catch (error) {
+      console.error('❌ Error procesando pago por tipo:', error);
+      throw error;
+    }
+  }
+
+  // ✅ NUEVO MÉTODO: Crear movimiento financiero con manejo de errores
+  async createFinancialMovement(payment, user, paymentIntentId) {
+    console.log('💰 Creando movimiento financiero para pago:', payment.id);
+    
+    try {
+      if (payment.registeredBy) {
+        // ✅ Usuario registrado - usar método estándar
+        console.log('👤 Creando movimiento para usuario registrado');
+        await FinancialMovements.createFromAnyPayment(payment);
+        console.log('✅ Movimiento financiero creado para usuario registrado');
+        
+      } else {
+        // ✅ Usuario invitado - crear movimiento automático
+        console.log('🎫 Creando movimiento para usuario invitado');
+        await FinancialMovements.createAutomaticForGuest({
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          description: payment.description,
+          referenceId: payment.id,
+          paymentIntentId: paymentIntentId
+        });
+        console.log('✅ Movimiento financiero automático creado para invitado');
+      }
+      
+    } catch (financialError) {
+      console.warn('⚠️ Error al crear movimiento financiero (no crítico):', financialError.message);
+      console.warn('📋 Stack trace:', financialError.stack);
+      // ✅ NO fallar el proceso principal por errores financieros
+    }
+  }
+
+  // ✅ NUEVO MÉTODO: Enviar notificaciones apropiadas
+  async sendNotifications(payment, user, metadata) {
+    console.log('📧 Enviando notificaciones de pago');
+    
+    try {
+      if (user) {
+        // ✅ Usuario registrado - usar sistema de notificaciones existente
+        console.log('👤 Enviando notificaciones a usuario registrado');
+        await paymentController.sendPaymentNotifications(payment, user);
+        console.log('✅ Notificaciones enviadas a usuario registrado');
+        
+      } else {
+        // ✅ Usuario invitado - log de información para notificación manual
+        console.log('🎫 Preparando notificación para usuario invitado');
+        
+        const guestEmail = metadata.customerEmail || payment.anonymousClientInfo?.email;
+        const guestName = metadata.customerName || payment.anonymousClientInfo?.name || 'Cliente';
+        
+        if (guestEmail) {
+          console.log('📧 Datos para notificación de invitado:', {
+            to: guestEmail,
+            name: guestName,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            orderId: metadata.orderId,
+            paymentId: payment.id
+          });
+          
+          // ✅ Aquí se puede integrar con servicio de email real
+          // Por ejemplo: await emailService.sendGuestPurchaseConfirmation(...)
+          
+        } else {
+          console.log('ℹ️ No se encontró email para notificar a usuario invitado');
         }
-        break;
+      }
+      
+    } catch (notificationError) {
+      console.warn('⚠️ Error al enviar notificaciones (no crítico):', notificationError.message);
     }
   }
 
@@ -443,7 +552,6 @@ class StripeController {
       }
 
       console.log('Procesando pago exitoso desde webhook:', paymentIntent.id);
-      // Aquí podrías procesar el pago si no se hizo en confirmPayment
     } catch (error) {
       console.error('Error al manejar pago exitoso:', error);
     }
@@ -454,7 +562,6 @@ class StripeController {
     try {
       console.log('Pago fallido:', paymentIntent.id);
       
-      // Buscar pago en BD y actualizar estado
       const payment = await Payment.findOne({
         where: { cardTransactionId: paymentIntent.id }
       });
@@ -491,7 +598,6 @@ class StripeController {
     try {
       const { paymentId, amount, reason } = req.body;
 
-      // ✅ Buscar el pago
       const payment = await Payment.findByPk(paymentId);
       if (!payment) {
         return res.status(404).json({
@@ -507,7 +613,6 @@ class StripeController {
         });
       }
 
-      // ✅ Crear reembolso en Stripe
       const result = await stripeService.createRefund(
         payment.cardTransactionId, 
         amount, 
@@ -522,7 +627,6 @@ class StripeController {
         });
       }
 
-      // ✅ Actualizar estado del pago
       payment.status = 'refunded';
       payment.notes = payment.notes 
         ? `${payment.notes}\n\nReembolso: ${result.refundId}`
