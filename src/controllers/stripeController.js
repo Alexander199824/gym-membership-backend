@@ -334,7 +334,7 @@ class StripeController {
     }
   }
 
-  // ✅ CORREGIDO: Procesar pago según su tipo (ahora como método de clase)
+  // ✅ CORREGIDO: Procesar pago según su tipo (DENTRO de la clase)
   async processPaymentByType(paymentData, metadata, user) {
     switch (metadata.type) {
       case 'membership':
