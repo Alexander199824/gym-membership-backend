@@ -1,5 +1,4 @@
-// ===== StoreOrder.js - CORREGIDO =====
-// src/models/StoreOrder.js
+// src/models/StoreOrder.js - CORREGIDO con métodos estáticos
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -119,6 +118,103 @@ const StoreOrder = sequelize.define('StoreOrder', {
     { fields: ['createdAt'] }
   ]
 });
+
+// ✅ MÉTODO ESTÁTICO AGREGADO: Generar número de orden
+StoreOrder.generateOrderNumber = function() {
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const month = (now.getMonth() + 1).toString().padStart(2, '0');
+  const day = now.getDate().toString().padStart(2, '0');
+  const timestamp = now.getTime().toString().slice(-6); // Últimos 6 dígitos del timestamp
+  
+  return `ORD-${year}${month}${day}-${timestamp}`;
+};
+
+// ✅ MÉTODO ESTÁTICO: Obtener reporte de ventas
+StoreOrder.getSalesReport = async function(startDate, endDate) {
+  try {
+    const salesData = await this.findAll({
+      attributes: [
+        [this.sequelize.fn('DATE', this.sequelize.col('createdAt')), 'date'],
+        [this.sequelize.fn('COUNT', this.sequelize.col('id')), 'orders'],
+        [this.sequelize.fn('SUM', this.sequelize.col('totalAmount')), 'revenue']
+      ],
+      where: {
+        createdAt: {
+          [this.sequelize.Sequelize.Op.between]: [startDate, endDate]
+        },
+        status: {
+          [this.sequelize.Sequelize.Op.in]: ['delivered', 'confirmed']
+        }
+      },
+      group: [this.sequelize.fn('DATE', this.sequelize.col('createdAt'))],
+      order: [[this.sequelize.fn('DATE', this.sequelize.col('createdAt')), 'ASC']]
+    });
+
+    return salesData;
+  } catch (error) {
+    console.error('❌ Error en getSalesReport:', error);
+    return [];
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Obtener órdenes pendientes
+StoreOrder.getPendingOrders = async function() {
+  try {
+    return await this.findAll({
+      where: {
+        status: {
+          [this.sequelize.Sequelize.Op.in]: ['pending', 'confirmed', 'preparing']
+        }
+      },
+      include: [
+        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { association: 'items' }
+      ],
+      order: [['createdAt', 'ASC']]
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo órdenes pendientes:', error);
+    return [];
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Estadísticas de órdenes
+StoreOrder.getOrderStats = async function(days = 30) {
+  try {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    const stats = await this.findOne({
+      attributes: [
+        [this.sequelize.fn('COUNT', this.sequelize.col('id')), 'totalOrders'],
+        [this.sequelize.fn('SUM', this.sequelize.col('totalAmount')), 'totalRevenue'],
+        [this.sequelize.fn('AVG', this.sequelize.col('totalAmount')), 'averageOrderValue']
+      ],
+      where: {
+        createdAt: {
+          [this.sequelize.Sequelize.Op.gte]: startDate
+        },
+        status: {
+          [this.sequelize.Sequelize.Op.ne]: 'cancelled'
+        }
+      }
+    });
+
+    return {
+      totalOrders: parseInt(stats?.dataValues?.totalOrders || 0),
+      totalRevenue: parseFloat(stats?.dataValues?.totalRevenue || 0),
+      averageOrderValue: parseFloat(stats?.dataValues?.averageOrderValue || 0)
+    };
+  } catch (error) {
+    console.error('❌ Error obteniendo estadísticas de órdenes:', error);
+    return {
+      totalOrders: 0,
+      totalRevenue: 0,
+      averageOrderValue: 0
+    };
+  }
+};
 
 // ✅ AGREGAR ASOCIACIONES
 StoreOrder.associate = function(models) {

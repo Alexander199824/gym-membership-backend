@@ -1,4 +1,4 @@
-// src/controllers/storeController.js - CORREGIDO
+// src/controllers/storeController.js - CORREGIDO imports y métodos
 const { 
   StoreCategory, 
   StoreBrand, 
@@ -8,8 +8,7 @@ const {
   StoreOrder,
   StoreOrderItem,
   User,
-  FinancialMovements,
-  getFeaturedProducts
+  FinancialMovements
 } = require('../models');
 const { Op } = require('sequelize');
 
@@ -105,11 +104,14 @@ class StoreController {
     }
   }
 
-  // Obtener productos destacados
+  // ✅ CORREGIDO: Productos destacados
   async getFeaturedProducts(req, res) {
     try {
       const { limit = 8 } = req.query;
+      
+      console.log('🌟 Obteniendo productos destacados...');
 
+      // ✅ USAR método estático del modelo correctamente
       const products = await StoreProduct.getFeaturedProducts(parseInt(limit));
 
       const productsWithInfo = products.map(product => ({
@@ -117,6 +119,8 @@ class StoreController {
         discountPercentage: product.getDiscountPercentage(),
         inStock: product.isInStock()
       }));
+
+      console.log(`✅ ${productsWithInfo.length} productos destacados obtenidos`);
 
       res.json({
         success: true,
@@ -228,18 +232,26 @@ class StoreController {
 
   // ✅ === CARRITO CORREGIDO ===
 
-  // Obtener carrito del usuario
+  // ✅ CORREGIDO: Obtener carrito - Usando métodos estáticos
   async getCart(req, res) {
     try {
       const { sessionId } = req.query;
       let cartItems;
 
+      console.log('🛒 Obteniendo carrito...', {
+        hasUser: !!req.user,
+        userId: req.user?.id,
+        sessionId: sessionId
+      });
+
       if (req.user) {
-        // ✅ Usuario logueado
+        // ✅ Usuario logueado - usar método estático
         cartItems = await StoreCart.getCartByUser(req.user.id);
+        console.log('✅ Carrito obtenido para usuario logueado');
       } else if (sessionId) {
-        // ✅ Usuario invitado
+        // ✅ Usuario invitado - usar método estático
         cartItems = await StoreCart.getCartBySession(sessionId);
+        console.log('✅ Carrito obtenido para invitado');
       } else {
         return res.status(400).json({
           success: false,
@@ -255,6 +267,8 @@ class StoreController {
       const taxAmount = subtotal * 0.12; // 12% IVA
       const shippingAmount = subtotal >= 300 ? 0 : 25; // Envío gratis por compras mayores a Q300
       const totalAmount = subtotal + taxAmount + shippingAmount;
+
+      console.log(`📊 Resumen del carrito: ${cartItems.length} items, total: Q${totalAmount.toFixed(2)}`);
 
       res.json({
         success: true,
@@ -284,6 +298,14 @@ class StoreController {
     try {
       const { productId, quantity = 1, selectedVariants, sessionId } = req.body;
 
+      console.log('🛒 Agregando al carrito:', {
+        productId,
+        quantity,
+        hasUser: !!req.user,
+        userId: req.user?.id,
+        sessionId
+      });
+
       // ✅ Verificar que el producto existe y está disponible
       const product = await StoreProduct.findByPk(productId);
       if (!product) {
@@ -307,10 +329,12 @@ class StoreController {
         // Usuario logueado
         cartData.userId = req.user.id;
         cartData.sessionId = null;
+        console.log('👤 Agregando para usuario logueado');
       } else if (sessionId) {
         // Usuario invitado
         cartData.userId = null;
         cartData.sessionId = sessionId;
+        console.log('🎫 Agregando para usuario invitado');
       } else {
         return res.status(400).json({
           success: false,
@@ -325,6 +349,7 @@ class StoreController {
         // ✅ Actualizar cantidad
         existingCartItem.quantity += parseInt(quantity);
         await existingCartItem.save();
+        console.log('✅ Cantidad actualizada en item existente');
       } else {
         // ✅ Crear nuevo item
         await StoreCart.create({
@@ -333,6 +358,7 @@ class StoreController {
           selectedVariants,
           unitPrice: product.price
         });
+        console.log('✅ Nuevo item agregado al carrito');
       }
 
       res.json({
@@ -457,7 +483,7 @@ class StoreController {
 
   // ✅ === ÓRDENES ===
 
-  // Crear orden (checkout)
+  // ✅ CORREGIDO: Crear orden (checkout) - con métodos estáticos
   async createOrder(req, res) {
     try {
       const {
@@ -469,12 +495,21 @@ class StoreController {
         notes
       } = req.body;
 
-      // ✅ Obtener items del carrito
+      console.log('📦 Creando orden...', {
+        hasUser: !!req.user,
+        userId: req.user?.id,
+        sessionId,
+        paymentMethod
+      });
+
+      // ✅ Obtener items del carrito usando métodos estáticos corregidos
       let cartItems;
       if (req.user) {
         cartItems = await StoreCart.getCartByUser(req.user.id);
+        console.log('✅ Items obtenidos para usuario logueado');
       } else if (sessionId) {
         cartItems = await StoreCart.getCartBySession(sessionId);
+        console.log('✅ Items obtenidos para usuario invitado');
       } else {
         return res.status(400).json({
           success: false,
@@ -488,6 +523,8 @@ class StoreController {
           message: 'El carrito está vacío'
         });
       }
+
+      console.log(`📋 Procesando ${cartItems.length} items del carrito`);
 
       // ✅ Verificar stock de todos los productos
       for (const item of cartItems) {
@@ -504,6 +541,13 @@ class StoreController {
       const taxAmount = subtotal * 0.12;
       const shippingAmount = subtotal >= 300 ? 0 : 25;
       const totalAmount = subtotal + taxAmount + shippingAmount;
+
+      console.log('💰 Totales calculados:', {
+        subtotal: subtotal.toFixed(2),
+        taxAmount: taxAmount.toFixed(2),
+        shippingAmount: shippingAmount.toFixed(2),
+        totalAmount: totalAmount.toFixed(2)
+      });
 
       // ✅ Crear la orden
       const orderData = {
@@ -522,6 +566,7 @@ class StoreController {
       };
 
       const order = await StoreOrder.create(orderData);
+      console.log('✅ Orden creada:', order.id);
 
       // ✅ Crear items de la orden
       for (const cartItem of cartItems) {
@@ -541,11 +586,15 @@ class StoreController {
         await cartItem.product.save();
       }
 
-      // ✅ Limpiar carrito
+      console.log('✅ Items de orden creados y stock actualizado');
+
+      // ✅ Limpiar carrito usando método estático corregido
       if (req.user) {
         await StoreCart.clearCart(req.user.id);
+        console.log('✅ Carrito de usuario limpiado');
       } else {
         await StoreCart.clearCart(null, sessionId);
+        console.log('✅ Carrito de invitado limpiado');
       }
 
       // ✅ Crear movimiento financiero si es pago completado
@@ -561,6 +610,7 @@ class StoreController {
             referenceType: 'store_order',
             registeredBy: req.user?.id || null
           });
+          console.log('✅ Movimiento financiero creado');
         } catch (financialError) {
           console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
         }
@@ -576,6 +626,8 @@ class StoreController {
           }
         ]
       });
+
+      console.log('🎉 Orden completada exitosamente:', order.orderNumber);
 
       res.status(201).json({
         success: true,
@@ -852,118 +904,6 @@ class StoreController {
     }
   }
 
-  // ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend  
-
-async getFeaturedProducts(req, res) {
-  try {
-    const limit = parseInt(req.query.limit) || 8;
-    const products = await StoreProduct.getFeaturedProducts(limit);
-    
-    // ✅ Formatear productos según especificación del frontend
-    const formattedProducts = products.map(product => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: parseFloat(product.price),
-      originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
-      images: product.images && product.images.length > 0 ? 
-        product.images.map(img => ({
-          url: img.imageUrl || "", // Usar URL de BD (vacía por defecto)
-          alt: img.altText || product.name,
-          isPrimary: img.isPrimary,
-          cloudinaryPublicId: img.imageUrl ? img.imageUrl.split('/').pop().split('.')[0] : ""
-        })) : [{
-          url: "", // Vacío por defecto
-          alt: product.name,
-          isPrimary: true,
-          cloudinaryPublicId: ""
-        }],
-      category: product.category ? product.category.slug : 'otros',
-      brand: product.brand ? product.brand.name : null,
-      rating: parseFloat(product.rating) || 0,
-      reviews: product.reviewsCount || 0,
-      features: [], // Se puede expandir después
-      inStock: product.isInStock(),
-      stock: product.stockQuantity,
-      badge: product.isFeatured ? 'Más Vendido' : null,
-      variants: {
-        flavors: [], // Se puede expandir después
-        sizes: []    // Se puede expandir después
-      },
-      featured: product.isFeatured,
-      discountPercentage: product.getDiscountPercentage()
-    }));
-    
-    res.json({
-      success: true,
-      data: formattedProducts
-    });
-  } catch (error) {
-    console.error('Error al obtener productos destacados:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener productos destacados',
-      error: error.message
-    });
-  }
-}
-
-
-
-// ✅ NUEVO: Endpoint específico para productos destacados en formato del frontend
-async getFeaturedProducts(req, res) {
-  try {
-    const limit = parseInt(req.query.limit) || 8;
-    const products = await StoreProduct.getFeaturedProducts(limit);
-    
-    // ✅ Formatear productos según especificación del frontend
-    const formattedProducts = products.map(product => ({
-      id: product.id,
-      name: product.name,
-      description: product.description,
-      price: parseFloat(product.price),
-      originalPrice: product.originalPrice ? parseFloat(product.originalPrice) : null,
-      images: product.images && product.images.length > 0 ? 
-        product.images.map(img => ({
-          url: img.imageUrl || `https://res.cloudinary.com/demo/image/upload/c_fill,w_800,h_800/v1234567890/products/product-${product.id}-${img.id}.jpg`,
-          alt: img.altText || product.name,
-          isPrimary: img.isPrimary,
-          cloudinaryPublicId: img.imageUrl ? img.imageUrl.split('/').pop().split('.')[0] : `product-${product.id}-${img.id}`
-        })) : [{
-          url: `https://res.cloudinary.com/demo/image/upload/c_fill,w_800,h_800/v1234567890/products/product-${product.id}-default.jpg`,
-          alt: product.name,
-          isPrimary: true,
-          cloudinaryPublicId: `product-${product.id}-default`
-        }],
-      category: product.category ? product.category.slug : 'otros',
-      brand: product.brand ? product.brand.name : null,
-      rating: parseFloat(product.rating) || 0,
-      reviews: product.reviewsCount || 0,
-      features: [], // Se puede expandir después
-      inStock: product.isInStock(),
-      stock: product.stockQuantity,
-      badge: product.isFeatured ? 'Más Vendido' : null,
-      variants: {
-        flavors: [], // Se puede expandir después
-        sizes: []    // Se puede expandir después
-      },
-      featured: product.isFeatured,
-      discountPercentage: product.getDiscountPercentage()
-    }));
-    
-    res.json({
-      success: true,
-      data: formattedProducts
-    });
-  } catch (error) {
-    console.error('Error al obtener productos destacados:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener productos destacados',
-      error: error.message
-    });
-  }
-}
   // Dashboard de tienda
   async getStoreDashboard(req, res) {
     try {
@@ -1062,7 +1002,5 @@ async getFeaturedProducts(req, res) {
     }
   }
 }
-
-
 
 module.exports = new StoreController();

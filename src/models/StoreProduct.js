@@ -1,4 +1,4 @@
-// src/models/StoreProduct.js - CORREGIDO sin dependencias circulares
+// src/models/StoreProduct.js - CORREGIDO con todos los métodos estáticos
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -148,57 +148,7 @@ const StoreProduct = sequelize.define('StoreProduct', {
   ]
 });
 
-// ✅ CORREGIDO: DEFINIR ASOCIACIONES CORRECTAMENTE
-StoreProduct.associate = function(models) {
-  console.log('🔗 Configurando asociaciones para StoreProduct...');
-  
-  // ✅ Relación con categoria
-  if (models.StoreCategory) {
-    StoreProduct.belongsTo(models.StoreCategory, {
-      foreignKey: 'categoryId',
-      as: 'category'
-    });
-    console.log('   ✅ StoreProduct -> StoreCategory (category)');
-  }
-  
-  // ✅ Relación con marca
-  if (models.StoreBrand) {
-    StoreProduct.belongsTo(models.StoreBrand, {
-      foreignKey: 'brandId',
-      as: 'brand'
-    });
-    console.log('   ✅ StoreProduct -> StoreBrand (brand)');
-  }
-  
-  // ✅ Relación con imágenes
-  if (models.StoreProductImage) {
-    StoreProduct.hasMany(models.StoreProductImage, {
-      foreignKey: 'productId',
-      as: 'images'
-    });
-    console.log('   ✅ StoreProduct -> StoreProductImage (images)');
-  }
-  
-  // ✅ Relación con items del carrito
-  if (models.StoreCart) {
-    StoreProduct.hasMany(models.StoreCart, {
-      foreignKey: 'productId',
-      as: 'cartItems'
-    });
-    console.log('   ✅ StoreProduct -> StoreCart (cartItems)');
-  }
-  
-  // ✅ Relación con items de órdenes
-  if (models.StoreOrderItem) {
-    StoreProduct.hasMany(models.StoreOrderItem, {
-      foreignKey: 'productId',
-      as: 'orderItems'
-    });
-    console.log('   ✅ StoreProduct -> StoreOrderItem (orderItems)');
-  }
-};
-
-// ✅ Métodos de instancia
+// ✅ MÉTODOS DE INSTANCIA
 StoreProduct.prototype.getDiscountPercentage = function() {
   if (this.originalPrice && this.originalPrice > this.price) {
     return Math.round(((this.originalPrice - this.price) / this.originalPrice) * 100);
@@ -214,7 +164,139 @@ StoreProduct.prototype.isLowStock = function() {
   return this.stockQuantity <= this.minStock;
 };
 
-// ✅ CORREGIDO: Método sin dependencias circulares
+// ✅ MÉTODO ESTÁTICO PRINCIPAL: Obtener productos destacados
+StoreProduct.getFeaturedProducts = async function(limit = 8) {
+  try {
+    console.log('🌟 Obteniendo productos destacados...');
+    
+    const products = await this.findAll({
+      where: { 
+        isFeatured: true, 
+        isActive: true,
+        stockQuantity: { [this.sequelize.Sequelize.Op.gt]: 0 }
+      },
+      include: [
+        { 
+          association: 'category', 
+          attributes: ['id', 'name', 'slug'] 
+        },
+        { 
+          association: 'brand', 
+          attributes: ['id', 'name'] 
+        },
+        { 
+          association: 'images',
+          where: { isPrimary: true },
+          required: false,
+          limit: 1
+        }
+      ],
+      limit: parseInt(limit),
+      order: [['rating', 'DESC'], ['reviewsCount', 'DESC'], ['createdAt', 'DESC']]
+    });
+    
+    console.log(`✅ ${products.length} productos destacados obtenidos`);
+    return products;
+    
+  } catch (error) {
+    console.error('❌ Error en getFeaturedProducts:', error.message);
+    return [];
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Obtener productos por categoría
+StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
+  try {
+    const result = await this.findAndCountAll({
+      where: { 
+        categoryId, 
+        isActive: true,
+        stockQuantity: { [this.sequelize.Sequelize.Op.gt]: 0 }
+      },
+      include: [
+        { association: 'category', attributes: ['id', 'name', 'slug'] },
+        { association: 'brand', attributes: ['id', 'name'] },
+        { 
+          association: 'images',
+          where: { isPrimary: true },
+          required: false,
+          limit: 1
+        }
+      ],
+      limit,
+      offset,
+      order: [['name', 'ASC']]
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error en getProductsByCategory:', error.message);
+    return { rows: [], count: 0 };
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Buscar productos
+StoreProduct.searchProducts = async function(searchTerm, limit = 20) {
+  try {
+    if (!searchTerm || searchTerm.trim().length < 2) {
+      return [];
+    }
+
+    const products = await this.findAll({
+      where: {
+        isActive: true,
+        stockQuantity: { [this.sequelize.Sequelize.Op.gt]: 0 },
+        [this.sequelize.Sequelize.Op.or]: [
+          { name: { [this.sequelize.Sequelize.Op.iLike]: `%${searchTerm}%` } },
+          { description: { [this.sequelize.Sequelize.Op.iLike]: `%${searchTerm}%` } },
+          { sku: { [this.sequelize.Sequelize.Op.iLike]: `%${searchTerm}%` } }
+        ]
+      },
+      include: [
+        { association: 'category', attributes: ['id', 'name', 'slug'] },
+        { association: 'brand', attributes: ['id', 'name'] }
+      ],
+      limit,
+      order: [
+        // Priorizar productos destacados en búsquedas
+        ['isFeatured', 'DESC'],
+        ['rating', 'DESC'],
+        ['name', 'ASC']
+      ]
+    });
+
+    return products;
+  } catch (error) {
+    console.error('❌ Error en searchProducts:', error.message);
+    return [];
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Obtener productos con poco stock
+StoreProduct.getLowStockProducts = async function() {
+  try {
+    const products = await this.findAll({
+      where: {
+        isActive: true,
+        stockQuantity: { 
+          [this.sequelize.Sequelize.Op.lte]: this.sequelize.col('min_stock')
+        }
+      },
+      include: [
+        { association: 'category', attributes: ['id', 'name'] },
+        { association: 'brand', attributes: ['id', 'name'] }
+      ],
+      order: [['stockQuantity', 'ASC']]
+    });
+
+    return products;
+  } catch (error) {
+    console.error('❌ Error en getLowStockProducts:', error.message);
+    return [];
+  }
+};
+
+// ✅ MÉTODO ESTÁTICO: Crear productos de ejemplo
 StoreProduct.seedSampleProducts = async function(StoreCategory, StoreBrand) {
   try {
     console.log('🌱 Iniciando seed de productos de ejemplo...');
@@ -400,46 +482,53 @@ StoreProduct.seedSampleProducts = async function(StoreCategory, StoreBrand) {
   }
 };
 
-// ✅ Otros métodos existentes (sin cambios)
-StoreProduct.getFeaturedProducts = async function(limit = 8) {
-  try {
-    console.log('🔍 Buscando productos destacados...');
-    
-    const products = await this.findAll({
-      where: { 
-        isFeatured: true, 
-        isActive: true,
-        stockQuantity: { [sequelize.Sequelize.Op.gt]: 0 }
-      },
-      limit,
-      order: [['rating', 'DESC'], ['reviewsCount', 'DESC']]
+// ✅ DEFINIR ASOCIACIONES CORRECTAMENTE
+StoreProduct.associate = function(models) {
+  console.log('🔗 Configurando asociaciones para StoreProduct...');
+  
+  // ✅ Relación con categoria
+  if (models.StoreCategory) {
+    StoreProduct.belongsTo(models.StoreCategory, {
+      foreignKey: 'categoryId',
+      as: 'category'
     });
-    
-    console.log(`✅ Encontrados ${products.length} productos destacados`);
-    return products;
-    
-  } catch (error) {
-    console.error('❌ Error en getFeaturedProducts:', error.message);
-    return [];
+    console.log('   ✅ StoreProduct -> StoreCategory (category)');
   }
-};
-
-StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
-  try {
-    const result = await this.findAndCountAll({
-      where: { 
-        categoryId, 
-        isActive: true 
-      },
-      limit,
-      offset,
-      order: [['name', 'ASC']]
+  
+  // ✅ Relación con marca
+  if (models.StoreBrand) {
+    StoreProduct.belongsTo(models.StoreBrand, {
+      foreignKey: 'brandId',
+      as: 'brand'
     });
-    
-    return result;
-  } catch (error) {
-    console.error('❌ Error en getProductsByCategory:', error.message);
-    return { rows: [], count: 0 };
+    console.log('   ✅ StoreProduct -> StoreBrand (brand)');
+  }
+  
+  // ✅ Relación con imágenes
+  if (models.StoreProductImage) {
+    StoreProduct.hasMany(models.StoreProductImage, {
+      foreignKey: 'productId',
+      as: 'images'
+    });
+    console.log('   ✅ StoreProduct -> StoreProductImage (images)');
+  }
+  
+  // ✅ Relación con items del carrito
+  if (models.StoreCart) {
+    StoreProduct.hasMany(models.StoreCart, {
+      foreignKey: 'productId',
+      as: 'cartItems'
+    });
+    console.log('   ✅ StoreProduct -> StoreCart (cartItems)');
+  }
+  
+  // ✅ Relación con items de órdenes
+  if (models.StoreOrderItem) {
+    StoreProduct.hasMany(models.StoreOrderItem, {
+      foreignKey: 'productId',
+      as: 'orderItems'
+    });
+    console.log('   ✅ StoreProduct -> StoreOrderItem (orderItems)');
   }
 };
 
