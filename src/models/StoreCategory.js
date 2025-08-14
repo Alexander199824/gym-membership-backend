@@ -1,5 +1,4 @@
-// ===== StoreCategory.js - CORREGIDO =====
-// src/models/StoreCategory.js
+// src/models/StoreCategory.js - CORREGIDO con las categorías que necesitan los productos
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -49,6 +48,68 @@ const StoreCategory = sequelize.define('StoreCategory', {
     { fields: ['display_order'] }
   ]
 });
+
+// ✅ CORREGIDO: Crear las categorías que necesitan los productos
+StoreCategory.seedDefaultCategories = async function() {
+  const defaultCategories = [
+    {
+      name: 'Suplementos',
+      slug: 'suplementos',
+      description: 'Proteínas, aminoácidos, vitaminas y suplementos deportivos',
+      iconName: 'pill',
+      displayOrder: 1
+    },
+    {
+      name: 'Ropa Deportiva',
+      slug: 'ropa-deportiva',
+      description: 'Playeras, shorts, leggins y ropa para entrenar',
+      iconName: 'shirt',
+      displayOrder: 2
+    },
+    {
+      name: 'Accesorios',
+      slug: 'accesorios',
+      description: 'Guantes, correas, shakers y accesorios de entrenamiento',
+      iconName: 'dumbbell',
+      displayOrder: 3
+    },
+    {
+      name: 'Equipamiento',
+      slug: 'equipamiento',
+      description: 'Pesas, bandas elásticas y equipo para el hogar',
+      iconName: 'weight',
+      displayOrder: 4
+    },
+    {
+      name: 'Nutrición',
+      slug: 'nutricion',
+      description: 'Barras energéticas, snacks saludables y bebidas',
+      iconName: 'apple',
+      displayOrder: 5
+    }
+  ];
+
+  console.log('🗂️ Creando categorías de tienda...');
+  
+  for (const category of defaultCategories) {
+    try {
+      const [created, wasCreated] = await this.findOrCreate({
+        where: { slug: category.slug },
+        defaults: category
+      });
+      
+      if (wasCreated) {
+        console.log(`   ✅ Categoría creada: ${category.name}`);
+      } else {
+        console.log(`   ℹ️ Categoría ya existe: ${category.name}`);
+      }
+    } catch (error) {
+      console.error(`   ❌ Error creando categoría ${category.name}:`, error.message);
+    }
+  }
+  
+  console.log('✅ Categorías de tienda procesadas');
+};
 
 // ✅ AGREGAR ASOCIACIONES
 StoreCategory.associate = function(models) {

@@ -172,60 +172,166 @@ class Server {
     }
   }
 
-  async initializeGymData() {
-    try {
-      console.log('🏢 Verificando configuración del gimnasio...');
-      
-      const { 
-        GymConfiguration,
-        GymContactInfo, 
-        GymHours,
-        GymStatistics,
-        GymServices,
-        MembershipPlans,
-        StoreCategory,
-        StoreBrand
-      } = require('./models');
+  // ✅ FUNCIÓN CORREGIDA para server.js - initializeGymData
+async initializeGymData() {
+  try {
+    console.log('🏢 Verificando configuración del gimnasio...');
+    
+    const models = require('./models');
+    
+    // ✅ Verificar modelos disponibles
+    const requiredModels = [
+      'GymConfiguration', 'GymContactInfo', 'GymHours', 'GymStatistics',
+      'GymServices', 'MembershipPlans', 'StoreCategory', 'StoreBrand'
+    ];
+    
+    const availableModels = requiredModels.filter(model => models[model]);
+    const missingModels = requiredModels.filter(model => !models[model]);
+    
+    console.log(`📦 Modelos disponibles: ${availableModels.length}/${requiredModels.length}`);
+    
+    if (missingModels.length > 0) {
+      console.warn(`⚠️ Modelos faltantes: ${missingModels.join(', ')}`);
+    }
 
-      // ✅ Verificar si el sistema ya está configurado
-      const config = await GymConfiguration.findOne();
-      
-      if (!config) {
-        console.log('🔄 Primera instalación detectada, inicializando datos del gimnasio...');
-        
-        await Promise.all([
-          GymConfiguration.getConfig(),
-          GymContactInfo.getContactInfo(),
-          GymHours.getWeeklySchedule(),
-          GymStatistics.seedDefaultStats(),
-          GymServices.seedDefaultServices(),
-          MembershipPlans.seedDefaultPlans()
-        ]);
-        
-        console.log('   ✅ Configuración básica del gimnasio inicializada');
-      } else {
-        console.log('   ✅ Configuración del gimnasio ya existe');
+    // ✅ PASO 1: Configuración básica del gimnasio
+    console.log('🔧 Inicializando configuración básica...');
+    
+    if (models.GymConfiguration) {
+      try {
+        const config = await models.GymConfiguration.findOne();
+        if (!config) {
+          console.log('   🆕 Primera instalación detectada');
+          await models.GymConfiguration.getConfig();
+          console.log('   ✅ GymConfiguration inicializada');
+        } else {
+          console.log('   ✅ GymConfiguration ya existe');
+        }
+      } catch (error) {
+        console.warn('   ⚠️ Error en GymConfiguration:', error.message);
       }
+    }
 
-      // ✅ Verificar datos de tienda
-      const categoryCount = await StoreCategory.count();
-      if (categoryCount === 0) {
-        console.log('🛍️ Inicializando datos de tienda...');
+    // ✅ PASO 2: Otros datos del gimnasio
+    const gymDataPromises = [];
+    
+    if (models.GymContactInfo) {
+      gymDataPromises.push(
+        models.GymContactInfo.getContactInfo()
+          .then(() => console.log('   ✅ GymContactInfo verificada'))
+          .catch(e => console.warn('   ⚠️ Error en GymContactInfo:', e.message))
+      );
+    }
+    
+    if (models.GymHours) {
+      gymDataPromises.push(
+        models.GymHours.getWeeklySchedule()
+          .then(() => console.log('   ✅ GymHours verificados'))
+          .catch(e => console.warn('   ⚠️ Error en GymHours:', e.message))
+      );
+    }
+    
+    if (models.GymStatistics && models.GymStatistics.seedDefaultStats) {
+      gymDataPromises.push(
+        models.GymStatistics.seedDefaultStats()
+          .then(() => console.log('   ✅ GymStatistics verificadas'))
+          .catch(e => console.warn('   ⚠️ Error en GymStatistics:', e.message))
+      );
+    }
+    
+    if (models.GymServices && models.GymServices.seedDefaultServices) {
+      gymDataPromises.push(
+        models.GymServices.seedDefaultServices()
+          .then(() => console.log('   ✅ GymServices verificados'))
+          .catch(e => console.warn('   ⚠️ Error en GymServices:', e.message))
+      );
+    }
+    
+    if (models.MembershipPlans && models.MembershipPlans.seedDefaultPlans) {
+      gymDataPromises.push(
+        models.MembershipPlans.seedDefaultPlans()
+          .then(() => console.log('   ✅ MembershipPlans verificados'))
+          .catch(e => console.warn('   ⚠️ Error en MembershipPlans:', e.message))
+      );
+    }
+
+    // ✅ Ejecutar en paralelo (sin esperar que fallen)
+    if (gymDataPromises.length > 0) {
+      await Promise.allSettled(gymDataPromises);
+    }
+
+    // ✅ PASO 3: Datos de tienda (EN ORDEN SECUENCIAL)
+    console.log('🛍️ Verificando datos de tienda...');
+    
+    // 3.1: Verificar y crear categorías PRIMERO
+    if (models.StoreCategory) {
+      try {
+        const categoryCount = await models.StoreCategory.count();
+        if (categoryCount === 0) {
+          console.log('   🗂️ Creando categorías de tienda...');
+          if (models.StoreCategory.seedDefaultCategories) {
+            await models.StoreCategory.seedDefaultCategories();
+            console.log('   ✅ Categorías de tienda creadas');
+          }
+        } else {
+          console.log(`   ✅ Categorías ya existen (${categoryCount})`);
+        }
+      } catch (error) {
+        console.warn('   ⚠️ Error con categorías:', error.message);
+      }
+    }
+
+    // 3.2: Verificar y crear marcas SEGUNDO
+    if (models.StoreBrand) {
+      try {
+        const brandCount = await models.StoreBrand.count();
+        if (brandCount === 0) {
+          console.log('   🏷️ Creando marcas de tienda...');
+          if (models.StoreBrand.seedDefaultBrands) {
+            await models.StoreBrand.seedDefaultBrands();
+            console.log('   ✅ Marcas de tienda creadas');
+          }
+        } else {
+          console.log(`   ✅ Marcas ya existen (${brandCount})`);
+        }
+      } catch (error) {
+        console.warn('   ⚠️ Error con marcas:', error.message);
+      }
+    }
+
+    // ✅ PASO 4: Mostrar estadísticas
+    console.log('📊 Estado actual de la tienda:');
+    
+    try {
+      if (models.StoreCategory) {
+        const catCount = await models.StoreCategory.count();
+        console.log(`   🗂️ Categorías: ${catCount}`);
+      }
+      
+      if (models.StoreBrand) {
+        const brandCount = await models.StoreBrand.count();
+        console.log(`   🏷️ Marcas: ${brandCount}`);
+      }
+      
+      if (models.StoreProduct) {
+        const productCount = await models.StoreProduct.count();
+        console.log(`   📦 Productos: ${productCount}`);
         
-        await Promise.all([
-          StoreCategory.seedDefaultCategories(),
-          StoreBrand.seedDefaultBrands()
-        ]);
-        
-        console.log('   ✅ Datos básicos de tienda inicializados');
-      } else {
-        console.log('   ✅ Datos de tienda ya existen');
+        if (productCount === 0) {
+          console.log('   💡 Los productos se crearán en los seeds');
+        }
       }
       
     } catch (error) {
-      console.warn('⚠️ Error al verificar configuración del gimnasio (no crítico):', error.message);
+      console.warn('   ⚠️ Error obteniendo estadísticas:', error.message);
     }
+    
+    console.log('✅ Inicialización de datos del gimnasio completada');
+    
+  } catch (error) {
+    console.warn('⚠️ Error al verificar configuración del gimnasio (no crítico):', error.message);
   }
+}
 
   async runSeedsWithErrorHandling() {
     try {

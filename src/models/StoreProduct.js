@@ -1,4 +1,4 @@
-// src/models/StoreProduct.js - CORREGIDO con asociaciones
+// src/models/StoreProduct.js - CORREGIDO sin dependencias circulares
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -214,173 +214,16 @@ StoreProduct.prototype.isLowStock = function() {
   return this.stockQuantity <= this.minStock;
 };
 
-// ✅ CORREGIDO: Métodos estáticos SIN includes problemáticos
-StoreProduct.getFeaturedProducts = async function(limit = 8) {
-  try {
-    console.log('🔍 Buscando productos destacados...');
-    
-    // ✅ VERSIÓN SIMPLE SIN INCLUDES (para evitar errores de asociación)
-    const products = await this.findAll({
-      where: { 
-        isFeatured: true, 
-        isActive: true,
-        stockQuantity: { [sequelize.Sequelize.Op.gt]: 0 }
-      },
-      limit,
-      order: [['rating', 'DESC'], ['reviewsCount', 'DESC']]
-    });
-    
-    console.log(`✅ Encontrados ${products.length} productos destacados`);
-    return products;
-    
-  } catch (error) {
-    console.error('❌ Error en getFeaturedProducts:', error.message);
-    
-    // ✅ FALLBACK: Devolver productos básicos sin filtros complejos
-    try {
-      const basicProducts = await this.findAll({
-        where: { isActive: true },
-        limit,
-        order: [['id', 'DESC']]
-      });
-      console.log(`⚠️ Fallback: devolviendo ${basicProducts.length} productos básicos`);
-      return basicProducts;
-    } catch (fallbackError) {
-      console.error('❌ Error en fallback:', fallbackError.message);
-      return [];
-    }
-  }
-};
-
-// ✅ CORREGIDO: Método mejorado para productos por categoría
-StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
-  try {
-    console.log(`🔍 Buscando productos de categoría ${categoryId}...`);
-    
-    const result = await this.findAndCountAll({
-      where: { 
-        categoryId, 
-        isActive: true 
-      },
-      limit,
-      offset,
-      order: [['name', 'ASC']]
-    });
-    
-    console.log(`✅ Encontrados ${result.count} productos en categoría ${categoryId}`);
-    return result;
-    
-  } catch (error) {
-    console.error('❌ Error en getProductsByCategory:', error.message);
-    return { rows: [], count: 0 };
-  }
-};
-
-// ✅ CORREGIDO: Búsqueda de productos simplificada
-StoreProduct.searchProducts = async function(query, filters = {}) {
-  try {
-    console.log(`🔍 Buscando productos con query: "${query}"...`);
-    
-    const where = {
-      isActive: true,
-      [sequelize.Sequelize.Op.or]: [
-        { name: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } },
-        { description: { [sequelize.Sequelize.Op.iLike]: `%${query}%` } }
-      ]
-    };
-
-    if (filters.categoryId) where.categoryId = filters.categoryId;
-    if (filters.brandId) where.brandId = filters.brandId;
-    if (filters.minPrice) where.price = { [sequelize.Sequelize.Op.gte]: filters.minPrice };
-    if (filters.maxPrice) {
-      where.price = where.price || {};
-      where.price[sequelize.Sequelize.Op.lte] = filters.maxPrice;
-    }
-
-    const products = await this.findAll({
-      where,
-      order: [['rating', 'DESC'], ['name', 'ASC']]
-    });
-    
-    console.log(`✅ Búsqueda completada: ${products.length} productos encontrados`);
-    return products;
-    
-  } catch (error) {
-    console.error('❌ Error en searchProducts:', error.message);
-    return [];
-  }
-};
-
-// ✅ NUEVO: Método para obtener producto por ID con verificación de asociaciones
-StoreProduct.getProductWithDetails = async function(productId) {
-  try {
-    console.log(`🔍 Buscando producto ${productId} con detalles...`);
-    
-    // ✅ Primero obtener el producto básico
-    const product = await this.findByPk(productId);
-    
-    if (!product) {
-      console.log('❌ Producto no encontrado');
-      return null;
-    }
-    
-    // ✅ Intentar cargar relaciones si están disponibles
-    const db = require('./index');
-    
-    // Cargar categoría si existe
-    if (db.StoreCategory && product.categoryId) {
-      try {
-        const category = await db.StoreCategory.findByPk(product.categoryId);
-        product.dataValues.category = category;
-      } catch (error) {
-        console.warn('⚠️ No se pudo cargar categoría:', error.message);
-      }
-    }
-    
-    // Cargar marca si existe
-    if (db.StoreBrand && product.brandId) {
-      try {
-        const brand = await db.StoreBrand.findByPk(product.brandId);
-        product.dataValues.brand = brand;
-      } catch (error) {
-        console.warn('⚠️ No se pudo cargar marca:', error.message);
-      }
-    }
-    
-    // Cargar imágenes si existe
-    if (db.StoreProductImage) {
-      try {
-        const images = await db.StoreProductImage.findAll({
-          where: { productId: product.id },
-          order: [['displayOrder', 'ASC']]
-        });
-        product.dataValues.images = images;
-      } catch (error) {
-        console.warn('⚠️ No se pudieron cargar imágenes:', error.message);
-      }
-    }
-    
-    console.log('✅ Producto cargado con detalles');
-    return product;
-    
-  } catch (error) {
-    console.error('❌ Error en getProductWithDetails:', error.message);
-    return null;
-  }
-};
-
-// ✅ Crear productos de ejemplo - SIN dependencias problemáticas
-StoreProduct.seedSampleProducts = async function() {
+// ✅ CORREGIDO: Método sin dependencias circulares
+StoreProduct.seedSampleProducts = async function(StoreCategory, StoreBrand) {
   try {
     console.log('🌱 Iniciando seed de productos de ejemplo...');
     
-    // ✅ Buscar modelos relacionados con verificación
-    const db = require('./index');
-    
+    // ✅ PRODUCTOS CON DATOS CORREGIDOS
     const sampleProducts = [
       {
         name: 'Whey Protein Gold Standard',
-        description: 'Proteína de suero de alta calidad con aminoácidos esenciales',
+        description: 'Proteína de suero de alta calidad con aminoácidos esenciales para el crecimiento muscular',
         price: 299.99,
         originalPrice: 349.99,
         sku: 'WPG-001',
@@ -397,7 +240,7 @@ StoreProduct.seedSampleProducts = async function() {
       },
       {
         name: 'Playera Deportiva Dri-FIT',
-        description: 'Playera transpirable para entrenamientos intensos',
+        description: 'Playera transpirable para entrenamientos intensos, tecnología Dri-FIT',
         price: 89.99,
         originalPrice: 120.00,
         sku: 'PDM-002',
@@ -406,65 +249,197 @@ StoreProduct.seedSampleProducts = async function() {
         brandName: 'Nike',
         isFeatured: true,
         rating: 4.5,
-        reviewsCount: 89
+        reviewsCount: 89,
+        weight: 200
       },
       {
         name: 'Guantes de Entrenamiento',
-        description: 'Guantes acolchados para levantamiento de pesas',
+        description: 'Guantes acolchados para levantamiento de pesas con agarre antideslizante',
         price: 45.00,
         sku: 'GLE-003',
         stockQuantity: 25,
         categoryName: 'Accesorios',
         brandName: 'Under Armour',
         rating: 4.3,
-        reviewsCount: 67
+        reviewsCount: 67,
+        weight: 150
+      },
+      {
+        name: 'Creatina Monohidrato',
+        description: 'Creatina pura para aumento de fuerza y resistencia muscular',
+        price: 149.99,
+        originalPrice: 179.99,
+        sku: 'CRM-004',
+        stockQuantity: 40,
+        categoryName: 'Suplementos',
+        brandName: 'MuscleTech',
+        isFeatured: true,
+        rating: 4.7,
+        reviewsCount: 200,
+        weight: 500
+      },
+      {
+        name: 'Shaker Elite Fitness',
+        description: 'Shaker con mezclador de acero inoxidable, capacidad 600ml',
+        price: 35.00,
+        sku: 'SEF-005',
+        stockQuantity: 60,
+        categoryName: 'Accesorios',
+        brandName: 'Elite Fitness',
+        rating: 4.2,
+        reviewsCount: 45,
+        weight: 120
+      },
+      {
+        name: 'Short Deportivo HeatGear',
+        description: 'Short ligero y transpirable para entrenamientos de alta intensidad',
+        price: 65.00,
+        originalPrice: 85.00,
+        sku: 'SDH-006',
+        stockQuantity: 35,
+        categoryName: 'Ropa Deportiva',
+        brandName: 'Under Armour',
+        rating: 4.4,
+        reviewsCount: 78,
+        weight: 180
       }
     ];
 
+    console.log(`📦 Procesando ${sampleProducts.length} productos de ejemplo...`);
+
     for (const productData of sampleProducts) {
-      // ✅ Buscar categoría y marca de forma segura
-      let categoryId = 1; // Fallback
-      let brandId = null;
-      
-      if (db.StoreCategory) {
-        try {
-          const category = await db.StoreCategory.findOne({ 
+      try {
+        // ✅ Buscar categoría de forma segura
+        let categoryId = null;
+        if (StoreCategory) {
+          const category = await StoreCategory.findOne({ 
             where: { name: productData.categoryName } 
           });
-          if (category) categoryId = category.id;
-        } catch (error) {
-          console.warn('⚠️ No se pudo buscar categoría:', error.message);
+          if (category) {
+            categoryId = category.id;
+            console.log(`   🗂️ Categoría encontrada: ${productData.categoryName} (ID: ${categoryId})`);
+          } else {
+            console.warn(`   ⚠️ Categoría no encontrada: ${productData.categoryName}`);
+            continue; // Skip this product if category not found
+          }
+        } else {
+          console.warn('   ⚠️ Modelo StoreCategory no disponible');
+          continue;
         }
-      }
-      
-      if (db.StoreBrand) {
-        try {
-          const brand = await db.StoreBrand.findOne({ 
+        
+        // ✅ Buscar marca de forma segura
+        let brandId = null;
+        if (StoreBrand && productData.brandName) {
+          const brand = await StoreBrand.findOne({ 
             where: { name: productData.brandName } 
           });
-          if (brand) brandId = brand.id;
-        } catch (error) {
-          console.warn('⚠️ No se pudo buscar marca:', error.message);
+          if (brand) {
+            brandId = brand.id;
+            console.log(`   🏷️ Marca encontrada: ${productData.brandName} (ID: ${brandId})`);
+          } else {
+            console.warn(`   ⚠️ Marca no encontrada: ${productData.brandName}`);
+          }
         }
+        
+        if (!categoryId) {
+          console.warn(`   ❌ Saltando producto ${productData.sku} - sin categoría válida`);
+          continue;
+        }
+        
+        // ✅ Preparar datos del producto
+        const productDefaults = {
+          name: productData.name,
+          description: productData.description,
+          price: productData.price,
+          originalPrice: productData.originalPrice || null,
+          categoryId: categoryId,
+          brandId: brandId,
+          stockQuantity: productData.stockQuantity || 0,
+          minStock: 5,
+          isFeatured: productData.isFeatured || false,
+          isActive: true,
+          rating: productData.rating || 0,
+          reviewsCount: productData.reviewsCount || 0,
+          weight: productData.weight || null,
+          allowOnlinePayment: productData.allowOnlinePayment !== false,
+          allowCardPayment: productData.allowCardPayment !== false,
+          allowCashOnDelivery: productData.allowCashOnDelivery !== false,
+          deliveryTime: productData.deliveryTime || '1-2 días hábiles'
+        };
+        
+        // ✅ Crear producto
+        const [product, wasCreated] = await this.findOrCreate({
+          where: { sku: productData.sku },
+          defaults: productDefaults
+        });
+        
+        if (wasCreated) {
+          console.log(`   ✅ Producto creado: ${productData.name} (${productData.sku})`);
+        } else {
+          console.log(`   ℹ️ Producto ya existe: ${productData.name} (${productData.sku})`);
+        }
+        
+      } catch (error) {
+        console.error(`   ❌ Error procesando producto ${productData.sku}:`, error.message);
       }
-      
-      // ✅ Crear producto con datos seguros
-      await this.findOrCreate({
-        where: { sku: productData.sku },
-        defaults: {
-          ...productData,
-          categoryId,
-          brandId
-        }
-      });
-      
-      console.log(`✅ Producto ${productData.sku} procesado`);
     }
     
-    console.log('🌱 Seed de productos completado');
+    console.log('🌱 Seed de productos completado exitosamente');
+    
+    // ✅ Mostrar estadísticas finales
+    const totalProducts = await this.count();
+    const featuredProducts = await this.count({ where: { isFeatured: true } });
+    
+    console.log(`📊 Estadísticas de productos:`);
+    console.log(`   📦 Total de productos: ${totalProducts}`);
+    console.log(`   ⭐ Productos destacados: ${featuredProducts}`);
     
   } catch (error) {
     console.error('❌ Error en seedSampleProducts:', error.message);
+    throw error; // Re-throw para que el seed falle si hay error crítico
+  }
+};
+
+// ✅ Otros métodos existentes (sin cambios)
+StoreProduct.getFeaturedProducts = async function(limit = 8) {
+  try {
+    console.log('🔍 Buscando productos destacados...');
+    
+    const products = await this.findAll({
+      where: { 
+        isFeatured: true, 
+        isActive: true,
+        stockQuantity: { [sequelize.Sequelize.Op.gt]: 0 }
+      },
+      limit,
+      order: [['rating', 'DESC'], ['reviewsCount', 'DESC']]
+    });
+    
+    console.log(`✅ Encontrados ${products.length} productos destacados`);
+    return products;
+    
+  } catch (error) {
+    console.error('❌ Error en getFeaturedProducts:', error.message);
+    return [];
+  }
+};
+
+StoreProduct.getProductsByCategory = async function(categoryId, limit = 20, offset = 0) {
+  try {
+    const result = await this.findAndCountAll({
+      where: { 
+        categoryId, 
+        isActive: true 
+      },
+      limit,
+      offset,
+      order: [['name', 'ASC']]
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error en getProductsByCategory:', error.message);
+    return { rows: [], count: 0 };
   }
 };
 

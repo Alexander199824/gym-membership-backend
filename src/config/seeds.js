@@ -187,29 +187,120 @@ const createSampleData = async () => {
 
 
 
+// ✅ REEMPLAZAR SOLO la función createStoreData en tu seeds.js
+
 const createStoreData = async () => {
   try {
     console.log('🛍️ Inicializando datos de tienda...');
     
     const { StoreCategory, StoreBrand, StoreProduct } = require('../models');
     
-    // ✅ Crear categorías por defecto
-    await StoreCategory.seedDefaultCategories();
-    console.log('   ✅ Categorías de tienda creadas');
+    // ✅ Verificar que los modelos estén disponibles
+    if (!StoreCategory || !StoreBrand || !StoreProduct) {
+      console.error('❌ Modelos de tienda no disponibles:', {
+        StoreCategory: !!StoreCategory,
+        StoreBrand: !!StoreBrand, 
+        StoreProduct: !!StoreProduct
+      });
+      throw new Error('Modelos de tienda faltantes');
+    }
     
-    // ✅ Crear marcas por defecto
-    await StoreBrand.seedDefaultBrands();
-    console.log('   ✅ Marcas de productos creadas');
+    console.log('📦 Modelos de tienda verificados correctamente');
     
-    // ✅ Crear productos de ejemplo
-    await StoreProduct.seedSampleProducts();
-    console.log('   ✅ Productos de ejemplo creados');
+    // ✅ 1. Crear categorías PRIMERO
+    console.log('🗂️ Creando categorías...');
     
-    console.log('✅ Datos de tienda inicializados');
+    if (StoreCategory.seedDefaultCategories) {
+      await StoreCategory.seedDefaultCategories();
+      console.log('   ✅ Categorías de tienda creadas');
+    } else {
+      console.warn('   ⚠️ Método seedDefaultCategories no disponible');
+    }
+    
+    // ✅ 2. Crear marcas SEGUNDO  
+    console.log('🏷️ Creando marcas...');
+    
+    if (StoreBrand.seedDefaultBrands) {
+      await StoreBrand.seedDefaultBrands();
+      console.log('   ✅ Marcas de productos creadas');
+    } else {
+      console.warn('   ⚠️ Método seedDefaultBrands no disponible');
+    }
+    
+    // ✅ 3. Verificar que categorías y marcas existan antes de crear productos
+    const categoryCount = await StoreCategory.count();
+    const brandCount = await StoreBrand.count();
+    
+    console.log(`📊 Estado previo a productos: ${categoryCount} categorías, ${brandCount} marcas`);
+    
+    if (categoryCount === 0) {
+      throw new Error('No se crearon categorías - no se pueden crear productos');
+    }
+    
+    // ✅ 4. Crear productos TERCERO (CON PARÁMETROS CORRECTOS)
+    console.log('📦 Creando productos...');
+    
+    if (StoreProduct.seedSampleProducts) {
+      // ✅ CORRECCIÓN CRÍTICA: Pasar los modelos como parámetros
+      await StoreProduct.seedSampleProducts(StoreCategory, StoreBrand);
+      console.log('   ✅ Productos de ejemplo creados');
+    } else {
+      console.warn('   ⚠️ Método seedSampleProducts no disponible');
+    }
+    
+    // ✅ 5. Verificar resultados finales
+    const finalStats = {
+      categories: await StoreCategory.count(),
+      brands: await StoreBrand.count(), 
+      products: await StoreProduct.count(),
+      featuredProducts: await StoreProduct.count({ where: { isFeatured: true } })
+    };
+    
+    console.log('📊 Estadísticas finales de tienda:');
+    console.log(`   🗂️ Categorías: ${finalStats.categories}`);
+    console.log(`   🏷️ Marcas: ${finalStats.brands}`);
+    console.log(`   📦 Productos: ${finalStats.products}`);
+    console.log(`   ⭐ Productos destacados: ${finalStats.featuredProducts}`);
+    
+    if (finalStats.products === 0) {
+      console.warn('⚠️ No se crearon productos - revisar logs anteriores');
+    } else {
+      console.log('✅ Datos de tienda inicializados correctamente');
+    }
     
   } catch (error) {
     console.error('❌ Error al inicializar datos de tienda:', error.message);
+    console.error('📝 Stack trace:', error.stack);
+    
+    // ✅ Información adicional para debugging
+    try {
+      const { StoreCategory, StoreBrand, StoreProduct } = require('../models');
+      const debugInfo = {
+        modelsAvailable: {
+          StoreCategory: !!StoreCategory,
+          StoreBrand: !!StoreBrand,
+          StoreProduct: !!StoreProduct
+        }
+      };
+      
+      if (StoreCategory) {
+        debugInfo.categoryCount = await StoreCategory.count();
+      }
+      if (StoreBrand) {
+        debugInfo.brandCount = await StoreBrand.count();
+      }
+      if (StoreProduct) {
+        debugInfo.productCount = await StoreProduct.count();
+      }
+      
+      console.log('🔍 Info de debugging:', debugInfo);
+      
+    } catch (debugError) {
+      console.error('❌ Error en debugging:', debugError.message);
+    }
+    
     // No lanzar error para que no interrumpa el servidor
+    console.log('💡 El servidor continuará sin datos de tienda');
   }
 };
 
