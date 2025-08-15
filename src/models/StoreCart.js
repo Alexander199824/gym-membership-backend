@@ -71,7 +71,7 @@ StoreCart.getCartByUser = async function(userId) {
       where: { userId },
       include: [{
         association: 'product',
-        attributes: ['id', 'name', 'price', 'stockQuantity']
+        attributes: ['id', 'name', 'price', 'sku', 'stockQuantity']
       }],
       order: [['createdAt', 'ASC']]
     });
@@ -96,7 +96,7 @@ StoreCart.getCartBySession = async function(sessionId) {
       },
       include: [{
         association: 'product',
-        attributes: ['id', 'name', 'price', 'stockQuantity']
+        attributes: ['id', 'name', 'price', 'sku', 'stockQuantity']
       }],
       order: [['createdAt', 'ASC']]
     });
