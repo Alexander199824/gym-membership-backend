@@ -438,81 +438,358 @@ class EmailService {
     };
   }
 
-  generatePaymentConfirmationEmail(user, payment) {
+ generatePaymentConfirmationEmail(user, payment) {
+    console.log('📧 Generando email de confirmación de compra...');
+    console.log('👤 Usuario:', user ? user.email || user.getFullName?.() || 'Usuario' : 'Invitado');
+    console.log('💰 Pago:', {
+      id: payment.id,
+      amount: payment.amount,
+      paymentType: payment.paymentType,
+      paymentMethod: payment.paymentMethod
+    });
+
+    // ✅ Determinar tipo de pago para personalizar el mensaje
+    let paymentTypeName = 'Compra';
+    let paymentIcon = '🛍️';
+    let paymentDescription = 'Tu compra';
+
+    switch (payment.paymentType) {
+      case 'membership':
+        paymentTypeName = 'Membresía mensual';
+        paymentIcon = '🎫';
+        paymentDescription = 'Tu membresía';
+        break;
+      case 'daily':
+        paymentTypeName = 'Entrada diaria';
+        paymentIcon = '🏃‍♂️';
+        paymentDescription = 'Tu entrada diaria';
+        break;
+      case 'store_online':
+      case 'store_cash_delivery':
+      case 'store_card_delivery':
+        paymentTypeName = 'Productos de tienda';
+        paymentIcon = '🛍️';
+        paymentDescription = 'Tu compra de productos';
+        break;
+      default:
+        paymentTypeName = 'Pago';
+        paymentIcon = '💳';
+        paymentDescription = 'Tu pago';
+    }
+
+    // ✅ HTML mejorado para email de confirmación
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>✅ Pago confirmado</title>
+        <title>✅ Confirmación de compra - Elite Fitness Club</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
           .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-          .header { background-color: #27ae60; color: #ffffff; padding: 20px; text-align: center; }
+          .header { background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: #ffffff; padding: 30px; text-align: center; }
           .content { padding: 30px; }
-          .success-box { background-color: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; margin: 15px 0; }
-          .payment-details { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0; }
-          .button { display: inline-block; background-color: #27ae60; color: #ffffff; padding: 12px 25px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-          .footer { background-color: #ecf0f1; padding: 15px; text-align: center; font-size: 12px; color: #7f8c8d; }
+          .success-box { background-color: #d4edda; border: 2px solid #c3e6cb; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center; }
+          .payment-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+          .button { display: inline-block; background-color: #27ae60; color: #ffffff; padding: 15px 30px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: bold; }
+          .footer { background-color: #ecf0f1; padding: 20px; text-align: center; font-size: 12px; color: #7f8c8d; }
+          .highlight { background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #ffc107; }
         </style>
       </head>
       <body>
         <div class="container">
+          <!-- Header de confirmación exitosa -->
           <div class="header">
-            <h1>✅ ¡Pago confirmado!</h1>
-          </div>
-          <div class="content">
-            <h2>¡Hola ${user.getFullName()}!</h2>
-            
-            <div class="success-box">
-              <h3>🎉 Hemos confirmado tu pago exitosamente</h3>
-            </div>
-            
-            <div class="payment-details">
-              <h3>📋 Detalles del pago:</h3>
-              <p><strong>💰 Monto:</strong> $${payment.amount}</p>
-              <p><strong>🏷️ Concepto:</strong> ${payment.paymentType === 'membership' ? 'Membresía mensual' : 'Entrada diaria'}</p>
-              <p><strong>💳 Método de pago:</strong> ${this.getPaymentMethodName(payment.paymentMethod)}</p>
-              <p><strong>📅 Fecha:</strong> ${new Date(payment.paymentDate).toLocaleDateString('es-ES', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              })}</p>
-              ${payment.paymentType === 'membership' ? '<p><strong>🔄 Estado:</strong> Tu membresía ha sido renovada exitosamente</p>' : ''}
-            </div>
-            
-            ${payment.paymentType === 'membership' ? 
-              '<p>¡Excelente! Tu membresía ha sido renovada y ya puedes continuar disfrutando de todas nuestras instalaciones y servicios.</p>' :
-              '<p>¡Perfecto! Tu pago diario ha sido procesado. ¡Disfruta tu entrenamiento de hoy!</p>'
-            }
-            
-            <p style="text-align: center;">
-              <a href="${process.env.FRONTEND_URL}/mi-cuenta" class="button">Ver Mi Cuenta</a>
+            <h1>${paymentIcon} ¡Compra confirmada!</h1>
+            <p style="margin: 10px 0 0 0; font-size: 18px;">
+              ${paymentDescription} ha sido procesada exitosamente
             </p>
-            
-            <p>Si tienes alguna pregunta sobre este pago, no dudes en contactarnos.</p>
-            
-            <p><strong>¡Gracias por confiar en Elite Fitness Club! 💪</strong></p>
           </div>
+
+          <!-- Contenido principal -->
+          <div class="content">
+            
+            <!-- Mensaje de éxito -->
+            <div class="success-box">
+              <h2 style="color: #155724; margin: 0 0 15px 0;">
+                ✅ ¡Pago confirmado exitosamente!
+              </h2>
+              <p style="color: #155724; margin: 0; font-size: 16px;">
+                Hola <strong>${user ? (user.getFullName?.() || user.email || 'Cliente') : 'Cliente'}</strong>, 
+                hemos confirmado tu pago. ¡Gracias por tu compra!
+              </p>
+            </div>
+
+            <!-- Detalles del pago -->
+            <div class="payment-details">
+              <h3 style="color: #2c3e50; margin: 0 0 15px 0;">📋 Detalles del pago</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 8px 0; color: #495057; font-weight: bold;">💰 Monto:</td>
+                  <td style="padding: 8px 0; color: #2c3e50; font-size: 18px; font-weight: bold;">$${payment.amount}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #495057; font-weight: bold;">${paymentIcon} Concepto:</td>
+                  <td style="padding: 8px 0; color: #2c3e50;">${paymentTypeName}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #495057; font-weight: bold;">💳 Método de pago:</td>
+                  <td style="padding: 8px 0; color: #2c3e50;">${this.getPaymentMethodName(payment.paymentMethod)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #495057; font-weight: bold;">📅 Fecha:</td>
+                  <td style="padding: 8px 0; color: #2c3e50;">${new Date(payment.paymentDate || new Date()).toLocaleDateString('es-ES', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}</td>
+                </tr>
+                ${payment.paymentType === 'membership' ? 
+                  '<tr><td style="padding: 8px 0; color: #495057; font-weight: bold;">🔄 Estado:</td><td style="padding: 8px 0; color: #27ae60; font-weight: bold;">✅ Membresía renovada exitosamente</td></tr>' : 
+                  ''}
+                ${payment.cardLast4 ? 
+                  `<tr><td style="padding: 8px 0; color: #495057; font-weight: bold;">💳 Tarjeta:</td><td style="padding: 8px 0; color: #2c3e50;">**** **** **** ${payment.cardLast4}</td></tr>` : 
+                  ''}
+                ${payment.id ? 
+                  `<tr><td style="padding: 8px 0; color: #495057; font-weight: bold;">🆔 ID de pago:</td><td style="padding: 8px 0; color: #6c757d; font-size: 12px;">${payment.id}</td></tr>` : 
+                  ''}
+              </table>
+            </div>
+
+            <!-- Información específica según tipo de pago -->
+            ${this.generateSpecificPaymentInfo(payment)}
+
+            <!-- Próximos pasos -->
+            <div class="highlight">
+              <h3 style="color: #856404; margin: 0 0 10px 0;">📋 Próximos pasos</h3>
+              ${this.generateNextStepsInfo(payment)}
+            </div>
+
+            <!-- Botón de acción -->
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL || '#'}" class="button">
+                🏠 Ir a mi cuenta
+              </a>
+            </div>
+
+            <!-- Información de contacto -->
+            <div style="background-color: #e8f4fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin: 0 0 10px 0;">📞 ¿Necesitas ayuda?</h3>
+              <p style="color: #0c5460; margin: 0;">
+                Si tienes alguna pregunta sobre este pago, no dudes en contactarnos:
+              </p>
+              <ul style="color: #0c5460; margin: 10px 0;">
+                <li>📧 Email: ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'}</li>
+                <li>📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}</li>
+                <li>🏢 Visítanos en recepción</li>
+                <li>💬 WhatsApp: Responde a este email</li>
+              </ul>
+            </div>
+
+            <!-- Mensaje de agradecimiento -->
+            <div style="text-align: center; margin: 30px 0;">
+              <h3 style="color: #2c3e50;">🙏 ¡Gracias por confiar en Elite Fitness Club!</h3>
+              <p style="color: #6c757d;">
+                Estamos comprometidos en ayudarte a alcanzar tus objetivos fitness.
+              </p>
+            </div>
+
+          </div>
+
+          <!-- Footer -->
           <div class="footer">
-            <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
-            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p><strong>Elite Fitness Club</strong> - Tu mejor versión te está esperando</p>
+            <p>📧 ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p>Este es un email automático de confirmación de pago. Por favor no respondas a este mensaje.</p>
+            <p>© ${new Date().getFullYear()} Elite Fitness Club. Todos los derechos reservados.</p>
           </div>
+
         </div>
       </body>
       </html>
     `;
-    
+
+    // ✅ Texto plano mejorado
+    const text = `✅ ¡PAGO CONFIRMADO! - Elite Fitness Club
+
+Hola ${user ? (user.getFullName?.() || user.email || 'Cliente') : 'Cliente'},
+
+¡Hemos confirmado tu pago exitosamente! Gracias por tu compra.
+
+📋 DETALLES DEL PAGO:
+💰 Monto: $${payment.amount}
+${paymentIcon} Concepto: ${paymentTypeName}
+💳 Método: ${this.getPaymentMethodName(payment.paymentMethod)}
+📅 Fecha: ${new Date(payment.paymentDate || new Date()).toLocaleString('es-ES')}
+${payment.cardLast4 ? `💳 Tarjeta: **** **** **** ${payment.cardLast4}` : ''}
+${payment.id ? `🆔 ID: ${payment.id}` : ''}
+
+${this.generateSpecificPaymentInfoText(payment)}
+
+📞 CONTACTO:
+📧 Email: ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'}
+📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}
+
+🙏 ¡Gracias por confiar en Elite Fitness Club!
+
+---
+Elite Fitness Club - Tu mejor versión te está esperando
+© ${new Date().getFullYear()} Elite Fitness Club`;
+
+    console.log('✅ Email de confirmación generado exitosamente');
+
     return {
-      subject: '✅ Pago confirmado - ¡Gracias por tu confianza!',
+      subject: `✅ Pago confirmado - ${paymentTypeName} - Elite Fitness Club`,
       html,
-      text: `Pago confirmado: $${payment.amount} por ${payment.paymentType === 'membership' ? 'membresía' : 'entrada diaria'}. Método: ${this.getPaymentMethodName(payment.paymentMethod)}. ¡Gracias!`
+      text
     };
   }
+
+  // ✅ NUEVO: Generar información específica según tipo de pago (HTML)
+  generateSpecificPaymentInfo(payment) {
+    switch (payment.paymentType) {
+      case 'membership':
+        return `
+          <div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #0c5460; margin: 0 0 15px 0;">🎫 Tu membresía está activa</h3>
+            <ul style="color: #0c5460; margin: 0; padding-left: 20px;">
+              <li>✅ Ya puedes acceder a todas las instalaciones</li>
+              <li>🏋️‍♂️ Disfruta de todos los equipos y áreas</li>
+              <li>👥 Únete a las clases grupales disponibles</li>
+              <li>📱 Revisa tu membresía en tu perfil online</li>
+            </ul>
+          </div>
+        `;
+      case 'daily':
+        return `
+          <div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #0c5460; margin: 0 0 15px 0;">🏃‍♂️ Tu entrada diaria está confirmada</h3>
+            <ul style="color: #0c5460; margin: 0; padding-left: 20px;">
+              <li>✅ Puedes acceder al gimnasio hoy</li>
+              <li>💪 Disfruta tu entrenamiento al máximo</li>
+              <li>🔄 Considera una membresía mensual para ahorrar</li>
+              <li>💡 Pregunta por nuestras promociones especiales</li>
+            </ul>
+          </div>
+        `;
+      case 'store_online':
+      case 'store_cash_delivery':
+      case 'store_card_delivery':
+        return `
+          <div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #0c5460; margin: 0 0 15px 0;">🛍️ Tu pedido está siendo procesado</h3>
+            <ul style="color: #0c5460; margin: 0; padding-left: 20px;">
+              <li>📦 Prepararemos tu pedido en las próximas horas</li>
+              <li>📱 Te contactaremos cuando esté listo</li>
+              <li>🚚 Recibirás actualizaciones del estado del envío</li>
+              <li>💡 Guarda este email como comprobante</li>
+            </ul>
+          </div>
+        `;
+      default:
+        return `
+          <div style="background-color: #d1ecf1; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="color: #0c5460; margin: 0 0 15px 0;">💳 Pago procesado exitosamente</h3>
+            <ul style="color: #0c5460; margin: 0; padding-left: 20px;">
+              <li>✅ Tu pago ha sido confirmado y registrado</li>
+              <li>📧 Guarda este email como comprobante</li>
+              <li>📞 Contacta si tienes alguna pregunta</li>
+            </ul>
+          </div>
+        `;
+    }
+  }
+
+  // ✅ NUEVO: Generar próximos pasos según tipo de pago
+  generateNextStepsInfo(payment) {
+    switch (payment.paymentType) {
+      case 'membership':
+        return `
+          <div style="color: #856404;">
+            <p><strong>🎯 ¡Ya puedes entrenar!</strong></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>Visita el gimnasio con tu documento de identidad</li>
+              <li>Revisa los horarios de clases grupales</li>
+              <li>Programa tu rutina de entrenamiento</li>
+              <li>Explora todas las instalaciones disponibles</li>
+            </ul>
+          </div>
+        `;
+      case 'daily':
+        return `
+          <div style="color: #856404;">
+            <p><strong>🏃‍♂️ ¡Disfruta tu entrenamiento de hoy!</strong></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>Presenta este comprobante en recepción</li>
+              <li>Aprovecha todas las instalaciones hoy</li>
+              <li>Pregunta por las clases grupales del día</li>
+              <li>Considera una membresía mensual para ahorrar</li>
+            </ul>
+          </div>
+        `;
+      case 'store_online':
+      case 'store_cash_delivery':
+      case 'store_card_delivery':
+        return `
+          <div style="color: #856404;">
+            <p><strong>📦 ¡Tu pedido está en proceso!</strong></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>Recibirás actualizaciones por WhatsApp/SMS</li>
+              <li>Te contactaremos para coordinar la entrega</li>
+              <li>Ten tu documento de identidad listo</li>
+              <li>Verifica que la dirección sea correcta</li>
+            </ul>
+          </div>
+        `;
+      default:
+        return `
+          <div style="color: #856404;">
+            <p><strong>✅ ¡Todo está listo!</strong></p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+              <li>Tu pago ha sido procesado exitosamente</li>
+              <li>Guarda este comprobante para tus records</li>
+              <li>Contacta si tienes alguna pregunta</li>
+            </ul>
+          </div>
+        `;
+    }
+  }
+
+  // ✅ NUEVO: Generar información específica para texto plano
+  generateSpecificPaymentInfoText(payment) {
+    switch (payment.paymentType) {
+      case 'membership':
+        return `
+🎫 TU MEMBRESÍA ESTÁ ACTIVA:
+✅ Ya puedes acceder a todas las instalaciones
+🏋️‍♂️ Disfruta de todos los equipos y áreas
+👥 Únete a las clases grupales disponibles
+📱 Revisa tu membresía en tu perfil online`;
+      case 'daily':
+        return `
+🏃‍♂️ TU ENTRADA DIARIA CONFIRMADA:
+    ✅ Puedes acceder al gimnasio hoy
+    💪 Disfruta tu entrenamiento al máximo
+    🔄 Considera una membresía mensual para ahorrar`;
+          case 'store_online':
+          case 'store_cash_delivery':
+          case 'store_card_delivery':
+            return `
+    🛍️ TU PEDIDO EN PROCESO:
+    📦 Prepararemos tu pedido en las próximas horas
+    📱 Te contactaremos cuando esté listo
+    🚚 Recibirás actualizaciones del envío`;
+          default:
+            return `
+    💳 PAGO PROCESADO:
+    ✅ Tu pago ha sido confirmado y registrado
+    📧 Guarda este email como comprobante`;
+        }
+      }
 
   getPaymentMethodName(method) {
     const methods = {
