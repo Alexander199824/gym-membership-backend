@@ -3,25 +3,58 @@ const nodemailer = require('nodemailer');
 const twilio = require('twilio');
 
 class EmailService {
-  constructor() {
+ // src/services/notificationServices.js - VERIFICACIÓN DE CONFIGURACIÓN GMAIL
+// AGREGAR AL CONSTRUCTOR DE EmailService - LÍNEA ~15
+
+constructor() {
+    // ✅ VERIFICACIÓN DETALLADA: Comprobar todas las variables de entorno necesarias
+    console.log('📧 =====================================');
+    console.log('📧 INICIALIZANDO EMAIL SERVICE - GMAIL');
+    console.log('📧 =====================================');
+    
+    // Verificar variables de entorno
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPassword = process.env.GMAIL_APP_PASSWORD;
+    const emailEnabled = process.env.NOTIFICATION_EMAIL_ENABLED;
+    
+    console.log('🔍 VERIFICANDO CONFIGURACIÓN:');
+    console.log(`   📧 GMAIL_USER: ${gmailUser ? '✅ Configurado' : '❌ Faltante'}`);
+    console.log(`   🔑 GMAIL_APP_PASSWORD: ${gmailPassword ? '✅ Configurado' : '❌ Faltante'}`);
+    console.log(`   🔔 NOTIFICATION_EMAIL_ENABLED: ${emailEnabled || 'true'}`);
+    
+    if (gmailUser) {
+      console.log(`   📮 Email configurado: ${gmailUser}`);
+    }
+    
+    if (gmailPassword) {
+      console.log(`   🔐 Password length: ${gmailPassword.length} caracteres`);
+      if (gmailPassword.length < 16) {
+        console.warn('   ⚠️ WARNING: La App Password debería tener 16 caracteres');
+        console.warn('   💡 Asegúrate de usar una App Password de Gmail, no la contraseña normal');
+      }
+    }
+
     // Verificar que las credenciales de Gmail sean válidas
     const hasValidGmailConfig = 
-      process.env.GMAIL_USER &&
-      process.env.GMAIL_APP_PASSWORD &&
-      process.env.GMAIL_USER !== 'yourEmail@email.com' && // No es placeholder
-      process.env.GMAIL_APP_PASSWORD !== 'yourPassword' && // No es placeholder
-      process.env.GMAIL_APP_PASSWORD.length > 10; // Validación básica de longitud
+      gmailUser &&
+      gmailPassword &&
+      gmailUser !== 'yourEmail@email.com' && // No es placeholder
+      gmailPassword !== 'yourPassword' && // No es placeholder
+      gmailPassword.length > 10 && // Validación básica de longitud
+      gmailUser.includes('@'); // Validar formato email básico
 
     if (hasValidGmailConfig) {
       try {
+        console.log('🔧 CONFIGURANDO TRANSPORTER GMAIL...');
+        
         // ✅ CORREGIDO: createTransport (no createTransporter)
         this.transporter = nodemailer.createTransport({
           host: "smtp.gmail.com",
           port: 465,
           secure: true, // true para 465, false para otros puertos
           auth: {
-            user: process.env.GMAIL_USER,
-            pass: process.env.GMAIL_APP_PASSWORD
+            user: gmailUser,
+            pass: gmailPassword
           },
           // Configuraciones adicionales para Gmail
           pool: true, // Pool de conexiones para mejor performance
@@ -33,10 +66,14 @@ class EmailService {
         
         this.isConfigured = true;
         console.log('✅ Gmail Email Service inicializado correctamente');
-        console.log(`   📧 Usuario configurado: ${process.env.GMAIL_USER}`);
+        console.log(`   📧 Usuario configurado: ${gmailUser}`);
+        console.log(`   🏢 Sender name: ${process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club'}`);
         
-        // Verificar configuración sin enviar email de prueba
-        this.verifyConfiguration(false); // false = no enviar email de prueba
+        // ✅ NUEVA FUNCIÓN: Verificar configuración automáticamente
+        setTimeout(() => {
+          this.verifyConfiguration(false); // false = no enviar email de prueba automáticamente
+        }, 1000);
+        
       } catch (error) {
         console.error('❌ Error al inicializar Gmail:', error.message);
         this.transporter = null;
@@ -45,27 +82,94 @@ class EmailService {
     } else {
       console.warn('⚠️ Gmail no configurado correctamente - Las notificaciones por email no funcionarán');
       
-      // Diagnóstico detallado
-      if (!process.env.GMAIL_USER) {
-        console.warn('   ❌ GMAIL_USER no configurado');
-      } else if (process.env.GMAIL_USER === 'yourEmail@email.com') {
+      // Diagnóstico detallado de problemas
+      if (!gmailUser) {
+        console.warn('   ❌ GMAIL_USER no configurado en .env');
+        console.warn('   💡 Agrega: GMAIL_USER=tu-email@gmail.com');
+      } else if (gmailUser === 'yourEmail@email.com') {
         console.warn('   ❌ GMAIL_USER todavía tiene el valor placeholder');
+        console.warn('   💡 Cambia por tu email real de Gmail');
+      } else if (!gmailUser.includes('@')) {
+        console.warn('   ❌ GMAIL_USER no parece ser un email válido');
       }
       
-      if (!process.env.GMAIL_APP_PASSWORD) {
-        console.warn('   ❌ GMAIL_APP_PASSWORD no configurado');
-      } else if (process.env.GMAIL_APP_PASSWORD === 'yourPassword') {
+      if (!gmailPassword) {
+        console.warn('   ❌ GMAIL_APP_PASSWORD no configurado en .env');
+        console.warn('   💡 Agrega: GMAIL_APP_PASSWORD=tu-app-password');
+        console.warn('   💡 Instrucciones: https://support.google.com/accounts/answer/185833');
+      } else if (gmailPassword === 'yourPassword') {
         console.warn('   ❌ GMAIL_APP_PASSWORD todavía tiene el valor placeholder');
-      } else if (process.env.GMAIL_APP_PASSWORD.length <= 10) {
-        console.warn('   ❌ GMAIL_APP_PASSWORD parece ser demasiado corto (no es una App Password)');
+        console.warn('   💡 Usa una App Password real de Gmail');
+      } else if (gmailPassword.length <= 10) {
+        console.warn('   ❌ GMAIL_APP_PASSWORD parece ser demasiado corto');
+        console.warn('   💡 Las App Passwords de Gmail tienen 16 caracteres');
+        console.warn('   💡 Formato: xxxx xxxx xxxx xxxx (sin espacios en .env)');
       }
       
-      console.warn('   💡 Configura GMAIL_USER y GMAIL_APP_PASSWORD correctamente');
+      console.warn('📧 =====================================');
+      console.warn('📧 GUÍA RÁPIDA PARA CONFIGURAR GMAIL:');
+      console.warn('📧 =====================================');
+      console.warn('1. Ve a tu cuenta de Google');
+      console.warn('2. Configuración > Seguridad > Verificación en 2 pasos');
+      console.warn('3. Contraseñas de aplicaciones > Generar nueva');
+      console.warn('4. Copia la contraseña de 16 caracteres');
+      console.warn('5. En .env: GMAIL_APP_PASSWORD=xxxxxxxxxxxxxxxxxxxx');
+      console.warn('6. En .env: GMAIL_USER=tu-email@gmail.com');
+      console.warn('7. Reinicia el servidor');
+      console.warn('📧 =====================================');
+      
       this.transporter = null;
       this.isConfigured = false;
     }
+    
+    console.log('📧 =====================================');
+    console.log(`📧 EMAIL SERVICE STATUS: ${this.isConfigured ? '✅ LISTO' : '❌ NO CONFIGURADO'}`);
+    console.log('📧 =====================================');
   }
 
+// ✅ NUEVO MÉTODO: Verificar configuración completa
+async verifyEmailConfiguration() {
+  console.log('🔍 =====================================');
+  console.log('🔍 VERIFICACIÓN COMPLETA DE EMAIL SERVICE');
+  console.log('🔍 =====================================');
+  
+  try {
+    if (!this.isConfigured) {
+      console.log('❌ Email service no está configurado');
+      return false;
+    }
+
+    console.log('1. ✅ Configuración básica: OK');
+    
+    // Verificar conexión SMTP
+    console.log('2. 🔗 Verificando conexión SMTP...');
+    const isVerified = await this.transporter.verify();
+    
+    if (isVerified) {
+      console.log('2. ✅ Conexión SMTP: OK');
+    } else {
+      console.log('2. ❌ Conexión SMTP: FAILED');
+      return false;
+    }
+    
+    // Verificar capacidad de envío (envío de prueba opcional)
+    console.log('3. 📧 Email service completamente verificado');
+    console.log('   💡 Usar .testEmailService() para enviar email de prueba');
+    
+    console.log('🔍 =====================================');
+    console.log('🔍 VERIFICACIÓN COMPLETADA: ✅ TODO OK');
+    console.log('🔍 =====================================');
+    
+    return true;
+    
+  } catch (error) {
+    console.error('❌ Error en verificación completa:', error.message);
+    console.log('🔍 =====================================');
+    console.log('🔍 VERIFICACIÓN COMPLETADA: ❌ ERRORES');
+    console.log('🔍 =====================================');
+    return false;
+  }
+}
   // ✅ MEJORADO: Verificar configuración de Gmail con control de email de prueba
   async verifyConfiguration(sendTestEmail = false) {
     try {

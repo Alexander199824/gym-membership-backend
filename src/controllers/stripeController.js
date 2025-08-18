@@ -315,6 +315,13 @@ class StripeController {
       const metadata = paymentIntent.metadata || {};
       await this.processPaymentByType(paymentData, metadata, user);
 
+      console.log('📝 Datos finales del pago después de procesar tipo:', {
+        userId: paymentData.userId,
+        hasAnonymousInfo: !!paymentData.anonymousClientInfo,
+        paymentType: paymentData.paymentType,
+        isGuest: !paymentData.userId && !!paymentData.anonymousClientInfo
+      });
+
       // ✅ Crear registro en la base de datos
       const payment = await Payment.create(paymentData);
       console.log('✅ Pago creado en base de datos:', payment.id);
@@ -322,8 +329,12 @@ class StripeController {
       // ✅ REPARACIÓN CRÍTICA: Crear movimiento financiero con validación
       try {
         if (FinancialMovements && typeof FinancialMovements.createFromAnyPayment === 'function') {
-          await FinancialMovements.createFromAnyPayment(payment);
-          console.log('✅ Movimiento financiero creado exitosamente');
+          const financialMovement = await FinancialMovements.createFromAnyPayment(payment);
+          if (financialMovement) {
+            console.log('✅ Movimiento financiero creado exitosamente:', financialMovement.id);
+          } else {
+            console.warn('⚠️ Movimiento financiero no se pudo crear (método devolvió null)');
+          }
         } else {
           console.warn('⚠️ FinancialMovements.createFromAnyPayment no disponible');
         }
@@ -348,7 +359,8 @@ class StripeController {
             paymentType: payment.paymentType,
             status: payment.status,
             cardLast4: payment.cardLast4,
-            paymentDate: payment.paymentDate
+            paymentDate: payment.paymentDate,
+            isGuest: !payment.userId && !!payment.anonymousClientInfo
           },
           stripe: {
             paymentIntentId: paymentIntent.id,
@@ -359,9 +371,20 @@ class StripeController {
 
     } catch (error) {
       console.error('❌ Error al confirmar pago:', error);
+      
+      // ✅ MEJORAR: Mensaje de error más específico
+      let errorMessage = 'Error al confirmar pago';
+      
+      if (error.name === 'SequelizeValidationError') {
+        console.error('📋 Errores de validación:', error.errors?.map(e => e.message));
+        errorMessage = 'Error de validación: ' + error.errors?.map(e => e.message).join(', ');
+      } else if (error.message.includes('usuario registrado o información del cliente')) {
+        errorMessage = 'Error en información del cliente para pago de invitado';
+      }
+      
       res.status(500).json({
         success: false,
-        message: 'Error al confirmar pago',
+        message: errorMessage,
         error: error.message
       });
     }
@@ -406,17 +429,51 @@ class StripeController {
             paymentData.referenceId = metadata.orderId;
             paymentData.referenceType = 'store_order';
             
-            // Actualizar estado de la orden
+            // ✅ REPARACIÓN CRÍTICA: Obtener información completa de la orden
             try {
               const order = await StoreOrder.findByPk(metadata.orderId);
               if (order) {
+                // Actualizar estado de la orden
                 order.paymentStatus = 'paid';
                 order.status = 'confirmed';
                 await order.save();
                 console.log('✅ Orden actualizada a estado confirmed:', order.id);
+                
+                // ✅ NUEVA LÓGICA: Manejar información del cliente para invitados
+                if (!order.userId && order.customerInfo) {
+                  // Es un usuario invitado - usar customerInfo de la orden
+                  paymentData.anonymousClientInfo = {
+                    name: order.customerInfo.name,
+                    email: order.customerInfo.email,
+                    phone: order.customerInfo.phone
+                  };
+                  console.log('✅ Información de cliente invitado agregada al pago:', paymentData.anonymousClientInfo);
+                } else if (order.userId) {
+                  // Es un usuario registrado
+                  paymentData.userId = order.userId;
+                  console.log('✅ Usuario registrado asignado al pago:', order.userId);
+                }
+                
+                // ✅ NUEVO: Guardar referencia a la orden para el email
+                paymentData.orderReference = {
+                  orderNumber: order.orderNumber,
+                  totalAmount: order.totalAmount,
+                  customerInfo: order.customerInfo,
+                  shippingAddress: order.shippingAddress
+                };
               }
             } catch (orderError) {
               console.warn('⚠️ Error al actualizar orden:', orderError.message);
+              
+              // ✅ FALLBACK: Si no se puede obtener la orden, crear info mínima para invitados
+              if (!user) {
+                paymentData.anonymousClientInfo = {
+                  name: metadata.customerName || 'Cliente Invitado',
+                  email: metadata.customerEmail || null,
+                  phone: metadata.customerPhone || null
+                };
+                console.log('✅ Información de cliente invitado (fallback) agregada al pago');
+              }
             }
           }
           break;
@@ -424,12 +481,24 @@ class StripeController {
         default:
           console.log('ℹ️ Tipo de pago no específico, usando valores por defecto');
           paymentData.paymentType = paymentData.paymentType || 'store_online';
+          
+          // ✅ NUEVO: Para pagos sin tipo específico, manejar invitados
+          if (!user && (metadata.customerName || metadata.customerEmail)) {
+            paymentData.anonymousClientInfo = {
+              name: metadata.customerName || 'Cliente',
+              email: metadata.customerEmail || null,
+              phone: metadata.customerPhone || null
+            };
+          }
       }
 
       console.log('✅ Pago procesado por tipo:', {
         type: metadata.type,
         paymentType: paymentData.paymentType,
-        hasReference: !!paymentData.referenceId
+        hasReference: !!paymentData.referenceId,
+        hasUser: !!paymentData.userId,
+        hasAnonymousInfo: !!paymentData.anonymousClientInfo,
+        isGuest: !paymentData.userId && !!paymentData.anonymousClientInfo
       });
 
     } catch (error) {
@@ -449,14 +518,21 @@ class StripeController {
         // Usuario registrado
         emailData = {
           to: user.email,
-          name: user.getFullName(),
+          name: user.getFullName?.() || `${user.firstName} ${user.lastName}` || user.email,
           isRegistered: true
         };
-      } else if (metadata.customerEmail || payment.anonymousClientInfo?.email) {
+      } else if (payment.anonymousClientInfo?.email) {
         // Usuario invitado
         emailData = {
-          to: metadata.customerEmail || payment.anonymousClientInfo.email,
-          name: metadata.customerName || payment.anonymousClientInfo?.name || 'Cliente',
+          to: payment.anonymousClientInfo.email,
+          name: payment.anonymousClientInfo.name || 'Cliente',
+          isRegistered: false
+        };
+      } else if (metadata.customerEmail) {
+        // Fallback a metadata
+        emailData = {
+          to: metadata.customerEmail,
+          name: metadata.customerName || 'Cliente',
           isRegistered: false
         };
       }
@@ -464,9 +540,15 @@ class StripeController {
       if (emailData && this.emailService && this.emailService.isConfigured) {
         console.log(`📧 Enviando confirmación a: ${emailData.to} (${emailData.isRegistered ? 'registrado' : 'invitado'})`);
         
+        // ✅ REPARACIÓN: Crear objeto user mock para el template
+        const userForTemplate = {
+          email: emailData.to,
+          getFullName: () => emailData.name
+        };
+        
         // Generar email de confirmación
         const emailTemplate = this.emailService.generatePaymentConfirmationEmail(
-          { email: emailData.to, getFullName: () => emailData.name }, 
+          userForTemplate, 
           payment
         );
         
@@ -484,6 +566,14 @@ class StripeController {
         }
       } else {
         console.log('ℹ️ No se puede enviar email: EmailService no configurado o email no disponible');
+        console.log('📋 Datos disponibles:', {
+          hasEmailService: !!this.emailService,
+          isConfigured: this.emailService?.isConfigured,
+          hasEmailData: !!emailData,
+          userEmail: user?.email,
+          anonymousEmail: payment.anonymousClientInfo?.email,
+          metadataEmail: metadata.customerEmail
+        });
       }
       
     } catch (emailError) {
@@ -506,8 +596,8 @@ class StripeController {
         // ✅ Usuario invitado - log de información para notificación manual
         console.log('🎫 Preparando notificación para usuario invitado');
         
-        const guestEmail = metadata.customerEmail || payment.anonymousClientInfo?.email;
-        const guestName = metadata.customerName || payment.anonymousClientInfo?.name || 'Cliente';
+        const guestEmail = payment.anonymousClientInfo?.email || metadata.customerEmail;
+        const guestName = payment.anonymousClientInfo?.name || metadata.customerName || 'Cliente';
         
         if (guestEmail) {
           console.log('📧 Datos para notificación de invitado:', {
