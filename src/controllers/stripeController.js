@@ -11,6 +11,12 @@ class StripeController {
   constructor() {
     // ✅ REPARACIÓN CRÍTICA: Inicializar EmailService
     this.emailService = new EmailService();
+    
+    // ✅ REPARACIÓN CRÍTICA: Bind methods to ensure proper 'this' context
+    this.confirmPayment = this.confirmPayment.bind(this);
+    this.processPaymentByType = this.processPaymentByType.bind(this);
+    this.sendPurchaseConfirmationEmail = this.sendPurchaseConfirmationEmail.bind(this);
+    this.sendNotifications = this.sendNotifications.bind(this);
   }
 
   // ✅ Obtener configuración pública para el frontend
@@ -455,7 +461,7 @@ class StripeController {
         };
       }
       
-      if (emailData && this.emailService.isConfigured) {
+      if (emailData && this.emailService && this.emailService.isConfigured) {
         console.log(`📧 Enviando confirmación a: ${emailData.to} (${emailData.isRegistered ? 'registrado' : 'invitado'})`);
         
         // Generar email de confirmación

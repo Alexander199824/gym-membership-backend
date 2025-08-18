@@ -1,45 +1,61 @@
-// src/middleware/optionalAuth.js - NUEVO: Middleware para autenticación opcional
+// src/middleware/optionalAuth.js - MIDDLEWARE DE AUTENTICACIÓN OPCIONAL
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 
-// ✅ Middleware de autenticación opcional para rutas que funcionan con o sin usuario logueado
+// ✅ MIDDLEWARE: Autenticación opcional - No falla si no hay token
 const optionalAuthenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(' ')[1];
 
+    // ✅ Si no hay token, continuar sin usuario (para invitados)
     if (!token) {
-      // No hay token, continuar sin usuario
       req.user = null;
+      req.isAuthenticated = false;
+      console.log('🎫 Request sin token - usuario invitado');
       return next();
     }
 
+    // ✅ Si hay token, intentar verificarlo
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      // Buscar el usuario
+      // Buscar usuario en la base de datos
       const user = await User.findByPk(decoded.id);
       
-      if (!user || !user.isActive) {
-        // Usuario no válido o inactivo, continuar sin usuario
+      if (!user) {
+        console.warn('⚠️ Token válido pero usuario no encontrado');
         req.user = null;
+        req.isAuthenticated = false;
         return next();
       }
 
-      // Usuario válido encontrado
+      if (!user.isActive) {
+        console.warn('⚠️ Usuario desactivado');
+        req.user = null;
+        req.isAuthenticated = false;
+        return next();
+      }
+
+      // ✅ Usuario autenticado correctamente
       req.user = user;
-      next();
+      req.isAuthenticated = true;
+      console.log(`✅ Usuario autenticado: ${user.email} (${user.role})`);
       
-    } catch (tokenError) {
-      // Token inválido o expirado, continuar sin usuario
+    } catch (jwtError) {
+      // ✅ Token inválido o expirado - continuar como invitado
+      console.warn('⚠️ Token inválido o expirado - continuando como invitado');
       req.user = null;
-      next();
+      req.isAuthenticated = false;
     }
 
+    next();
+
   } catch (error) {
-    console.error('Error en optionalAuthenticateToken:', error);
-    // En caso de error, continuar sin usuario
+    console.error('❌ Error en optionalAuthenticateToken:', error);
+    // ✅ En caso de error, continuar como invitado
     req.user = null;
+    req.isAuthenticated = false;
     next();
   }
 };

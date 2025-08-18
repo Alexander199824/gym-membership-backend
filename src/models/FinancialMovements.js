@@ -1,4 +1,4 @@
-// src/models/FinancialMovements.js - MODELO FINAL CORREGIDO PARA SEQUELIZE CLI
+// src/models/FinancialMovements.js - MODELO CORREGIDO PARA SEQUELIZE CLI
 'use strict';
 
 const { Model } = require('sequelize');
@@ -19,11 +19,17 @@ module.exports = (sequelize, DataTypes) => {
       });
     }
 
-    // ✅ MÉTODO ESTÁTICO: Crear desde cualquier pago
+    // ✅ MÉTODO ESTÁTICO CORREGIDO: Crear desde cualquier pago
     static async createFromAnyPayment(payment) {
       console.log('💰 Creando movimiento financiero desde pago:', payment.id);
       
       try {
+        // ✅ VALIDACIÓN: Verificar que payment existe y tiene los campos necesarios
+        if (!payment || !payment.id || !payment.amount) {
+          console.warn('⚠️ Payment inválido para crear movimiento financiero:', payment);
+          return null;
+        }
+
         // ✅ Determinar categoría según tipo de pago
         let category = 'other_income';
         if (payment.paymentType?.includes('membership')) {
@@ -42,8 +48,8 @@ module.exports = (sequelize, DataTypes) => {
           type: 'income',
           category: category,
           description: payment.description || `Pago ${payment.paymentType} - ID: ${payment.id}`,
-          amount: payment.amount,
-          paymentMethod: payment.paymentMethod,
+          amount: parseFloat(payment.amount) || 0,
+          paymentMethod: payment.paymentMethod || 'card',
           referenceId: payment.id,
           referenceType: 'payment',
           registeredBy: payment.registeredBy || null,
@@ -59,27 +65,43 @@ module.exports = (sequelize, DataTypes) => {
           hasRegisteredBy: !!movementData.registeredBy
         });
 
-        const movement = await FinancialMovements.create(movementData);
+        // ✅ REPARACIÓN CRÍTICA: Usar this para el contexto correcto de Sequelize
+        const movement = await this.create(movementData);
         
         console.log('✅ Movimiento financiero creado exitosamente:', movement.id);
         return movement;
         
       } catch (error) {
         console.error('❌ Error al crear movimiento financiero:', error.message);
-        throw error;
+        
+        // ✅ REPARACIÓN: Log más detallado del error
+        if (error.name === 'SequelizeValidationError') {
+          console.error('📋 Errores de validación:', error.errors?.map(e => e.message));
+        } else if (error.name === 'SequelizeDatabaseError') {
+          console.error('🗄️ Error de base de datos:', error.parent?.message);
+        }
+        
+        // ✅ NO HACER THROW - Devolver null para que no rompa el flujo principal
+        return null;
       }
     }
 
-    // ✅ MÉTODO ESTÁTICO: Crear movimiento automático para invitados
+    // ✅ MÉTODO ESTÁTICO CORREGIDO: Crear movimiento automático para invitados
     static async createAutomaticForGuest(paymentData) {
       console.log('🎫 Creando movimiento automático para invitado');
       
       try {
+        // ✅ VALIDACIÓN: Verificar datos mínimos
+        if (!paymentData || !paymentData.amount) {
+          console.warn('⚠️ PaymentData inválido para invitado:', paymentData);
+          return null;
+        }
+
         const movementData = {
           type: 'income',
           category: 'products_sale',
           description: `Venta online (invitado) - ${paymentData.description || 'Compra online'}`,
-          amount: paymentData.amount,
+          amount: parseFloat(paymentData.amount) || 0,
           paymentMethod: paymentData.paymentMethod || 'card',
           referenceId: paymentData.referenceId || null,
           referenceType: 'payment',
@@ -89,49 +111,86 @@ module.exports = (sequelize, DataTypes) => {
           notes: `Movimiento automático - Pago de invitado: ${paymentData.paymentIntentId || 'N/A'}`
         };
 
-        const movement = await FinancialMovements.create(movementData);
+        const movement = await this.create(movementData);
         
         console.log('✅ Movimiento automático para invitado creado:', movement.id);
         return movement;
         
       } catch (error) {
         console.error('❌ Error al crear movimiento para invitado:', error.message);
-        throw error;
+        return null;
       }
     }
 
     // ✅ MÉTODO ESTÁTICO: Buscar movimientos sin asignar
     static async findUnassignedAutomatic(limit = 20) {
-      return await FinancialMovements.findAll({
-        where: {
-          isAutomatic: true,
-          registeredBy: null
-        },
-        order: [['createdAt', 'DESC']],
-        limit: limit
-      });
+      try {
+        return await this.findAll({
+          where: {
+            isAutomatic: true,
+            registeredBy: null
+          },
+          order: [['createdAt', 'DESC']],
+          limit: limit
+        });
+      } catch (error) {
+        console.error('❌ Error finding unassigned movements:', error);
+        return [];
+      }
     }
 
     // ✅ MÉTODO ESTÁTICO: Adoptar movimiento automático
     static async adoptAutomaticMovement(movementId, userId) {
-      const movement = await FinancialMovements.findByPk(movementId);
-      
-      if (!movement) {
-        throw new Error('Movimiento financiero no encontrado');
+      try {
+        const movement = await this.findByPk(movementId);
+        
+        if (!movement) {
+          throw new Error('Movimiento financiero no encontrado');
+        }
+        
+        if (!movement.isAutomatic) {
+          throw new Error('Solo se pueden adoptar movimientos automáticos');
+        }
+        
+        if (movement.registeredBy) {
+          throw new Error('Este movimiento ya tiene un usuario asignado');
+        }
+        
+        movement.registeredBy = userId;
+        await movement.save();
+        
+        return movement;
+      } catch (error) {
+        console.error('❌ Error adopting movement:', error);
+        throw error;
       }
-      
-      if (!movement.isAutomatic) {
-        throw new Error('Solo se pueden adoptar movimientos automáticos');
+    }
+
+    // ✅ NUEVO: Método helper para validar antes de crear
+    static async createSafely(movementData) {
+      try {
+        // Validaciones básicas
+        if (!movementData.amount || movementData.amount <= 0) {
+          throw new Error('Amount must be positive');
+        }
+        
+        if (!movementData.type || !['income', 'expense'].includes(movementData.type)) {
+          throw new Error('Type must be income or expense');
+        }
+        
+        if (!movementData.category) {
+          throw new Error('Category is required');
+        }
+        
+        if (!movementData.description || movementData.description.length < 5) {
+          throw new Error('Description must be at least 5 characters');
+        }
+
+        return await this.create(movementData);
+      } catch (error) {
+        console.error('❌ Error in createSafely:', error.message);
+        throw error;
       }
-      
-      if (movement.registeredBy) {
-        throw new Error('Este movimiento ya tiene un usuario asignado');
-      }
-      
-      movement.registeredBy = userId;
-      await movement.save();
-      
-      return movement;
     }
   }
 
