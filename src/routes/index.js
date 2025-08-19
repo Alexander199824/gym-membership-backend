@@ -1,4 +1,4 @@
-// src/routes/index.js - ACTUALIZADO: Incluir rutas multimedia
+// src/routes/index.js - ACTUALIZADO con testimonios
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -18,8 +18,11 @@ const contentRoutes = require('./contentRoutes');
 const brandingRoutes = require('./brandingRoutes');
 const promotionsRoutes = require('./promotionsRoutes');
 
-// 🎬 ✅ AGREGAR: Rutas multimedia (¡ESTA ERA LA LÍNEA FALTANTE!)
+// 🎬 RUTAS multimedia
 const gymMediaRoutes = require('./gymMediaRoutes');
+
+// ✅ NUEVO: Rutas de testimonios
+const testimonialRoutes = require('./testimonialRoutes');
 
 const router = express.Router();
 
@@ -32,7 +35,7 @@ router.get('/health', (req, res) => {
     success: true,
     message: 'Elite Fitness Club API - Sistema Completo con Frontend Integration',
     timestamp: new Date().toISOString(),
-    version: '2.2.0',
+    version: '2.3.0',
     services: {
       core: 'Active',
       auth: 'Active',
@@ -40,7 +43,8 @@ router.get('/health', (req, res) => {
       financial: 'Active',
       schedule: 'Active',
       frontend_integration: 'Active',
-      multimedia: 'Active', // ✅ NUEVO
+      multimedia: 'Active',
+      testimonials: 'Active', // ✅ NUEVO
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     frontend_endpoints: {
@@ -49,8 +53,10 @@ router.get('/health', (req, res) => {
       branding_theme: '/api/branding/theme',
       active_promotions: '/api/promotions/active',
       featured_products: '/api/store/featured-products',
-      upload_logo: '/api/gym-media/upload-logo', // ✅ NUEVO
-      upload_video: '/api/gym-media/upload-hero-video' // ✅ NUEVO
+      upload_logo: '/api/gym-media/upload-logo',
+      upload_video: '/api/gym-media/upload-hero-video',
+      create_testimonial: '/api/testimonials', // ✅ NUEVO
+      my_testimonials: '/api/testimonials/my-testimonials' // ✅ NUEVO
     }
   });
 });
@@ -63,7 +69,7 @@ router.get('/endpoints', (req, res) => {
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.2.0',
+    version: '2.3.0',
     endpoints: {
       core: {
         health: 'GET /api/health',
@@ -82,7 +88,17 @@ router.get('/endpoints', (req, res) => {
         contact: 'GET /api/gym/contact',
         hours: 'GET /api/gym/hours'
       },
-      // 🎬 ✅ NUEVO: Endpoints multimedia
+      // ✅ NUEVO: Endpoints de testimonios
+      testimonials: {
+        create: 'POST /api/testimonials (clientes)',
+        myTestimonials: 'GET /api/testimonials/my-testimonials (clientes)',
+        update: 'PATCH /api/testimonials/:id (clientes)',
+        pending: 'GET /api/testimonials/pending (admin)',
+        approve: 'POST /api/testimonials/:id/approve (admin)',
+        markNotPublic: 'POST /api/testimonials/:id/mark-not-public (admin)',
+        analysis: 'GET /api/testimonials/analysis (admin)',
+        stats: 'GET /api/testimonials/stats (admin)'
+      },
       'gym-media': {
         uploadLogo: 'POST /api/gym-media/upload-logo (admin)',
         uploadHeroVideo: 'POST /api/gym-media/upload-hero-video (admin)',
@@ -164,8 +180,11 @@ router.use('/content', contentRoutes);       // /api/content/*
 router.use('/branding', brandingRoutes);     // /api/branding/*
 router.use('/promotions', promotionsRoutes); // /api/promotions/*
 
-// 🎬 ✅ AGREGAR: Rutas multimedia (¡ESTA ERA LA LÍNEA FALTANTE!)
+// 🎬 Rutas multimedia
 router.use('/gym-media', gymMediaRoutes);    // /api/gym-media/*
+
+// ✅ NUEVO: Rutas de testimonios
+router.use('/testimonials', testimonialRoutes); // /api/testimonials/*
 
 // ✅ Manejo de rutas no encontradas
 router.use('*', (req, res) => {
@@ -180,7 +199,9 @@ router.use('*', (req, res) => {
       'GET /api/content/landing', 
       'GET /api/branding/theme',
       'GET /api/promotions/active',
-      'GET /api/store/featured-products'
+      'GET /api/store/featured-products',
+      'POST /api/testimonials', // ✅ NUEVO
+      'GET /api/testimonials/my-testimonials' // ✅ NUEVO
     ],
     multimedia_endpoints: [
       'POST /api/gym-media/upload-logo',

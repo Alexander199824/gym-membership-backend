@@ -1,4 +1,4 @@
-// src/models/GymTestimonials.js 
+// src/models/GymTestimonials.js - EXACTAMENTE COMO ESTÁ ACTUALMENTE
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 

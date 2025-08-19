@@ -328,4 +328,38 @@ db.diagnose = () => {
   };
 };
 
+if (db.Membership && db.User) {
+  if (!db.Membership.associations?.registeredByUser) {
+    db.Membership.belongsTo(db.User, { 
+      foreignKey: 'registeredBy', 
+      as: 'registeredByUser', 
+      constraints: false 
+    });
+    console.log('   ✅ Manual: Membership -> registeredByUser');
+  }
+}
+
+if (db.Payment && db.User) {
+  if (!db.Payment.associations?.registeredByUser) {
+    db.Payment.belongsTo(db.User, { 
+      foreignKey: 'registeredBy', 
+      as: 'registeredByUser', 
+      constraints: false 
+    });
+    console.log('   ✅ Manual: Payment -> registeredByUser');
+  }
+}
+
+// OPCIONAL: Asociación adicional para transferValidator
+if (db.Payment && db.User) {
+  if (!db.Payment.associations?.transferValidator) {
+    db.Payment.belongsTo(db.User, { 
+      foreignKey: 'transferValidatedBy', 
+      as: 'transferValidator', 
+      constraints: false 
+    });
+    console.log('   ✅ Manual: Payment -> transferValidator');
+  }
+}
+
 module.exports = db;
