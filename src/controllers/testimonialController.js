@@ -9,7 +9,7 @@ class TestimonialController {
     try {
       const { text, rating, role } = req.body;
       const userId = req.user.id;
-      const userName = req.user.getFullName();
+      const userName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email || `Usuario ${req.user.id}`;
 
       // Verificar que el usuario sea cliente
       if (req.user.role !== 'cliente') {
@@ -74,7 +74,10 @@ class TestimonialController {
   // ✅ Ver mis testimonios (cliente) - Solo mostrar los activos
   async getMyTestimonials(req, res) {
     try {
-      const userName = req.user.getFullName();
+
+        
+
+      const userName = req.user.firstName();
 
       // Buscar testimonios del usuario por nombre (solo activos - los publicados)
       const testimonials = await GymTestimonials.findAll({
@@ -191,7 +194,7 @@ class TestimonialController {
 
       await testimonial.save();
 
-      console.log(`✅ Admin ${req.user.getFullName()} aprobó testimonio de ${testimonial.name} (ID: ${id})`);
+      console.log(`✅ Admin ${req.user.firstName()} aprobó testimonio de ${testimonial.name} (ID: ${id})`);
 
       res.json({
         success: true,
@@ -235,7 +238,10 @@ class TestimonialController {
       // NO cambiar isActive (se queda en false)
       // El cliente nunca sabrá que no fue aprobado
 
-      console.log(`📝 Admin ${req.user.getFullName()} marcó como no público testimonio de ${testimonial.name}: ${reason || 'Sin razón especificada'}`);
+
+      
+
+     
 
       res.json({
         success: true,
