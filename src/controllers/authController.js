@@ -1,4 +1,4 @@
-// src/controllers/authController.js - ACTUALIZADO: Redirección por rol con Google OAuth
+// src/controllers/authController.js - ACTUALIZADO: Redirección por rol con Google OAuth + cambios individuales
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
@@ -308,9 +308,11 @@ async getProfile(req, res) {
   }
 }
 
- // Actualizar perfil
+ // ✅ MEJORADO: Actualizar perfil - Permite cambios individuales
 async updateProfile(req, res) {
   try {
+    console.log('💾 ACTUALIZANDO PERFIL - Datos recibidos:', req.body);
+    
     const {
       firstName,
       lastName,
@@ -318,28 +320,144 @@ async updateProfile(req, res) {
       whatsapp,
       dateOfBirth,
       emergencyContact,
-      notificationPreferences
+      notificationPreferences,
+      address,
+      city,
+      zipCode,
+      bio
     } = req.body;
 
     const user = req.user;
+    let hasChanges = false;
+    const changedFields = [];
 
-    // Actualizar campos permitidos
-    if (firstName) user.firstName = firstName;
-    if (lastName) user.lastName = lastName;
-    if (phone) user.phone = phone;
-    if (whatsapp) user.whatsapp = whatsapp;
-    if (dateOfBirth) user.dateOfBirth = dateOfBirth;
-    if (emergencyContact) user.emergencyContact = emergencyContact;
-    if (notificationPreferences) {
-      user.notificationPreferences = {
-        ...user.notificationPreferences,
-        ...notificationPreferences
-      };
+    // ✅ MEJORADO: Solo actualizar campos que se envían y son diferentes
+    if (firstName !== undefined && firstName !== user.firstName) {
+      console.log('📝 Actualizando firstName:', firstName);
+      user.firstName = firstName.trim();
+      hasChanges = true;
+      changedFields.push('firstName');
     }
 
+    if (lastName !== undefined && lastName !== user.lastName) {
+      console.log('📝 Actualizando lastName:', lastName);
+      user.lastName = lastName.trim();
+      hasChanges = true;
+      changedFields.push('lastName');
+    }
+
+    if (phone !== undefined && phone !== user.phone) {
+      console.log('📝 Actualizando phone:', phone);
+      user.phone = phone ? phone.trim() : null;
+      hasChanges = true;
+      changedFields.push('phone');
+    }
+
+    if (whatsapp !== undefined && whatsapp !== user.whatsapp) {
+      console.log('📝 Actualizando whatsapp:', whatsapp);
+      user.whatsapp = whatsapp ? whatsapp.trim() : null;
+      hasChanges = true;
+      changedFields.push('whatsapp');
+    }
+
+    if (dateOfBirth !== undefined && dateOfBirth !== user.dateOfBirth) {
+      console.log('📝 Actualizando dateOfBirth:', dateOfBirth);
+      user.dateOfBirth = dateOfBirth || null;
+      hasChanges = true;
+      changedFields.push('dateOfBirth');
+    }
+
+    // ✅ NUEVO: Soporte para campos adicionales
+    if (address !== undefined && address !== user.address) {
+      console.log('📝 Actualizando address:', address);
+      user.address = address ? address.trim() : null;
+      hasChanges = true;
+      changedFields.push('address');
+    }
+
+    if (city !== undefined && city !== user.city) {
+      console.log('📝 Actualizando city:', city);
+      user.city = city ? city.trim() : null;
+      hasChanges = true;
+      changedFields.push('city');
+    }
+
+    if (zipCode !== undefined && zipCode !== user.zipCode) {
+      console.log('📝 Actualizando zipCode:', zipCode);
+      user.zipCode = zipCode ? zipCode.trim() : null;
+      hasChanges = true;
+      changedFields.push('zipCode');
+    }
+
+    if (bio !== undefined && bio !== user.bio) {
+      console.log('📝 Actualizando bio:', bio);
+      user.bio = bio ? bio.trim() : null;
+      hasChanges = true;
+      changedFields.push('bio');
+    }
+
+    // ✅ MEJORADO: Manejar contacto de emergencia de forma inteligente
+    if (emergencyContact !== undefined) {
+      const currentEmergencyContact = user.emergencyContact || {};
+      let emergencyChanged = false;
+
+      const newEmergencyContact = {
+        name: emergencyContact.name ? emergencyContact.name.trim() : '',
+        phone: emergencyContact.phone ? emergencyContact.phone.trim() : '',
+        relationship: emergencyContact.relationship || ''
+      };
+
+      // Verificar si hay cambios en el contacto de emergencia
+      if (currentEmergencyContact.name !== newEmergencyContact.name ||
+          currentEmergencyContact.phone !== newEmergencyContact.phone ||
+          currentEmergencyContact.relationship !== newEmergencyContact.relationship) {
+        
+        console.log('📝 Actualizando emergencyContact:', newEmergencyContact);
+        user.emergencyContact = newEmergencyContact;
+        emergencyChanged = true;
+        hasChanges = true;
+        changedFields.push('emergencyContact');
+      }
+    }
+
+    // ✅ MEJORADO: Manejar preferencias de notificación
+    if (notificationPreferences !== undefined) {
+      const currentPreferences = user.notificationPreferences || {};
+      const newPreferences = {
+        ...currentPreferences,
+        ...notificationPreferences
+      };
+
+      // Verificar si hay cambios en las preferencias
+      if (JSON.stringify(currentPreferences) !== JSON.stringify(newPreferences)) {
+        console.log('📝 Actualizando notificationPreferences:', newPreferences);
+        user.notificationPreferences = newPreferences;
+        hasChanges = true;
+        changedFields.push('notificationPreferences');
+      }
+    }
+
+    // ✅ NUEVO: Verificar si realmente hay cambios antes de guardar
+    if (!hasChanges) {
+      console.log('ℹ️ No hay cambios reales para guardar');
+      return res.json({
+        success: true,
+        message: 'No hay cambios para actualizar',
+        data: { 
+          user: {
+            ...user.toJSON(),
+            profileImage: user.profileImage || ''
+          }
+        }
+      });
+    }
+
+    // Guardar cambios
     await user.save();
 
-    // ✅ Formatear respuesta con imagen de perfil (vacía por defecto)
+    console.log(`✅ Perfil actualizado exitosamente. Campos modificados: ${changedFields.join(', ')}`);
+
+    // ✅ FORMATEAR RESPUESTA con imagen de perfil (vacía por defecto)
     const userResponse = {
       ...user.toJSON(),
       profileImage: user.profileImage || '' // Vacía por defecto
@@ -347,11 +465,39 @@ async updateProfile(req, res) {
 
     res.json({
       success: true,
-      message: 'Perfil actualizado exitosamente',
-      data: { user: userResponse }
+      message: `Perfil actualizado exitosamente. Campos modificados: ${changedFields.join(', ')}`,
+      data: { 
+        user: userResponse,
+        changedFields: changedFields // ✅ NUEVO: Información sobre qué cambió
+      }
     });
+    
   } catch (error) {
-    console.error('Error al actualizar perfil:', error);
+    console.error('❌ Error al actualizar perfil:', error);
+    
+    // ✅ MEJORADO: Manejo de errores específicos
+    if (error.name === 'SequelizeValidationError') {
+      const validationErrors = error.errors.map(err => ({
+        field: err.path,
+        message: err.message,
+        value: err.value
+      }));
+
+      return res.status(422).json({
+        success: false,
+        message: 'Errores de validación',
+        errors: validationErrors
+      });
+    }
+
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      return res.status(422).json({
+        success: false,
+        message: 'Ya existe un usuario con esos datos',
+        field: error.errors[0]?.path
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: 'Error al actualizar perfil',
