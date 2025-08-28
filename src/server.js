@@ -1,4 +1,4 @@
-// src/server.js - CORREGIDO para Render: HTTP server primero
+// src/server.js - INTEGRADO: HTTP server + Servicios de Membresías
 const app = require('./app');
 const { 
   testConnection, 
@@ -8,6 +8,8 @@ const {
 } = require('./config/database');
 const notificationScheduler = require('./services/notificationScheduler');
 const { runSeeds } = require('./config/seeds');
+// ✅ NUEVA IMPORTACIÓN: Servicio de membresías diarias
+const dailyMembershipService = require('./services/dailyMembershipService');
 
 class Server {
   constructor() {
@@ -60,6 +62,7 @@ class Server {
           console.log(`   💰 Payments: http://${this.host}:${this.port}/api/payments`);
           console.log(`   🏢 Gym Config: http://${this.host}:${this.port}/api/gym`);
           console.log(`   🛍️ Store: http://${this.host}:${this.port}/api/store`);
+          console.log(`   ⚙️ Admin: http://${this.host}:${this.port}/api/admin`);
           console.log('\n🎉 Servidor respondiendo en Render! ');
           console.log('⏳ Inicializando base de datos en segundo plano...');
           resolve();
@@ -95,6 +98,9 @@ class Server {
       // ✅ Verificar e inicializar datos del gimnasio
       await this.initializeGymData();
 
+      // ✅ NUEVO: Inicializar servicios de membresías
+      await this.initializeMembershipServices();
+
       // ✅ Ejecutar seeds (opcional y sin fallar)
       await this.runSeedsWithErrorHandling();
 
@@ -116,6 +122,7 @@ class Server {
       console.log('\n💡 Para testing completo ejecuta:');
       console.log('   GET /api/health (verificar estado)');
       console.log('   GET /api/endpoints (ver todos los endpoints)');
+      console.log('   GET /api/admin/membership-service/status (servicios de membresías)');
 
     } catch (error) {
       console.error('❌ Error en inicialización en segundo plano:', error.message);
@@ -123,6 +130,49 @@ class Server {
       
       // No terminar el proceso, solo logear el error
       console.log('💡 El servidor continuará funcionando con funcionalidad básica');
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Inicializar servicios de membresías
+  async initializeMembershipServices() {
+    console.log('\n🎫 INICIALIZANDO SERVICIOS DE MEMBRESÍAS...');
+    
+    try {
+      // ✅ Verificar si la función de deducción automática está habilitada
+      const autoDeductionEnabled = process.env.MEMBERSHIP_AUTO_DEDUCTION !== 'false';
+      
+      if (autoDeductionEnabled) {
+        // ✅ Inicializar servicio de deducción diaria
+        console.log('🕒 Iniciando servicio de deducción diaria...');
+        dailyMembershipService.start();
+        
+        const status = dailyMembershipService.getStatus();
+        console.log(`   ✅ Estado: ${status.isRunning ? 'ACTIVO' : 'INACTIVO'}`);
+        console.log(`   📅 Programación: ${status.cronExpression} (${status.timezone})`);
+        console.log(`   📧 Email: ${status.emailService ? 'Configurado' : 'No configurado'}`);
+        
+        // ✅ Ejecutar proceso inicial si es necesario
+        const runInitialProcess = process.env.MEMBERSHIP_RUN_INITIAL_PROCESS === 'true';
+        if (runInitialProcess) {
+          console.log('🔄 Ejecutando proceso inicial de deducción...');
+          try {
+            const result = await dailyMembershipService.runManually();
+            console.log('   📊 Resultado:', result);
+          } catch (initialError) {
+            console.warn('   ⚠️ Error en proceso inicial:', initialError.message);
+          }
+        }
+      } else {
+        console.log('⏸️ Servicio de deducción diaria DESHABILITADO por configuración');
+      }
+      
+      console.log('✅ Servicios de membresías inicializados correctamente\n');
+      
+    } catch (error) {
+      console.error('❌ Error inicializando servicios de membresías:', error);
+      
+      // No detener el servidor si falla la inicialización del servicio
+      console.warn('⚠️ El servidor continuará sin el servicio de deducción automática');
     }
   }
 
@@ -173,165 +223,165 @@ class Server {
   }
 
   // ✅ FUNCIÓN CORREGIDA para server.js - initializeGymData
-async initializeGymData() {
-  try {
-    console.log('🏢 Verificando configuración del gimnasio...');
-    
-    const models = require('./models');
-    
-    // ✅ Verificar modelos disponibles
-    const requiredModels = [
-      'GymConfiguration', 'GymContactInfo', 'GymHours', 'GymStatistics',
-      'GymServices', 'MembershipPlans', 'StoreCategory', 'StoreBrand'
-    ];
-    
-    const availableModels = requiredModels.filter(model => models[model]);
-    const missingModels = requiredModels.filter(model => !models[model]);
-    
-    console.log(`📦 Modelos disponibles: ${availableModels.length}/${requiredModels.length}`);
-    
-    if (missingModels.length > 0) {
-      console.warn(`⚠️ Modelos faltantes: ${missingModels.join(', ')}`);
-    }
-
-    // ✅ PASO 1: Configuración básica del gimnasio
-    console.log('🔧 Inicializando configuración básica...');
-    
-    if (models.GymConfiguration) {
-      try {
-        const config = await models.GymConfiguration.findOne();
-        if (!config) {
-          console.log('   🆕 Primera instalación detectada');
-          await models.GymConfiguration.getConfig();
-          console.log('   ✅ GymConfiguration inicializada');
-        } else {
-          console.log('   ✅ GymConfiguration ya existe');
-        }
-      } catch (error) {
-        console.warn('   ⚠️ Error en GymConfiguration:', error.message);
-      }
-    }
-
-    // ✅ PASO 2: Otros datos del gimnasio
-    const gymDataPromises = [];
-    
-    if (models.GymContactInfo) {
-      gymDataPromises.push(
-        models.GymContactInfo.getContactInfo()
-          .then(() => console.log('   ✅ GymContactInfo verificada'))
-          .catch(e => console.warn('   ⚠️ Error en GymContactInfo:', e.message))
-      );
-    }
-    
-    if (models.GymHours) {
-      gymDataPromises.push(
-        models.GymHours.getWeeklySchedule()
-          .then(() => console.log('   ✅ GymHours verificados'))
-          .catch(e => console.warn('   ⚠️ Error en GymHours:', e.message))
-      );
-    }
-    
-    if (models.GymStatistics && models.GymStatistics.seedDefaultStats) {
-      gymDataPromises.push(
-        models.GymStatistics.seedDefaultStats()
-          .then(() => console.log('   ✅ GymStatistics verificadas'))
-          .catch(e => console.warn('   ⚠️ Error en GymStatistics:', e.message))
-      );
-    }
-    
-    if (models.GymServices && models.GymServices.seedDefaultServices) {
-      gymDataPromises.push(
-        models.GymServices.seedDefaultServices()
-          .then(() => console.log('   ✅ GymServices verificados'))
-          .catch(e => console.warn('   ⚠️ Error en GymServices:', e.message))
-      );
-    }
-    
-    if (models.MembershipPlans && models.MembershipPlans.seedDefaultPlans) {
-      gymDataPromises.push(
-        models.MembershipPlans.seedDefaultPlans()
-          .then(() => console.log('   ✅ MembershipPlans verificados'))
-          .catch(e => console.warn('   ⚠️ Error en MembershipPlans:', e.message))
-      );
-    }
-
-    // ✅ Ejecutar en paralelo (sin esperar que fallen)
-    if (gymDataPromises.length > 0) {
-      await Promise.allSettled(gymDataPromises);
-    }
-
-    // ✅ PASO 3: Datos de tienda (EN ORDEN SECUENCIAL)
-    console.log('🛍️ Verificando datos de tienda...');
-    
-    // 3.1: Verificar y crear categorías PRIMERO
-    if (models.StoreCategory) {
-      try {
-        const categoryCount = await models.StoreCategory.count();
-        if (categoryCount === 0) {
-          console.log('   🗂️ Creando categorías de tienda...');
-          if (models.StoreCategory.seedDefaultCategories) {
-            await models.StoreCategory.seedDefaultCategories();
-            console.log('   ✅ Categorías de tienda creadas');
-          }
-        } else {
-          console.log(`   ✅ Categorías ya existen (${categoryCount})`);
-        }
-      } catch (error) {
-        console.warn('   ⚠️ Error con categorías:', error.message);
-      }
-    }
-
-    // 3.2: Verificar y crear marcas SEGUNDO
-    if (models.StoreBrand) {
-      try {
-        const brandCount = await models.StoreBrand.count();
-        if (brandCount === 0) {
-          console.log('   🏷️ Creando marcas de tienda...');
-          if (models.StoreBrand.seedDefaultBrands) {
-            await models.StoreBrand.seedDefaultBrands();
-            console.log('   ✅ Marcas de tienda creadas');
-          }
-        } else {
-          console.log(`   ✅ Marcas ya existen (${brandCount})`);
-        }
-      } catch (error) {
-        console.warn('   ⚠️ Error con marcas:', error.message);
-      }
-    }
-
-    // ✅ PASO 4: Mostrar estadísticas
-    console.log('📊 Estado actual de la tienda:');
-    
+  async initializeGymData() {
     try {
-      if (models.StoreCategory) {
-        const catCount = await models.StoreCategory.count();
-        console.log(`   🗂️ Categorías: ${catCount}`);
-      }
+      console.log('🏢 Verificando configuración del gimnasio...');
       
-      if (models.StoreBrand) {
-        const brandCount = await models.StoreBrand.count();
-        console.log(`   🏷️ Marcas: ${brandCount}`);
-      }
+      const models = require('./models');
       
-      if (models.StoreProduct) {
-        const productCount = await models.StoreProduct.count();
-        console.log(`   📦 Productos: ${productCount}`);
-        
-        if (productCount === 0) {
-          console.log('   💡 Los productos se crearán en los seeds');
+      // ✅ Verificar modelos disponibles
+      const requiredModels = [
+        'GymConfiguration', 'GymContactInfo', 'GymHours', 'GymStatistics',
+        'GymServices', 'MembershipPlans', 'StoreCategory', 'StoreBrand'
+      ];
+      
+      const availableModels = requiredModels.filter(model => models[model]);
+      const missingModels = requiredModels.filter(model => !models[model]);
+      
+      console.log(`📦 Modelos disponibles: ${availableModels.length}/${requiredModels.length}`);
+      
+      if (missingModels.length > 0) {
+        console.warn(`⚠️ Modelos faltantes: ${missingModels.join(', ')}`);
+      }
+
+      // ✅ PASO 1: Configuración básica del gimnasio
+      console.log('🔧 Inicializando configuración básica...');
+      
+      if (models.GymConfiguration) {
+        try {
+          const config = await models.GymConfiguration.findOne();
+          if (!config) {
+            console.log('   🆕 Primera instalación detectada');
+            await models.GymConfiguration.getConfig();
+            console.log('   ✅ GymConfiguration inicializada');
+          } else {
+            console.log('   ✅ GymConfiguration ya existe');
+          }
+        } catch (error) {
+          console.warn('   ⚠️ Error en GymConfiguration:', error.message);
         }
       }
+
+      // ✅ PASO 2: Otros datos del gimnasio
+      const gymDataPromises = [];
+      
+      if (models.GymContactInfo) {
+        gymDataPromises.push(
+          models.GymContactInfo.getContactInfo()
+            .then(() => console.log('   ✅ GymContactInfo verificada'))
+            .catch(e => console.warn('   ⚠️ Error en GymContactInfo:', e.message))
+        );
+      }
+      
+      if (models.GymHours) {
+        gymDataPromises.push(
+          models.GymHours.getWeeklySchedule()
+            .then(() => console.log('   ✅ GymHours verificados'))
+            .catch(e => console.warn('   ⚠️ Error en GymHours:', e.message))
+        );
+      }
+      
+      if (models.GymStatistics && models.GymStatistics.seedDefaultStats) {
+        gymDataPromises.push(
+          models.GymStatistics.seedDefaultStats()
+            .then(() => console.log('   ✅ GymStatistics verificadas'))
+            .catch(e => console.warn('   ⚠️ Error en GymStatistics:', e.message))
+        );
+      }
+      
+      if (models.GymServices && models.GymServices.seedDefaultServices) {
+        gymDataPromises.push(
+          models.GymServices.seedDefaultServices()
+            .then(() => console.log('   ✅ GymServices verificados'))
+            .catch(e => console.warn('   ⚠️ Error en GymServices:', e.message))
+        );
+      }
+      
+      if (models.MembershipPlans && models.MembershipPlans.seedDefaultPlans) {
+        gymDataPromises.push(
+          models.MembershipPlans.seedDefaultPlans()
+            .then(() => console.log('   ✅ MembershipPlans verificados'))
+            .catch(e => console.warn('   ⚠️ Error en MembershipPlans:', e.message))
+        );
+      }
+
+      // ✅ Ejecutar en paralelo (sin esperar que fallen)
+      if (gymDataPromises.length > 0) {
+        await Promise.allSettled(gymDataPromises);
+      }
+
+      // ✅ PASO 3: Datos de tienda (EN ORDEN SECUENCIAL)
+      console.log('🛍️ Verificando datos de tienda...');
+      
+      // 3.1: Verificar y crear categorías PRIMERO
+      if (models.StoreCategory) {
+        try {
+          const categoryCount = await models.StoreCategory.count();
+          if (categoryCount === 0) {
+            console.log('   🗂️ Creando categorías de tienda...');
+            if (models.StoreCategory.seedDefaultCategories) {
+              await models.StoreCategory.seedDefaultCategories();
+              console.log('   ✅ Categorías de tienda creadas');
+            }
+          } else {
+            console.log(`   ✅ Categorías ya existen (${categoryCount})`);
+          }
+        } catch (error) {
+          console.warn('   ⚠️ Error con categorías:', error.message);
+        }
+      }
+
+      // 3.2: Verificar y crear marcas SEGUNDO
+      if (models.StoreBrand) {
+        try {
+          const brandCount = await models.StoreBrand.count();
+          if (brandCount === 0) {
+            console.log('   🏷️ Creando marcas de tienda...');
+            if (models.StoreBrand.seedDefaultBrands) {
+              await models.StoreBrand.seedDefaultBrands();
+              console.log('   ✅ Marcas de tienda creadas');
+            }
+          } else {
+            console.log(`   ✅ Marcas ya existen (${brandCount})`);
+          }
+        } catch (error) {
+          console.warn('   ⚠️ Error con marcas:', error.message);
+        }
+      }
+
+      // ✅ PASO 4: Mostrar estadísticas
+      console.log('📊 Estado actual de la tienda:');
+      
+      try {
+        if (models.StoreCategory) {
+          const catCount = await models.StoreCategory.count();
+          console.log(`   🗂️ Categorías: ${catCount}`);
+        }
+        
+        if (models.StoreBrand) {
+          const brandCount = await models.StoreBrand.count();
+          console.log(`   🏷️ Marcas: ${brandCount}`);
+        }
+        
+        if (models.StoreProduct) {
+          const productCount = await models.StoreProduct.count();
+          console.log(`   📦 Productos: ${productCount}`);
+          
+          if (productCount === 0) {
+            console.log('   💡 Los productos se crearán en los seeds');
+          }
+        }
+        
+      } catch (error) {
+        console.warn('   ⚠️ Error obteniendo estadísticas:', error.message);
+      }
+      
+      console.log('✅ Inicialización de datos del gimnasio completada');
       
     } catch (error) {
-      console.warn('   ⚠️ Error obteniendo estadísticas:', error.message);
+      console.warn('⚠️ Error al verificar configuración del gimnasio (no crítico):', error.message);
     }
-    
-    console.log('✅ Inicialización de datos del gimnasio completada');
-    
-  } catch (error) {
-    console.warn('⚠️ Error al verificar configuración del gimnasio (no crítico):', error.message);
   }
-}
 
   async runSeedsWithErrorHandling() {
     try {
@@ -420,6 +470,12 @@ async initializeGymData() {
       console.log('✅ Modo normal: Se mantendrán los datos existentes');
     }
 
+    // ✅ NUEVO: Mostrar configuración de servicios de membresías
+    const membershipAutoDeduction = process.env.MEMBERSHIP_AUTO_DEDUCTION !== 'false';
+    const membershipInitialProcess = process.env.MEMBERSHIP_RUN_INITIAL_PROCESS === 'true';
+    console.log(`🎫 Deducción automática de membresías: ${membershipAutoDeduction ? 'Habilitada' : 'Deshabilitada'}`);
+    console.log(`🔄 Proceso inicial de deducción: ${membershipInitialProcess ? 'Habilitado' : 'Deshabilitado'}`);
+
     // ✅ Verificar servicios opcionales
     const serviceStatus = {
       cloudinary: process.env.CLOUDINARY_CLOUD_NAME && !process.env.CLOUDINARY_CLOUD_NAME.startsWith('your_') ? 'Configurado' : 'Pendiente',
@@ -440,19 +496,26 @@ async initializeGymData() {
     return true;
   }
 
+  // ✅ ACTUALIZADO: Graceful shutdown con servicios de membresías
   setupGracefulShutdown() {
     ['SIGTERM', 'SIGINT'].forEach(signal => {
       process.on(signal, async () => {
         console.log(`\n📴 Recibida señal ${signal}, cerrando servidor...`);
         
         try {
+          // ✅ NUEVO: Detener servicio de membresías
+          console.log('🎫 Deteniendo servicios de membresías...');
+          dailyMembershipService.stop();
+          console.log('   ✅ Servicio de membresías detenido');
+          
           if (notificationScheduler) {
             notificationScheduler.stop();
+            console.log('   ✅ Programador de notificaciones detenido');
           }
           
           if (this.server) {
             this.server.close(() => {
-              console.log('✅ Servidor HTTP cerrado');
+              console.log('   ✅ Servidor HTTP cerrado');
             });
           }
           

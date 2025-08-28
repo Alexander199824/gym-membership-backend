@@ -889,6 +889,669 @@ class StripeController {
       });
     }
   }
+// AGREGAR estos métodos al stripeController.js EXISTENTE
+
+// ✅ NUEVO: Crear Payment Intent específico para compra de membresía con horarios
+async createMembershipPurchaseIntent(req, res) {
+  try {
+    const { planId, selectedSchedule, userId } = req.body;
+    const user = req.user; // Puede ser null para invitados, pero membresías requieren login
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Debes iniciar sesión para comprar una membresía'
+      });
+    }
+    
+    const { MembershipPlans, Membership, GymTimeSlots } = require('../models');
+    
+    // Verificar que el plan existe
+    const plan = await MembershipPlans.findByPk(planId);
+    if (!plan || !plan.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Plan de membresía no encontrado'
+      });
+    }
+    
+    // Verificar que no tenga membresía activa
+    const existingMembership = await Membership.findOne({
+      where: {
+        userId: user.id,
+        status: 'active'
+      }
+    });
+    
+    if (existingMembership) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ya tienes una membresía activa'
+      });
+    }
+    
+    // Verificar disponibilidad de horarios si se seleccionaron
+    const scheduleValidation = [];
+    if (selectedSchedule && Object.keys(selectedSchedule).length > 0) {
+      for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+        if (Array.isArray(timeSlotIds)) {
+          for (const timeSlotId of timeSlotIds) {
+            const slot = await GymTimeSlots.findByPk(timeSlotId);
+            
+            if (!slot || slot.currentReservations >= slot.capacity) {
+              scheduleValidation.push({
+                day,
+                timeSlotId,
+                available: false,
+                reason: !slot ? 'Franja no encontrada' : 'Sin capacidad'
+              });
+            } else {
+              scheduleValidation.push({
+                day,
+                timeSlotId,
+                available: true,
+                slot: {
+                  openTime: slot.openTime,
+                  closeTime: slot.closeTime,
+                  label: slot.slotLabel
+                }
+              });
+            }
+          }
+        }
+      }
+      
+      const unavailableSlots = scheduleValidation.filter(v => !v.available);
+      if (unavailableSlots.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Algunos horarios seleccionados no están disponibles',
+          unavailableSlots
+        });
+      }
+    }
+    
+    // ✅ Datos específicos para membresía
+    const membershipData = {
+      planId: plan.id,
+      planName: plan.planName,
+      durationType: plan.durationType,
+      price: parseFloat(plan.price),
+      originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
+      discountPercentage: plan.getDiscountPercentage(),
+      selectedSchedule: selectedSchedule || {},
+      scheduleValidation
+    };
+    
+    // ✅ Información del usuario
+    const userInfo = {
+      id: user.id,
+      name: user.getFullName(),
+      email: user.email,
+      phone: user.phone
+    };
+    
+    // ✅ Crear Payment Intent en Stripe con metadata específica
+    const stripeResult = await stripeService.createPaymentIntent({
+      amount: Math.round(membershipData.price * 100), // Centavos
+      currency: 'gtq',
+      metadata: {
+        type: 'membership_purchase',
+        planId: plan.id.toString(),
+        planName: plan.planName,
+        durationType: plan.durationType,
+        userId: user.id,
+        userName: user.getFullName(),
+        userEmail: user.email,
+        hasSchedule: Object.keys(selectedSchedule || {}).length > 0 ? 'true' : 'false',
+        scheduleData: JSON.stringify(selectedSchedule || {}),
+        timestamp: Date.now().toString()
+      }
+    });
+    
+    if (!stripeResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Error al crear intención de pago',
+        error: stripeResult.error
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Intención de pago para membresía creada exitosamente',
+      data: {
+        clientSecret: stripeResult.clientSecret,
+        paymentIntentId: stripeResult.paymentIntent.id,
+        amount: stripeResult.amount,
+        currency: stripeResult.currency,
+        membership: membershipData,
+        user: userInfo,
+        schedulePreview: scheduleValidation
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error al crear Payment Intent para membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar solicitud de pago de membresía',
+      error: error.message
+    });
+  }
+}
+
+// ✅ MEJORAR: Confirmar pago de membresía con creación automática
+async confirmMembershipPayment(req, res) {
+  try {
+    const { paymentIntentId } = req.body;
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario requerido para confirmar pago de membresía'
+      });
+    }
+    
+    console.log('💳 Confirmando pago de membresía:', { paymentIntentId, userId: user.id });
+    
+    // ✅ Obtener detalles del pago de Stripe
+    const stripeResult = await stripeService.confirmPayment(paymentIntentId);
+    
+    if (!stripeResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: 'Error al confirmar pago con Stripe',
+        error: stripeResult.error
+      });
+    }
+    
+    const paymentIntent = stripeResult.paymentIntent;
+    
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(400).json({
+        success: false,
+        message: 'El pago no ha sido completado exitosamente',
+        status: paymentIntent.status
+      });
+    }
+    
+    const metadata = paymentIntent.metadata || {};
+    
+    // Verificar que es un pago de membresía
+    if (metadata.type !== 'membership_purchase') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago no es para una membresía'
+      });
+    }
+    
+    console.log('✅ Pago de membresía confirmado en Stripe:', paymentIntent.id);
+    
+    const { 
+      MembershipPlans, 
+      Membership, 
+      Payment, 
+      FinancialMovements 
+    } = require('../models');
+    
+    const transaction = await Membership.sequelize.transaction();
+    
+    try {
+      // ✅ Obtener el plan de membresía
+      const planId = parseInt(metadata.planId);
+      const plan = await MembershipPlans.findByPk(planId);
+      
+      if (!plan) {
+        await transaction.rollback();
+        return res.status(404).json({
+          success: false,
+          message: 'Plan de membresía no encontrado'
+        });
+      }
+      
+      // ✅ Verificar que el usuario no tenga membresía activa
+      const existingMembership = await Membership.findOne({
+        where: {
+          userId: user.id,
+          status: 'active'
+        }
+      });
+      
+      if (existingMembership) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Ya tienes una membresía activa'
+        });
+      }
+      
+      // ✅ Parsear horarios seleccionados
+      let selectedSchedule = {};
+      try {
+        selectedSchedule = metadata.scheduleData ? JSON.parse(metadata.scheduleData) : {};
+      } catch (parseError) {
+        console.warn('⚠️ Error parseando horarios:', parseError.message);
+        selectedSchedule = {};
+      }
+      
+      // ✅ Crear membresía con horarios
+      const membershipData = {
+        userId: user.id,
+        type: plan.durationType,
+        price: plan.price,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + (plan.durationType === 'monthly' ? 30 : 
+                         plan.durationType === 'quarterly' ? 90 : 
+                         plan.durationType === 'annual' ? 365 : 30) * 24 * 60 * 60 * 1000),
+        notes: `Membresía comprada online: ${plan.planName}`,
+        registeredBy: user.id,
+        status: 'active'
+      };
+      
+      const membership = await Membership.createWithSchedule(
+        membershipData, 
+        selectedSchedule,
+        { transaction }
+      );
+      
+      console.log('✅ Membresía creada:', membership.id);
+      
+      // ✅ Crear registro de pago
+      const paymentData = stripeService.formatPaymentData(paymentIntent, {
+        userId: user.id,
+        membershipId: membership.id,
+        registeredBy: user.id,
+        paymentType: 'membership',
+        description: `Compra de membresía ${plan.planName} - Stripe`,
+        notes: `Plan: ${plan.planName}, Duración: ${plan.durationType}`
+      });
+      
+      const payment = await Payment.create(paymentData, { transaction });
+      console.log('✅ Pago registrado:', payment.id);
+      
+      // ✅ Crear movimiento financiero
+      await FinancialMovements.createFromAnyPayment(payment, { transaction });
+      console.log('✅ Movimiento financiero creado');
+      
+      await transaction.commit();
+      
+      // ✅ Obtener membresía completa con horarios para respuesta
+      const completeMembership = await Membership.findByPk(membership.id, {
+        include: [
+          { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
+        ]
+      });
+      
+      const detailedSchedule = await completeMembership.getDetailedSchedule();
+      const summary = completeMembership.getSummary();
+      
+      // ✅ Enviar email de confirmación
+      try {
+        const membershipController = require('../controllers/membershipController');
+        await membershipController.sendMembershipConfirmationEmail(
+          completeMembership, 
+          plan, 
+          detailedSchedule
+        );
+        console.log('✅ Email de confirmación enviado');
+      } catch (emailError) {
+        console.warn('⚠️ Error enviando email de confirmación:', emailError.message);
+      }
+      
+      console.log(`✅ Compra de membresía completada exitosamente: ${plan.planName} para ${user.getFullName()}`);
+      
+      res.json({
+        success: true,
+        message: 'Membresía comprada exitosamente',
+        data: {
+          membership: {
+            ...completeMembership.toJSON(),
+            summary,
+            schedule: detailedSchedule
+          },
+          payment: {
+            id: payment.id,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            status: payment.status,
+            paymentDate: payment.paymentDate,
+            stripePaymentIntentId: paymentIntent.id
+          },
+          plan: {
+            id: plan.id,
+            name: plan.planName,
+            durationType: plan.durationType,
+            price: plan.price,
+            discountPercentage: plan.getDiscountPercentage()
+          },
+          stripe: {
+            paymentIntentId: paymentIntent.id,
+            status: paymentIntent.status
+          }
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      console.error('❌ Error en transacción de membresía:', error);
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('❌ Error al confirmar pago de membresía:', error);
+    
+    let errorMessage = 'Error al confirmar compra de membresía';
+    
+    if (error.name === 'SequelizeValidationError') {
+      console.error('📋 Errores de validación:', error.errors?.map(e => e.message));
+      errorMessage = 'Error de validación: ' + error.errors?.map(e => e.message).join(', ');
+    } else if (error.message.includes('Ya tienes una membresía activa')) {
+      errorMessage = 'Ya tienes una membresía activa';
+    } else if (error.message.includes('Plan de membresía no encontrado')) {
+      errorMessage = 'Plan de membresía no válido';
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: errorMessage,
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Obtener historial de pagos de membresías del usuario
+async getMembershipPaymentHistory(req, res) {
+  try {
+    const user = req.user;
+    
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario requerido'
+      });
+    }
+    
+    const { Payment } = require('../models');
+    const { limit = 10, page = 1 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    // Obtener pagos de membresías del usuario
+    const { count, rows } = await Payment.findAndCountAll({
+      where: {
+        userId: user.id,
+        paymentType: 'membership',
+        paymentMethod: 'card', // Solo pagos con tarjeta (Stripe)
+        cardTransactionId: { [Payment.sequelize.Sequelize.Op.not]: null }
+      },
+      include: [
+        {
+          association: 'membership',
+          attributes: ['id', 'type', 'startDate', 'endDate', 'status']
+        }
+      ],
+      order: [['paymentDate', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+    
+    // Formatear respuesta
+    const formattedPayments = rows.map(payment => ({
+      id: payment.id,
+      amount: payment.amount,
+      paymentDate: payment.paymentDate,
+      status: payment.status,
+      description: payment.description,
+      cardLast4: payment.cardLast4,
+      stripePaymentIntentId: payment.cardTransactionId,
+      membership: payment.membership ? {
+        id: payment.membership.id,
+        type: payment.membership.type,
+        startDate: payment.membership.startDate,
+        endDate: payment.membership.endDate,
+        status: payment.membership.status
+      } : null
+    }));
+    
+    res.json({
+      success: true,
+      data: {
+        payments: formattedPayments,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          pages: Math.ceil(count / limit),
+          limit: parseInt(limit)
+        },
+        summary: {
+          totalPaid: rows.reduce((sum, p) => sum + parseFloat(p.amount), 0),
+          totalTransactions: count,
+          lastPayment: rows.length > 0 ? rows[0].paymentDate : null
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error al obtener historial de pagos de membresías:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener historial de pagos',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Crear reembolso de membresía (solo admin)
+async refundMembershipPayment(req, res) {
+  try {
+    const { paymentId, reason, partialAmount } = req.body;
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo administradores pueden procesar reembolsos'
+      });
+    }
+    
+    const { Payment, Membership } = require('../models');
+    
+    // Buscar el pago de membresía
+    const payment = await Payment.findByPk(paymentId, {
+      include: [
+        {
+          association: 'membership',
+          include: [{ association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }]
+        }
+      ]
+    });
+    
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
+    
+    if (payment.paymentType !== 'membership') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago no es de una membresía'
+      });
+    }
+    
+    if (!payment.cardTransactionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago no se puede reembolsar (no es pago con tarjeta)'
+      });
+    }
+    
+    if (payment.status === 'refunded') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago ya fue reembolsado'
+      });
+    }
+    
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
+      // ✅ Crear reembolso en Stripe
+      const refundAmount = partialAmount ? Math.round(parseFloat(partialAmount) * 100) : null;
+      const stripeRefund = await stripeService.createRefund(
+        payment.cardTransactionId,
+        refundAmount,
+        reason || 'Reembolso de membresía solicitado por administrador'
+      );
+      
+      if (!stripeRefund.success) {
+        await transaction.rollback();
+        return res.status(400).json({
+          success: false,
+          message: 'Error al crear reembolso en Stripe',
+          error: stripeRefund.error
+        });
+      }
+      
+      // ✅ Actualizar pago
+      payment.status = 'refunded';
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\nReembolsado: ${reason || 'Sin razón especificada'} - Stripe Refund ID: ${stripeRefund.refundId}`
+        : `Reembolsado: ${reason || 'Sin razón especificada'} - Stripe Refund ID: ${stripeRefund.refundId}`;
+      await payment.save({ transaction });
+      
+      // ✅ Cancelar membresía si está activa
+      const membership = payment.membership;
+      if (membership && membership.status === 'active') {
+        membership.status = 'cancelled';
+        membership.notes = membership.notes 
+          ? `${membership.notes}\n\nCancelada por reembolso: ${reason || 'Reembolso procesado'}`
+          : `Cancelada por reembolso: ${reason || 'Reembolso procesado'}`;
+        
+        // Liberar horarios reservados
+        if (membership.reservedSchedule) {
+          for (const [day, timeSlotIds] of Object.entries(membership.reservedSchedule)) {
+            if (Array.isArray(timeSlotIds)) {
+              for (const timeSlotId of timeSlotIds) {
+                await membership.cancelTimeSlot(day, timeSlotId);
+              }
+            }
+          }
+        }
+        
+        await membership.save({ transaction });
+      }
+      
+      // ✅ Crear movimiento financiero de reembolso
+      const { FinancialMovements } = require('../models');
+      await FinancialMovements.create({
+        type: 'expense',
+        category: 'other_expense',
+        description: `Reembolso de membresía - ${payment.description}`,
+        amount: partialAmount || payment.amount,
+        paymentMethod: 'card',
+        referenceId: payment.id,
+        referenceType: 'payment',
+        registeredBy: req.user.id,
+        notes: `Reembolso Stripe ID: ${stripeRefund.refundId}. Razón: ${reason || 'Sin razón especificada'}`
+      }, { transaction });
+      
+      await transaction.commit();
+      
+      // ✅ Enviar email de notificación al usuario (opcional)
+      try {
+        if (membership?.user?.email && this.emailService?.isConfigured) {
+          await this.emailService.sendEmail({
+            to: membership.user.email,
+            subject: 'Reembolso Procesado - Elite Fitness Club',
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <div style="background: #10b981; padding: 20px; text-align: center; color: white;">
+                  <h1>💰 Reembolso Procesado</h1>
+                </div>
+                <div style="padding: 20px;">
+                  <p>Hola ${membership.user.firstName},</p>
+                  <p>Tu reembolso ha sido procesado exitosamente.</p>
+                  
+                  <div style="background: #f0f9ff; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                    <h3>Detalles del Reembolso:</h3>
+                    <p><strong>Monto:</strong> Q${partialAmount || payment.amount}</p>
+                    <p><strong>Método:</strong> Tarjeta terminada en ${payment.cardLast4}</p>
+                    <p><strong>Razón:</strong> ${reason || 'Reembolso solicitado'}</p>
+                  </div>
+                  
+                  <p>El reembolso aparecerá en tu estado de cuenta en 5-10 días hábiles.</p>
+                  
+                  <p>Si tienes alguna pregunta, no dudes en contactarnos.</p>
+                  
+                  <p>Saludos,<br>Elite Fitness Club</p>
+                </div>
+              </div>
+            `,
+            text: `
+Reembolso Procesado
+
+Hola ${membership.user.firstName},
+
+Tu reembolso ha sido procesado:
+- Monto: Q${partialAmount || payment.amount}
+- Método: Tarjeta terminada en ${payment.cardLast4}
+- Razón: ${reason || 'Reembolso solicitado'}
+
+El reembolso aparecerá en tu estado de cuenta en 5-10 días hábiles.
+
+Elite Fitness Club
+            `
+          });
+        }
+      } catch (emailError) {
+        console.warn('⚠️ Error enviando email de reembolso:', emailError.message);
+      }
+      
+      console.log(`✅ Reembolso procesado: ${payment.id} - Q${partialAmount || payment.amount}`);
+      
+      res.json({
+        success: true,
+        message: 'Reembolso procesado exitosamente',
+        data: {
+          refund: {
+            id: stripeRefund.refundId,
+            amount: stripeRefund.amount / 100,
+            status: stripeRefund.status,
+            reason: reason || 'Reembolso solicitado'
+          },
+          payment: {
+            id: payment.id,
+            status: payment.status,
+            originalAmount: parseFloat(payment.amount),
+            refundedAmount: partialAmount || parseFloat(payment.amount)
+          },
+          membership: membership ? {
+            id: membership.id,
+            status: membership.status,
+            cancelledAt: new Date()
+          } : null
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al procesar reembolso de membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar reembolso',
+      error: error.message
+    });
+  }
+}
+
+
 }
 
 module.exports = new StripeController();

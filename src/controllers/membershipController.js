@@ -844,6 +844,725 @@ class MembershipController {
       });
     }
   }
+
+
+  // AGREGAR estos métodos al membershipController.js EXISTENTE
+
+// ✅ NUEVO: Obtener planes disponibles con disponibilidad de horarios
+async getPurchaseableePlans(req, res) {
+  try {
+    const { MembershipPlans, GymHours, GymTimeSlots } = require('../models');
+    
+    // Obtener planes activos
+    const plans = await MembershipPlans.getActivePlans();
+    
+    // Obtener disponibilidad de horarios
+    const flexibleSchedule = await GymHours.getFlexibleSchedule();
+    
+    // Formatear planes con información de disponibilidad
+    const plansWithAvailability = plans.map(plan => {
+      const totalCapacity = Object.values(flexibleSchedule).reduce((total, day) => {
+        if (day.isOpen && day.timeSlots) {
+          return total + day.timeSlots.reduce((dayTotal, slot) => dayTotal + slot.capacity, 0);
+        }
+        return total;
+      }, 0);
+      
+      const totalReserved = Object.values(flexibleSchedule).reduce((total, day) => {
+        if (day.isOpen && day.timeSlots) {
+          return total + day.timeSlots.reduce((dayTotal, slot) => dayTotal + slot.reservations, 0);
+        }
+        return total;
+      }, 0);
+      
+      return {
+        id: plan.id,
+        name: plan.planName,
+        price: parseFloat(plan.price),
+        originalPrice: plan.originalPrice ? parseFloat(plan.originalPrice) : null,
+        durationType: plan.durationType,
+        features: plan.features || [],
+        isPopular: plan.isPopular,
+        iconName: plan.iconName,
+        discountPercentage: plan.getDiscountPercentage(),
+        // ✅ NUEVO: Información de disponibilidad
+        availability: {
+          totalCapacity,
+          totalReserved,
+          availableSpaces: totalCapacity - totalReserved,
+          occupancyPercentage: totalCapacity > 0 ? Math.round((totalReserved / totalCapacity) * 100) : 0
+        }
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        plans: plansWithAvailability,
+        scheduleAvailability: flexibleSchedule
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener planes comprables:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener planes disponibles',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Verificar disponibilidad de horarios para una compra
+async checkScheduleAvailability(req, res) {
+  try {
+    const { planId, selectedSchedule } = req.body;
+    
+    if (!selectedSchedule || Object.keys(selectedSchedule).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debe seleccionar al menos un horario'
+      });
+    }
+    
+    const { GymTimeSlots } = require('../models');
+    const availability = {};
+    const conflicts = [];
+    
+    // Verificar cada día y franja seleccionada
+    for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+      availability[day] = [];
+      
+      if (Array.isArray(timeSlotIds)) {
+        for (const timeSlotId of timeSlotIds) {
+          const slot = await GymTimeSlots.findByPk(timeSlotId);
+          
+          if (!slot) {
+            conflicts.push({
+              day,
+              timeSlotId,
+              error: 'Franja horaria no encontrada'
+            });
+            continue;
+          }
+          
+          const hasCapacity = slot.currentReservations < slot.capacity;
+          const slotInfo = {
+            id: slot.id,
+            openTime: slot.openTime,
+            closeTime: slot.closeTime,
+            capacity: slot.capacity,
+            currentReservations: slot.currentReservations,
+            available: hasCapacity,
+            label: slot.slotLabel
+          };
+          
+          availability[day].push(slotInfo);
+          
+          if (!hasCapacity) {
+            conflicts.push({
+              day,
+              timeSlotId,
+              slot: slotInfo,
+              error: 'Sin capacidad disponible'
+            });
+          }
+        }
+      }
+    }
+    
+    const canPurchase = conflicts.length === 0;
+    
+    res.json({
+      success: true,
+      data: {
+        canPurchase,
+        availability,
+        conflicts,
+        message: canPurchase 
+          ? 'Todos los horarios están disponibles'
+          : `${conflicts.length} conflictos encontrados`
+      }
+    });
+  } catch (error) {
+    console.error('Error al verificar disponibilidad:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al verificar disponibilidad de horarios',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Comprar membresía (clientes) o crear membresía con horarios (staff)
+async purchaseMembership(req, res) {
+  try {
+    const {
+      planId,
+      selectedSchedule = {},
+      paymentMethod = 'pending', // 'cash', 'card', 'transfer', 'pending'
+      notes,
+      userId // Solo para staff
+    } = req.body;
+    
+    const { MembershipPlans, Membership, Payment, FinancialMovements } = require('../models');
+    
+    // Determinar el usuario target
+    let targetUserId = req.user.id;
+    let isStaffPurchase = false;
+    
+    if (['admin', 'colaborador'].includes(req.user.role) && userId) {
+      targetUserId = userId;
+      isStaffPurchase = true;
+    }
+    
+    // Verificar que el plan existe
+    const plan = await MembershipPlans.findByPk(planId);
+    if (!plan || !plan.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Plan de membresía no encontrado o inactivo'
+      });
+    }
+    
+    // Verificar que no tenga una membresía activa del mismo tipo
+    const existingMembership = await Membership.findOne({
+      where: {
+        userId: targetUserId,
+        status: 'active'
+      }
+    });
+    
+    if (existingMembership) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ya tienes una membresía activa. Debe expirar antes de comprar otra.'
+      });
+    }
+    
+    // Verificar disponibilidad de horarios si se seleccionaron
+    if (Object.keys(selectedSchedule).length > 0) {
+      const { GymTimeSlots } = require('../models');
+      
+      for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+        if (Array.isArray(timeSlotIds)) {
+          for (const timeSlotId of timeSlotIds) {
+            const slot = await GymTimeSlots.findByPk(timeSlotId);
+            
+            if (!slot || slot.currentReservations >= slot.capacity) {
+              return res.status(400).json({
+                success: false,
+                message: `Franja horaria no disponible: ${day} ${slot?.openTime || timeSlotId}`,
+                unavailableSlot: { day, timeSlotId }
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    const transaction = await Membership.sequelize.transaction();
+    
+    try {
+      // Crear membresía con horarios
+      const membershipData = {
+        userId: targetUserId,
+        type: plan.durationType,
+        price: plan.price,
+        startDate: new Date(),
+        endDate: new Date(Date.now() + (plan.durationType === 'monthly' ? 30 : 
+                         plan.durationType === 'quarterly' ? 90 : 365) * 24 * 60 * 60 * 1000),
+        notes: notes || `Membresía ${plan.planName}`,
+        registeredBy: req.user.id,
+        status: paymentMethod === 'pending' ? 'pending' : 'active'
+      };
+      
+      const membership = await Membership.createWithSchedule(
+        membershipData, 
+        selectedSchedule, 
+        { transaction }
+      );
+      
+      // Crear pago si no está pendiente
+      let payment = null;
+      if (paymentMethod !== 'pending') {
+        const paymentData = {
+          userId: targetUserId,
+          membershipId: membership.id,
+          amount: plan.price,
+          paymentMethod,
+          paymentType: 'membership',
+          description: `Compra de membresía ${plan.planName}`,
+          registeredBy: req.user.id,
+          status: isStaffPurchase ? 'completed' : (paymentMethod === 'transfer' ? 'pending' : 'completed')
+        };
+        
+        payment = await Payment.create(paymentData, { transaction });
+        
+        // Crear movimiento financiero si el pago está completo
+        if (payment.status === 'completed') {
+          await FinancialMovements.createFromAnyPayment(payment, { transaction });
+        }
+      }
+      
+      await transaction.commit();
+      
+      // Obtener membresía completa con horarios
+      const completeMembership = await Membership.findByPk(membership.id, {
+        include: [
+          { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
+        ]
+      });
+      
+      const detailedSchedule = await completeMembership.getDetailedSchedule();
+      
+      // ✅ ENVIAR EMAIL DE CONFIRMACIÓN
+      try {
+        await this.sendMembershipConfirmationEmail(completeMembership, plan, detailedSchedule);
+      } catch (emailError) {
+        console.warn('⚠️ Error al enviar email de confirmación:', emailError.message);
+      }
+      
+      console.log(`✅ ${isStaffPurchase ? 'Staff creó' : 'Cliente compró'} membresía: ${plan.planName} para usuario ${targetUserId}`);
+      
+      res.status(201).json({
+        success: true,
+        message: isStaffPurchase 
+          ? 'Membresía creada exitosamente'
+          : 'Membresía comprada exitosamente',
+        data: {
+          membership: {
+            ...completeMembership.toJSON(),
+            summary: completeMembership.getSummary(),
+            schedule: detailedSchedule
+          },
+          payment: payment?.toJSON() || null,
+          plan: {
+            name: plan.planName,
+            price: plan.price,
+            durationType: plan.durationType
+          }
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al comprar membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar la compra de membresía',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Actualizar horarios de membresía existente
+async updateMembershipSchedule(req, res) {
+  try {
+    const { id } = req.params;
+    const { selectedSchedule, replaceAll = false } = req.body;
+    
+    const membership = await Membership.findByPk(id, {
+      include: [{ association: 'user', attributes: ['id', 'role'] }]
+    });
+    
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'Membresía no encontrada'
+      });
+    }
+    
+    // Validar permisos
+    if (req.user.role === 'cliente') {
+      if (membership.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes modificar tus propios horarios'
+        });
+      }
+    } else if (req.user.role === 'colaborador') {
+      if (membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes modificar horarios de usuarios clientes'
+        });
+      }
+    }
+    
+    const transaction = await Membership.sequelize.transaction();
+    
+    try {
+      // Si replaceAll es true, liberar todas las reservas actuales
+      if (replaceAll && membership.reservedSchedule) {
+        for (const [day, timeSlotIds] of Object.entries(membership.reservedSchedule)) {
+          if (Array.isArray(timeSlotIds)) {
+            for (const timeSlotId of timeSlotIds) {
+              await membership.cancelTimeSlot(day, timeSlotId);
+            }
+          }
+        }
+      }
+      
+      // Agregar nuevas reservas
+      if (selectedSchedule && Object.keys(selectedSchedule).length > 0) {
+        for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+          if (Array.isArray(timeSlotIds)) {
+            for (const timeSlotId of timeSlotIds) {
+              try {
+                await membership.reserveTimeSlot(day, timeSlotId);
+              } catch (reserveError) {
+                await transaction.rollback();
+                return res.status(400).json({
+                  success: false,
+                  message: `Error al reservar ${day}: ${reserveError.message}`,
+                  conflictSlot: { day, timeSlotId }
+                });
+              }
+            }
+          }
+        }
+      }
+      
+      await transaction.commit();
+      
+      // Obtener horarios actualizados
+      const updatedSchedule = await membership.getDetailedSchedule();
+      
+      res.json({
+        success: true,
+        message: 'Horarios actualizados exitosamente',
+        data: {
+          membershipId: membership.id,
+          schedule: updatedSchedule,
+          summary: membership.getSummary()
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al actualizar horarios de membresía:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al actualizar horarios',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Obtener mi membresía actual con horarios detallados (clientes)
+async getMyCurrentMembership(req, res) {
+  try {
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      },
+      include: [
+        { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
+      ]
+    });
+    
+    if (!membership) {
+      return res.json({
+        success: true,
+        data: {
+          membership: null,
+          message: 'No tienes una membresía activa'
+        }
+      });
+    }
+    
+    const detailedSchedule = await membership.getDetailedSchedule();
+    const summary = membership.getSummary();
+    
+    res.json({
+      success: true,
+      data: {
+        membership: {
+          ...membership.toJSON(),
+          schedule: detailedSchedule,
+          summary
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener membresía actual:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener tu membresía actual',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Procesar deducción diaria (cron job endpoint)
+async processDailyDeduction(req, res) {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo administradores pueden ejecutar este proceso'
+      });
+    }
+    
+    const { Membership } = require('../models');
+    const result = await Membership.processDailyDeduction();
+    
+    // Enviar notificaciones a membresías próximas a expirar
+    const expiringMemberships = await Membership.getExpiringMemberships(7);
+    let notificationsSent = 0;
+    
+    for (const membership of expiringMemberships) {
+      if (membership.needsExpirationNotification()) {
+        try {
+          await this.sendExpirationNotification(membership);
+          notificationsSent++;
+        } catch (notifError) {
+          console.warn(`⚠️ Error enviando notificación a ${membership.user.email}:`, notifError.message);
+        }
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Proceso de deducción diaria completado',
+      data: {
+        ...result,
+        notificationsSent,
+        expiringMemberships: expiringMemberships.length
+      }
+    });
+  } catch (error) {
+    console.error('Error en proceso diario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al procesar deducción diaria',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Método para enviar email de confirmación de membresía
+async sendMembershipConfirmationEmail(membership, plan, schedule) {
+  try {
+    const { EmailService } = require('../services/notificationServices');
+    
+    if (!EmailService) {
+      console.log('ℹ️ Servicio de email no disponible');
+      return;
+    }
+    
+    const emailService = new EmailService();
+    
+    if (!emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado');
+      return;
+    }
+    
+    const user = membership.user;
+    const summary = membership.getSummary();
+    
+    // Formatear horarios para el email
+    const scheduleText = Object.entries(schedule).map(([day, slots]) => {
+      if (slots.length === 0) return null;
+      
+      const dayName = {
+        monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+        thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+      }[day];
+      
+      const slotsText = slots.map(slot => `${slot.openTime} - ${slot.closeTime}`).join(', ');
+      return `${dayName}: ${slotsText}`;
+    }).filter(Boolean).join('\n');
+    
+    const emailTemplate = {
+      subject: `✅ Confirmación de Membresía - ${plan.planName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; color: white;">
+            <h1>🎉 ¡Membresía Confirmada!</h1>
+            <p style="font-size: 18px; margin: 0;">Bienvenido a Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Tu membresía ha sido <strong>confirmada exitosamente</strong>. ¡Estamos emocionados de tenerte como parte de nuestra comunidad fitness!</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">📋 Detalles de tu Membresía</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Plan:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${plan.planName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Precio:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${plan.price}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Días Totales:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${summary.daysTotal} días</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Días Restantes:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${summary.daysRemaining} días</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha Inicio:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${membership.startDate}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: #22c55e; color: white; padding: 4px 8px; border-radius: 4px;">Activa</span></td></tr>
+              </table>
+            </div>
+            
+            ${scheduleText ? `
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">⏰ Tus Horarios Reservados</h3>
+              <pre style="background: #f1f5f9; padding: 15px; border-radius: 4px; font-family: monospace;">${scheduleText}</pre>
+              <p style="font-size: 14px; color: #64748b; margin: 10px 0 0 0;">
+                💡 Puedes cambiar tus horarios en cualquier momento desde tu cuenta.
+              </p>
+            </div>
+            ` : ''}
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🚀 Próximos Pasos</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>Descarga nuestra app</strong> para gestionar tu membresía</li>
+                <li><strong>Visita el gimnasio</strong> y preséntate con el staff</li>
+                <li><strong>Consulta tus horarios</strong> reservados antes de asistir</li>
+                <li><strong>Aprovecha</strong> todos nuestros servicios incluidos</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+¡Membresía Confirmada!
+
+Hola ${user.firstName},
+
+Tu membresía "${plan.planName}" ha sido confirmada exitosamente.
+
+Detalles:
+- Plan: ${plan.planName} 
+- Precio: Q${plan.price}
+- Días Totales: ${summary.daysTotal}
+- Días Restantes: ${summary.daysRemaining}
+- Estado: Activa
+
+${scheduleText ? `Horarios Reservados:\n${scheduleText}` : ''}
+
+¡Bienvenido a Elite Fitness Club!
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de confirmación enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de confirmación:', error);
+    throw error;
+  }
+}
+
+// ✅ NUEVO: Enviar notificación de próximo vencimiento
+async sendExpirationNotification(membership) {
+  try {
+    const { EmailService } = require('../services/notificationServices');
+    
+    if (!EmailService) return;
+    
+    const emailService = new EmailService();
+    if (!emailService.isConfigured) return;
+    
+    const user = membership.user;
+    const daysLeft = membership.remainingDays;
+    
+    const emailTemplate = {
+      subject: `⏰ Tu membresía expira en ${daysLeft} día${daysLeft === 1 ? '' : 's'}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 30px; text-align: center; color: white;">
+            <h1>⏰ Recordatorio de Renovación</h1>
+            <p style="font-size: 18px; margin: 0;">Tu membresía expira pronto</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Tu membresía de Elite Fitness Club <strong>expira en ${daysLeft} día${daysLeft === 1 ? '' : 's'}</strong>.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b;">
+              <h3 style="margin-top: 0; color: #d97706;">📊 Estado de tu Membresía</h3>
+              <p><strong>Días Restantes:</strong> ${daysLeft}</p>
+              <p><strong>Estado:</strong> ${daysLeft > 0 ? 'Activa' : 'Expirada'}</p>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="font-size: 18px; color: #374151;">¡No pierdas tu rutina fitness!</p>
+              <a href="#" style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px;">
+                🔄 Renovar Membresía
+              </a>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px;">
+              <h3 style="color: #10b981; margin-top: 0;">💚 Beneficios de renovar ahora:</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li>Mantén tus horarios reservados</li>
+                <li>No pierdas tu progreso</li>
+                <li>Continúa con tu rutina establecida</li>
+                <li>Aprovecha descuentos especiales</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      `,
+      text: `
+Recordatorio de Renovación
+
+Hola ${user.firstName},
+
+Tu membresía de Elite Fitness Club expira en ${daysLeft} día${daysLeft === 1 ? '' : 's'}.
+
+¡No pierdas tu rutina fitness! Renueva tu membresía para continuar disfrutando de todos nuestros servicios.
+
+Elite Fitness Club
+📞 +502 1234-5678
+      `
+    };
+    
+    const result = await emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Notificación de vencimiento enviada a ${user.email} (${daysLeft} días)`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando notificación de vencimiento:', error);
+    throw error;
+  }
+}
+
 }
 
 module.exports = new MembershipController();

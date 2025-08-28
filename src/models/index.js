@@ -1,4 +1,4 @@
-// src/models/index.js - COMPLETO: Con asociaciones de horarios flexibles integradas
+// src/models/index.js - COMPLETO: Con corrección para columnas faltantes y sincronización automática
 'use strict';
 
 const fs = require('fs');
@@ -94,6 +94,27 @@ const loadModel = (filename) => {
   }
 };
 
+// ✅ FUNCIÓN para descubrir TODOS los modelos disponibles
+const discoverAllModels = () => {
+  console.log('🔍 Descubriendo TODOS los modelos disponibles...');
+  
+  const allModelFiles = fs.readdirSync(__dirname)
+    .filter(file => {
+      return (
+        file.indexOf('.') !== 0 &&
+        file !== basename &&
+        file.slice(-3) === '.js' &&
+        file.indexOf('.test.js') === -1 &&
+        file !== 'index.js'
+      );
+    });
+  
+  console.log(`📁 Archivos de modelos encontrados: ${allModelFiles.length}`);
+  console.log(`📋 Lista completa: ${allModelFiles.join(', ')}`);
+  
+  return allModelFiles;
+};
+
 // ✅ CARGAR MODELOS EN ORDEN ESPECÍFICO
 console.log('📁 Cargando modelos en orden de dependencias...');
 
@@ -101,26 +122,20 @@ MODEL_ORDER.forEach(filename => {
   loadModel(filename);
 });
 
-// ✅ CARGAR OTROS ARCHIVOS .js que no estén en la lista
-console.log('📁 Buscando modelos adicionales...');
+// ✅ CARGAR TODOS LOS DEMÁS MODELOS ENCONTRADOS
+console.log('📁 Buscando y cargando TODOS los modelos adicionales...');
+const allDiscoveredFiles = discoverAllModels();
+const additionalFiles = allDiscoveredFiles.filter(file => !MODEL_ORDER.includes(file));
 
-const allFiles = fs.readdirSync(__dirname)
-  .filter(file => {
-    return (
-      file.indexOf('.') !== 0 &&
-      file !== basename &&
-      file.slice(-3) === '.js' &&
-      file.indexOf('.test.js') === -1 &&
-      !MODEL_ORDER.includes(file)
-    );
-  });
-
-if (allFiles.length > 0) {
-  console.log(`📦 Encontrados ${allFiles.length} archivos adicionales:`, allFiles);
+console.log(`📦 Modelos adicionales a cargar: ${additionalFiles.length}`);
+if (additionalFiles.length > 0) {
+  console.log(`📋 Archivos adicionales: ${additionalFiles.join(', ')}`);
   
-  allFiles.forEach(file => {
+  additionalFiles.forEach(file => {
     loadModel(file);
   });
+} else {
+  console.log('ℹ️ No hay modelos adicionales fuera de MODEL_ORDER');
 }
 
 // ✅ CONFIGURAR ASOCIACIONES DE FORMA SEGURA
@@ -319,6 +334,410 @@ if (db.Payment && db.User) {
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
+// ============================================================================
+// FUNCIONES DE SINCRONIZACIÓN AUTOMÁTICA DE BASE DE DATOS CON FIX DE PAYMENT
+// ============================================================================
+
+// ✅ FUNCIÓN PARA REPARAR MODELO PAYMENT ESPECÍFICAMENTE
+const repairPaymentModel = async () => {
+  console.log('🔧 Reparando modelo Payment...');
+  
+  try {
+    if (!db.Payment) {
+      console.log('❌ Modelo Payment no encontrado');
+      return { success: false, error: 'Payment model not found' };
+    }
+
+    // Intentar DROP y CREATE de la tabla payments
+    console.log('🗑️ Eliminando tabla payments...');
+    await db.Payment.drop({ cascade: true });
+    
+    console.log('🔄 Recreando tabla payments...');
+    await db.Payment.sync({ force: false });
+    
+    console.log('✅ Tabla payments reparada exitosamente');
+    
+    // Verificar que las columnas críticas existan
+    const testQuery = await db.Payment.findOne({ 
+      attributes: ['id', 'paymentType', 'anonymousClientInfo', 'dailyPaymentCount'],
+      limit: 1 
+    });
+    
+    console.log('✅ Verificación de columnas exitosa');
+    
+    return { 
+      success: true, 
+      message: 'Payment model repaired successfully' 
+    };
+    
+  } catch (error) {
+    console.error('❌ Error reparando Payment:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Función de sincronización controlada MEJORADA
+const syncDatabase = async (options = {}) => {
+  console.log('🔄 Iniciando sincronización controlada de base de datos...');
+  
+  try {
+    await sequelize.authenticate();
+    console.log('✅ Conexión verificada');
+
+    // ✅ OBTENER TODOS LOS MODELOS CARGADOS
+    const allLoadedModels = Object.keys(db).filter(key => 
+      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+    );
+
+    console.log(`📊 TODOS los modelos cargados: ${allLoadedModels.length}`);
+    console.log(`📋 Lista completa: ${allLoadedModels.join(', ')}`);
+
+    // ✅ DETECTAR SI ESTAMOS EN DESARROLLO Y NECESITAMOS ALTER
+    const isDevelopment = process.env.NODE_ENV === 'development' || options.forceDevelopmentMode;
+    const syncOptions = isDevelopment ? { alter: true, ...options } : options;
+    
+    console.log(`🔧 Modo de sincronización: ${isDevelopment ? 'DESARROLLO (alter: true)' : 'PRODUCCIÓN (alter: false)'}`);
+
+    // ✅ Orden específico para modelos críticos + resto dinámicamente
+    const prioritySyncOrder = [
+      'User', 'MembershipPlan', 'StoreBrand', 'StoreCategory', 'DailyIncome', 'GymHours',
+      'GymTimeSlots', 'Membership', 'StoreProduct',
+      'Payment', 'StoreProductImage', 'StoreCart', 'StoreOrder',
+      'StoreOrderItem', 'FinancialMovements'
+    ];
+
+    // Agregar modelos que no están en la lista de prioridad
+    const remainingModels = allLoadedModels.filter(model => !prioritySyncOrder.includes(model));
+    const fullSyncOrder = [...prioritySyncOrder, ...remainingModels];
+
+    console.log(`🔄 Sincronizando ${fullSyncOrder.length} modelos total...`);
+    console.log(`⭐ Prioridad (${prioritySyncOrder.length}): ${prioritySyncOrder.join(', ')}`);
+    if (remainingModels.length > 0) {
+      console.log(`➕ Adicionales (${remainingModels.length}): ${remainingModels.join(', ')}`);
+    }
+
+    let syncSuccess = 0;
+    let syncErrors = 0;
+    let alteredTables = [];
+
+    for (const modelName of fullSyncOrder) {
+      if (db[modelName]) {
+        try {
+          console.log(`🔄 Sincronizando ${modelName}...`);
+          
+          // ✅ INTENTO 1: Sincronización normal
+          await db[modelName].sync(syncOptions);
+          console.log(`✅ ${modelName} sincronizado`);
+          
+          // Si usamos alter, registrar la tabla alterada
+          if (syncOptions.alter) {
+            alteredTables.push(modelName);
+          }
+          
+          syncSuccess++;
+          
+        } catch (error) {
+          console.error(`❌ Error en ${modelName}:`, error.message);
+          
+          // ✅ INTENTO 2: Si falla y es error de columna, forzar ALTER
+          if (error.message.includes('does not exist') || 
+              error.message.includes('column') || 
+              error.message.includes('relation')) {
+            
+            console.log(`🔄 ${modelName}: Detectado error de esquema, forzando ALTER...`);
+            
+            try {
+              // Forzar alter independientemente del entorno
+              await db[modelName].sync({ alter: true, force: false });
+              console.log(`⚠️ ${modelName} sincronizado con ALTER forzado`);
+              alteredTables.push(modelName);
+              syncSuccess++;
+            } catch (alterError) {
+              console.error(`❌ ${modelName}: Error persistente después de ALTER:`, alterError.message);
+              
+              // ✅ INTENTO 3: Como último recurso, recrear tabla en desarrollo
+              if (isDevelopment && (alterError.message.includes('constraint') || alterError.message.includes('type'))) {
+                console.log(`🔄 ${modelName}: Último recurso - recreando tabla...`);
+                try {
+                  await db[modelName].drop({ cascade: true });
+                  await db[modelName].sync({ force: false });
+                  console.log(`⚠️ ${modelName} recreado completamente`);
+                  syncSuccess++;
+                } catch (recreateError) {
+                  console.error(`❌ ${modelName}: Error incluso recreando:`, recreateError.message);
+                  syncErrors++;
+                }
+              } else {
+                syncErrors++;
+              }
+            }
+          } 
+          // ✅ INTENTO 2B: Si es error de FK, intentar sin constraints
+          else if (error.message.includes('foreign key') || error.message.includes('violates')) {
+            console.log(`🔄 ${modelName}: Error de FK, intentando sin constraints...`);
+            try {
+              await db[modelName].sync({ ...syncOptions, alter: false });
+              console.log(`⚠️ ${modelName} sincronizado sin constraints`);
+              syncSuccess++;
+            } catch (retryError) {
+              console.error(`❌ ${modelName}: Error persistente:`, retryError.message);
+              syncErrors++;
+            }
+          } else {
+            syncErrors++;
+          }
+        }
+      } else {
+        console.log(`⚠️ Modelo ${modelName} no encontrado en db - omitiendo`);
+      }
+    }
+
+    console.log(`📊 Resumen de sincronización:`);
+    console.log(`   ✅ Exitosos: ${syncSuccess}`);
+    console.log(`   ❌ Con errores: ${syncErrors}`);
+    console.log(`   📋 Total procesados: ${syncSuccess + syncErrors}`);
+    
+    if (alteredTables.length > 0) {
+      console.log(`🔧 Tablas alteradas: ${alteredTables.join(', ')}`);
+    }
+
+    // ✅ VERIFICACIÓN ESPECÍFICA PARA PAYMENT
+    if (db.Payment) {
+      try {
+        console.log('🔍 Verificando tabla payments...');
+        
+        // Intentar una consulta simple para verificar que las columnas existen
+        await db.Payment.findOne({ 
+          attributes: ['id', 'paymentType', 'anonymousClientInfo'],
+          limit: 1 
+        });
+        console.log('✅ Tabla payments verificada correctamente');
+        
+      } catch (verifyError) {
+        console.error('❌ Error verificando tabla payments:', verifyError.message);
+        
+        if (verifyError.message.includes('payment_type') || verifyError.message.includes('anonymous_client_info')) {
+          console.log('🔄 Forzando recreación de tabla payments...');
+          try {
+            if (isDevelopment) {
+              await db.Payment.sync({ alter: true, force: false });
+              console.log('✅ Tabla payments corregida');
+            } else {
+              console.log('⚠️ Tabla payments necesita migración manual en producción');
+            }
+          } catch (fixError) {
+            console.error('❌ No se pudo corregir tabla payments:', fixError.message);
+          }
+        }
+      }
+    }
+
+    // ✅ Crear datos iniciales
+    if (db.MembershipPlan && db.MembershipPlan.seedDefaultPlans) {
+      console.log('🌱 Creando planes de membresía por defecto...');
+      try {
+        await db.MembershipPlan.seedDefaultPlans();
+      } catch (error) {
+        console.log('⚠️ Error creando planes por defecto:', error.message);
+      }
+    }
+
+    // Crear horarios básicos si existen los modelos
+    if (db.GymHours && db.GymTimeSlots) {
+      await createDefaultGymSchedule();
+    }
+
+    console.log('🎉 Sincronización completada exitosamente');
+    return { 
+      success: true, 
+      message: 'Base de datos sincronizada correctamente',
+      stats: {
+        totalModels: fullSyncOrder.length,
+        syncSuccess,
+        syncErrors,
+        modelsFound: allLoadedModels.length,
+        alteredTables: alteredTables.length,
+        syncMode: isDevelopment ? 'development' : 'production'
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error en sincronización:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Función de reset para desarrollo
+const resetDatabase = async () => {
+  console.log('⚠️ RESET DE BASE DE DATOS...');
+  
+  // Obtener TODOS los modelos cargados
+  const allLoadedModels = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+  );
+
+  // Orden inverso inteligente (prioridad inversa + resto)
+  const priorityDropOrder = [
+    'FinancialMovements', 'StoreOrderItem', 'StoreOrder', 'StoreCart', 
+    'StoreProductImage', 'Payment', 'StoreProduct', 'Membership', 
+    'GymTimeSlots', 'GymHours', 'StoreCategory', 'StoreBrand', 
+    'MembershipPlan', 'DailyIncome', 'User'
+  ];
+  
+  const remainingForDrop = allLoadedModels.filter(model => !priorityDropOrder.includes(model));
+  // Los adicionales van primero porque pueden depender de los críticos
+  const fullDropOrder = [...remainingForDrop, ...priorityDropOrder];
+
+  console.log(`🗑️ Eliminando ${fullDropOrder.length} modelos en orden seguro...`);
+  console.log(`📋 Orden de eliminación: ${fullDropOrder.join(', ')}`);
+
+  try {
+    for (const modelName of fullDropOrder) {
+      if (db[modelName]) {
+        try {
+          await db[modelName].drop({ cascade: true });
+          console.log(`🗑️ ${modelName} eliminado`);
+        } catch (error) {
+          console.log(`⚠️ ${modelName}: ${error.message}`);
+        }
+      }
+    }
+
+    await syncDatabase({ force: true });
+    console.log('🔄 Base de datos reseteada');
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Error en reset:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// ✅ FUNCIÓN PARA CREAR HORARIOS BÁSICOS
+const createDefaultGymSchedule = async () => {
+  try {
+    console.log('🕐 Creando horarios de gimnasio por defecto...');
+    
+    const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    for (const day of daysOfWeek) {
+      const [gymHour, created] = await db.GymHours.findOrCreate({
+        where: { dayOfWeek: day },
+        defaults: {
+          dayOfWeek: day,
+          openingTime: '06:00:00',
+          closingTime: '22:00:00',
+          isClosed: day === 'sunday', // Cerrado los domingos por defecto
+          useFlexibleSchedule: false
+        }
+      });
+
+      if (created) {
+        console.log(`✅ Horario creado para ${day}`);
+      }
+    }
+
+    console.log('🕐 Horarios básicos configurados');
+  } catch (error) {
+    console.error('❌ Error creando horarios:', error.message);
+  }
+};
+
+// Verificar estado de la base de datos
+const checkDatabaseStatus = async () => {
+  const models = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+  );
+  const status = {};
+  
+  for (const modelName of models) {
+    try {
+      await db[modelName].count();
+      status[modelName] = { exists: true, status: 'OK' };
+    } catch (error) {
+      status[modelName] = { exists: false, error: error.message };
+    }
+  }
+  
+  return status;
+};
+
+// ✅ FUNCIÓN DE INICIALIZACIÓN MEJORADA CON FIX DE PAYMENT
+const initializeForDevelopment = async () => {
+  console.log('🚀 Inicializando para desarrollo...');
+  
+  try {
+    // Verificar si hay problemas específicos con Payment
+    if (db.Payment) {
+      try {
+        await db.Payment.findOne({ 
+          attributes: ['paymentType'], 
+          limit: 1 
+        });
+      } catch (paymentError) {
+        if (paymentError.message.includes('payment_type') || paymentError.message.includes('does not exist')) {
+          console.log('⚠️ Detectado problema con tabla payments, reparando...');
+          const repairResult = await repairPaymentModel();
+          if (!repairResult.success) {
+            console.log('❌ No se pudo reparar Payment, continuando con reset completo...');
+            return await resetDatabase();
+          }
+        }
+      }
+    }
+
+    // Continuar con inicialización normal
+    const status = await checkDatabaseStatus();
+    const hasErrors = Object.values(status).some(info => !info.exists);
+    
+    if (hasErrors) {
+      console.log('⚠️ Errores detectados, reseteando...');
+      return await resetDatabase();
+    } else {
+      console.log('✅ Estado OK, sincronizando con ALTER...');
+      return await syncDatabase({ alter: true, forceDevelopmentMode: true });
+    }
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// Exportar las funciones de sincronización
+db.syncDatabase = syncDatabase;
+db.resetDatabase = resetDatabase;
+db.checkDatabaseStatus = checkDatabaseStatus;
+db.initializeForDevelopment = initializeForDevelopment;
+db.repairPaymentModel = repairPaymentModel;
+
+// ============================================================================
+// AUTO-INICIALIZACIÓN
+// ============================================================================
+
+// Auto-inicializar si se establece la variable de entorno
+const autoInit = async () => {
+  const shouldAutoInit = process.env.AUTO_INIT_DB === 'true' || process.env.NODE_ENV === 'development';
+  
+  if (shouldAutoInit) {
+    console.log('🔄 Auto-inicialización activada...');
+    
+    try {
+      const result = await initializeForDevelopment();
+      
+      if (result.success) {
+        console.log('✅ Base de datos lista para usar');
+      } else {
+        console.error('❌ Fallo en auto-inicialización:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error en auto-inicialización:', error.message);
+    }
+  }
+};
+
+// ============================================================================
+// FUNCIONES DE DIAGNÓSTICO ORIGINALES + MEJORADAS
+// ============================================================================
+
 // ✅ FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
 const verifyFlexibleScheduleModels = () => {
   console.log('\n🔍 DIAGNÓSTICO DE HORARIOS FLEXIBLES:');
@@ -341,15 +760,31 @@ const verifyFlexibleScheduleModels = () => {
   };
 };
 
-// ✅ FUNCIÓN DE VERIFICACIÓN DE MODELOS GENERAL
+// ✅ FUNCIÓN DE VERIFICACIÓN DE MODELOS MEJORADA
 const verifyModels = () => {
-  const loadedModels = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels'].includes(key));
+  const allDiscovered = discoverAllModels();
+  const loadedModels = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+  );
   
-  console.log('\n📊 RESUMEN FINAL:');
-  console.log(`✅ Modelos cargados: ${loadedModels.length}`);
+  console.log('\n📊 RESUMEN COMPLETO:');
+  console.log(`📁 Archivos .js encontrados: ${allDiscovered.length}`);
+  console.log(`✅ Modelos cargados exitosamente: ${loadedModels.length}`);
+  console.log(`❌ Archivos no cargados: ${allDiscovered.length - loadedModels.length}`);
+  
+  if (allDiscovered.length > loadedModels.length) {
+    const notLoaded = allDiscovered.filter(file => {
+      const modelName = file.replace('.js', '');
+      return !loadedModels.some(loaded => 
+        loaded === modelName || 
+        loaded.toLowerCase() === modelName.toLowerCase()
+      );
+    });
+    console.log(`⚠️ Archivos no cargados como modelos: ${notLoaded.join(', ')}`);
+  }
   
   if (loadedModels.length > 0) {
-    console.log(`📦 Lista: ${loadedModels.join(', ')}`);
+    console.log(`📦 Modelos cargados: ${loadedModels.join(', ')}`);
     
     // Mostrar asociaciones por modelo
     loadedModels.forEach(modelName => {
@@ -412,7 +847,7 @@ console.log('🎉 Carga simplificada completada\n');
 db.diagnose = () => {
   console.log('\n🔍 DIAGNÓSTICO COMPLETO DE MODELOS:');
   
-  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels'].includes(key));
+  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key));
   
   models.forEach(modelName => {
     const model = db[modelName];
@@ -443,7 +878,54 @@ db.diagnose = () => {
   };
 };
 
+// ✅ NUEVA FUNCIÓN DE DIAGNÓSTICO COMPLETO
+db.fullDiagnosis = () => {
+  console.log('\n🔍 DIAGNÓSTICO COMPLETO Y DETALLADO:');
+  
+  const allFiles = discoverAllModels();
+  const loadedModels = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+  );
+  
+  console.log(`\n📈 ESTADÍSTICAS GENERALES:`);
+  console.log(`   📁 Archivos .js encontrados: ${allFiles.length}`);
+  console.log(`   ✅ Modelos cargados: ${loadedModels.length}`);
+  console.log(`   📊 Tasa de éxito: ${((loadedModels.length / allFiles.length) * 100).toFixed(1)}%`);
+  
+  console.log(`\n📋 ARCHIVOS ENCONTRADOS:`);
+  allFiles.forEach(file => console.log(`   - ${file}`));
+  
+  console.log(`\n📦 MODELOS CARGADOS:`);
+  loadedModels.forEach(model => console.log(`   ✅ ${model}`));
+  
+  const notLoadedFiles = allFiles.filter(file => {
+    const baseName = file.replace('.js', '');
+    return !loadedModels.some(model => 
+      model === baseName || model.toLowerCase() === baseName.toLowerCase()
+    );
+  });
+  
+  if (notLoadedFiles.length > 0) {
+    console.log(`\n❌ ARCHIVOS NO CARGADOS COMO MODELOS:`);
+    notLoadedFiles.forEach(file => console.log(`   ❌ ${file}`));
+  }
+  
+  return {
+    filesFound: allFiles.length,
+    modelsLoaded: loadedModels.length,
+    loadSuccessRate: ((loadedModels.length / allFiles.length) * 100).toFixed(1),
+    notLoadedFiles,
+    loadedModelsList: loadedModels,
+    allFilesList: allFiles
+  };
+};
+
 // ✅ EXPORTAR FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
 db.verifyFlexibleScheduleModels = verifyFlexibleScheduleModels;
+
+// Ejecutar auto-inicialización solo si no es entorno de pruebas
+if (process.env.NODE_ENV !== 'test') {
+  autoInit();
+}
 
 module.exports = db;
