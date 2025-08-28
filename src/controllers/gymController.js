@@ -1,4 +1,4 @@
-// src/controllers/gymController.js - CORREGIDO COMPLETO: Respuestas exactas para el frontend
+// src/controllers/gymController.js - COMPLETO: Controller con todas las extensiones integradas
 
 const { 
   GymConfiguration, 
@@ -15,12 +15,13 @@ const {
   GymFormsConfig,
   GymSystemMessages,
   GymBrandingConfig,
-  StoreProduct
+  StoreProduct,
+  GymTimeSlots
 } = require('../models');
 
 class GymController {
   constructor() {
-    // ✅ BINDEAR todos los métodos al contexto de la clase
+    // ✅ BINDEAR todos los métodos al contexto de la clase (EXISTENTES)
     this.getGymConfig = this.getGymConfig.bind(this);
     this.getLandingContent = this.getLandingContent.bind(this);
     this.getServices = this.getServices.bind(this);
@@ -34,9 +35,21 @@ class GymController {
     this.getContactInfo = this.getContactInfo.bind(this);
     this.getHours = this.getHours.bind(this);
     this.getMembershipPlans = this.getMembershipPlans.bind(this);
+    
+    // ✅ BINDEAR todos los métodos NUEVOS agregados
+    this.getGymConfigForEditor = this.getGymConfigForEditor.bind(this);
+    this.updateFlexibleSchedule = this.updateFlexibleSchedule.bind(this);
+    this.getCapacityMetrics = this.getCapacityMetrics.bind(this);
+    this.toggleDayOpen = this.toggleDayOpen.bind(this);
+    this.addTimeSlot = this.addTimeSlot.bind(this);
+    this.removeTimeSlot = this.removeTimeSlot.bind(this);
+    this.updateTimeSlot = this.updateTimeSlot.bind(this);
+    this.duplicateTimeSlot = this.duplicateTimeSlot.bind(this);
+    this.applyCapacityToAllSlots = this.applyCapacityToAllSlots.bind(this);
+    this.generateHoursString = this.generateHoursString.bind(this);
   }
 
-  // ✅ ENDPOINT: /api/gym/config - SIN URLs DUPLICADAS
+  // ✅ ENDPOINT: /api/gym/config - VERSIÓN EXTENDIDA con soporte flexible
   async getGymConfig(req, res) {
     try {
       const [
@@ -47,7 +60,10 @@ class GymController {
       ] = await Promise.all([
         GymConfiguration.getConfig(),
         GymContactInfo.getContactInfo(),
-        GymHours.getWeeklySchedule(),
+        // ✅ DECISIÓN: Usar horarios flexibles o tradicionales según configuración
+        req.query.flexible === 'true' 
+          ? GymHours.getFlexibleSchedule() 
+          : GymHours.getWeeklySchedule(),
         GymSocialMedia.getSocialMediaObject()
       ]);
 
@@ -79,7 +95,11 @@ class GymController {
           whatsapp: contactInfo.phone || ''
         },
         
-        hours: {
+        // ✅ Horarios adaptativos
+        hours: req.query.flexible === 'true' ? {
+          ...hours,
+          full: this.generateHoursString(hours)
+        } : {
           full: "Lun-Vie 5:00-22:00, Sáb-Dom 6:00-20:00",
           weekdays: "5:00-22:00",
           weekends: "6:00-20:00"
@@ -108,10 +128,10 @@ class GymController {
           ],
           
           // 🎬 URLs SOLO UNA VEZ cada una
-          videoUrl: heroVideoUrl,           // ✅ Solo aquí
-          imageUrl: heroImageUrl,           // ✅ Solo aquí
-          hasVideo: !!heroVideoUrl,         // ✅ Estado del video
-          hasImage: !!heroImageUrl,         // ✅ Estado de la imagen
+          videoUrl: heroVideoUrl,           
+          imageUrl: heroImageUrl,           
+          hasVideo: !!heroVideoUrl,         
+          hasImage: !!heroImageUrl,         
           
           // ✅ Configuración de video (solo si hay video)
           videoConfig: heroVideoUrl ? {
@@ -119,7 +139,7 @@ class GymController {
             muted: configuration.videoMuted !== false,
             loop: configuration.videoLoop !== false,
             controls: configuration.videoControls !== false,
-            posterUrl: heroImageUrl || '' // Poster para el video
+            posterUrl: heroImageUrl || ''
           } : null
         },
         
@@ -147,6 +167,393 @@ class GymController {
         error: error.message
       });
     }
+  }
+
+  // ✅ NUEVO: Obtener configuración completa para ContentEditor
+  async getGymConfigForEditor(req, res) {
+    try {
+      const [
+        configuration,
+        contactInfo,
+        hours,
+        socialMedia,
+        stats
+      ] = await Promise.all([
+        GymConfiguration.getConfig(),
+        GymContactInfo.getContactInfo(),
+        GymHours.getFlexibleSchedule(), // ✅ Usar horarios flexibles
+        GymSocialMedia.getSocialMediaObject(),
+        GymStatistics.getActiveStats()
+      ]);
+
+      // ✅ Formatear estadísticas
+      const formattedStats = {
+        members: 500,
+        trainers: 8,
+        experience: 10,
+        satisfaction: 95
+      };
+
+      if (stats && stats.length > 0) {
+        stats.forEach(stat => {
+          switch(stat.statKey) {
+            case 'members_count':
+              formattedStats.members = parseInt(stat.statValue.replace(/\D/g, '')) || 500;
+              break;
+            case 'trainers_count':
+              formattedStats.trainers = parseInt(stat.statValue.replace(/\D/g, '')) || 8;
+              break;
+            case 'experience_years':
+              formattedStats.experience = parseInt(stat.statValue.replace(/\D/g, '')) || 10;
+              break;
+            case 'satisfaction_rate':
+              formattedStats.satisfaction = parseInt(stat.statValue.replace(/\D/g, '')) || 95;
+              break;
+          }
+        });
+      }
+
+      // ✅ Estructura exacta que espera ContentEditor.js
+      const response = {
+        data: {
+          name: configuration.gymName,
+          tagline: configuration.gymTagline || 'Tu mejor versión te espera',
+          description: configuration.gymDescription,
+          
+          contact: {
+            phone: contactInfo.phone || '+502 1234-5678',
+            email: contactInfo.email || 'info@elitegym.com',
+            address: contactInfo.address || 'Avenida Principal 123',
+            city: contactInfo.city || 'Guatemala',
+            zipCode: contactInfo.zipCode || '01001'
+          },
+          
+          social: {
+            facebook: { 
+              url: socialMedia.facebook?.url || 'https://facebook.com/gym', 
+              active: socialMedia.facebook?.active !== false 
+            },
+            instagram: { 
+              url: socialMedia.instagram?.url || 'https://instagram.com/gym', 
+              active: socialMedia.instagram?.active !== false 
+            },
+            twitter: { 
+              url: socialMedia.twitter?.url || 'https://twitter.com/gym', 
+              active: socialMedia.twitter?.active !== false 
+            },
+            youtube: { 
+              url: socialMedia.youtube?.url || 'https://youtube.com/@gym', 
+              active: socialMedia.youtube?.active !== false 
+            },
+            whatsapp: { 
+              url: socialMedia.whatsapp?.url || 'https://wa.me/502XXXXXXXX', 
+              active: socialMedia.whatsapp?.active !== false 
+            }
+          },
+          
+          // ✅ ESTRUCTURA CRÍTICA: Horarios flexibles tal como los espera ContentEditor
+          hours: {
+            ...hours,
+            // ✅ Agregar string completo para compatibilidad
+            full: this.generateHoursString(hours)
+          },
+          
+          stats: formattedStats
+        }
+      };
+
+      res.json({
+        success: true,
+        data: response.data,
+        message: "Configuración obtenida exitosamente para editor",
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error en getGymConfigForEditor:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener configuración para editor',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Actualizar horarios flexibles desde ContentEditor
+  async updateFlexibleSchedule(req, res) {
+    try {
+      const { section, data } = req.body;
+
+      if (section !== 'schedule') {
+        return res.status(400).json({
+          success: false,
+          message: 'Esta función solo maneja la sección de horarios'
+        });
+      }
+
+      const { hours } = data;
+      if (!hours) {
+        return res.status(400).json({
+          success: false,
+          message: 'Datos de horarios requeridos'
+        });
+      }
+
+      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+      // ✅ Procesar cada día
+      for (const day of days) {
+        if (hours[day] && day !== 'full') {
+          const dayData = hours[day];
+          
+          // Obtener o crear el registro del día
+          let daySchedule = await GymHours.findOne({ where: { dayOfWeek: day } });
+          if (!daySchedule) {
+            daySchedule = await GymHours.create({
+              dayOfWeek: day,
+              isClosed: !dayData.isOpen,
+              useFlexibleSchedule: true
+            });
+          } else {
+            daySchedule.isClosed = !dayData.isOpen;
+            daySchedule.useFlexibleSchedule = true;
+            await daySchedule.save();
+          }
+
+          // ✅ Eliminar franjas existentes para este día
+          await GymTimeSlots.update(
+            { isActive: false },
+            { where: { gymHoursId: daySchedule.id } }
+          );
+
+          // ✅ Crear nuevas franjas si el día está abierto
+          if (dayData.isOpen && dayData.timeSlots && dayData.timeSlots.length > 0) {
+            for (let index = 0; index < dayData.timeSlots.length; index++) {
+              const slot = dayData.timeSlots[index];
+              
+              // Validar capacidad
+              if (slot.capacity && (slot.capacity < 1 || slot.capacity > 500)) {
+                return res.status(400).json({ 
+                  success: false,
+                  error: `Capacidad debe estar entre 1 y 500 para ${day}` 
+                });
+              }
+
+              await GymTimeSlots.create({
+                gymHoursId: daySchedule.id,
+                openTime: slot.open,
+                closeTime: slot.close,
+                capacity: slot.capacity || 30,
+                currentReservations: slot.reservations || 0,
+                slotLabel: slot.label || '',
+                displayOrder: index,
+                isActive: true
+              });
+            }
+          }
+        }
+      }
+
+      // ✅ Obtener horarios actualizados
+      const updatedSchedule = await GymHours.getFlexibleSchedule();
+      const metrics = await GymHours.getCapacityMetrics();
+
+      res.json({
+        success: true,
+        message: 'Horarios actualizados exitosamente',
+        data: {
+          hours: {
+            ...updatedSchedule,
+            full: this.generateHoursString(updatedSchedule)
+          },
+          metrics
+        }
+      });
+    } catch (error) {
+      console.error('Error al actualizar horarios flexibles:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al actualizar horarios',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Obtener métricas de capacidad
+  async getCapacityMetrics(req, res) {
+    try {
+      const metrics = await GymHours.getCapacityMetrics();
+      
+      res.json({
+        success: true,
+        data: metrics
+      });
+    } catch (error) {
+      console.error('Error al obtener métricas:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener métricas de capacidad',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Funciones específicas para cada operación
+  async toggleDayOpen(req, res) {
+    try {
+      const { day } = req.params;
+      const updatedDay = await GymHours.toggleDayOpen(day);
+      
+      res.json({
+        success: true,
+        message: `Día ${day} ${updatedDay.isClosed ? 'cerrado' : 'abierto'}`,
+        data: { day, isOpen: !updatedDay.isClosed }
+      });
+    } catch (error) {
+      console.error('Error al alternar día:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async addTimeSlot(req, res) {
+    try {
+      const { day } = req.params;
+      const slotData = req.body;
+      
+      const newSlot = await GymHours.addTimeSlot(day, slotData);
+      
+      res.json({
+        success: true,
+        message: 'Franja horaria agregada',
+        data: { slot: newSlot.toFrontendFormat() }
+      });
+    } catch (error) {
+      console.error('Error al agregar franja:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async removeTimeSlot(req, res) {
+    try {
+      const { day, slotIndex } = req.params;
+      
+      const removedSlot = await GymHours.removeTimeSlot(day, parseInt(slotIndex));
+      
+      res.json({
+        success: true,
+        message: 'Franja horaria eliminada',
+        data: { slotIndex: parseInt(slotIndex) }
+      });
+    } catch (error) {
+      console.error('Error al eliminar franja:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async updateTimeSlot(req, res) {
+    try {
+      const { day, slotIndex } = req.params;
+      const { field, value } = req.body;
+      
+      const updatedSlot = await GymHours.updateTimeSlot(day, parseInt(slotIndex), field, value);
+      
+      res.json({
+        success: true,
+        message: 'Franja horaria actualizada',
+        data: { slot: updatedSlot.toFrontendFormat() }
+      });
+    } catch (error) {
+      console.error('Error al actualizar franja:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async duplicateTimeSlot(req, res) {
+    try {
+      const { day, slotIndex } = req.params;
+      
+      const duplicatedSlot = await GymHours.duplicateTimeSlot(day, parseInt(slotIndex));
+      
+      res.json({
+        success: true,
+        message: 'Franja horaria duplicada',
+        data: { slot: duplicatedSlot.toFrontendFormat() }
+      });
+    } catch (error) {
+      console.error('Error al duplicar franja:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async applyCapacityToAllSlots(req, res) {
+    try {
+      const { capacity } = req.body;
+      
+      if (!capacity || capacity < 1 || capacity > 500) {
+        return res.status(400).json({
+          success: false,
+          message: 'La capacidad debe estar entre 1 y 500'
+        });
+      }
+      
+      const updatedCount = await GymHours.applyCapacityToAllSlots(capacity);
+      
+      res.json({
+        success: true,
+        message: `Capacidad aplicada a todas las franjas`,
+        data: { 
+          capacity, 
+          updatedSlots: updatedCount[0] || 0
+        }
+      });
+    } catch (error) {
+      console.error('Error al aplicar capacidad:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  // ✅ HELPER: Generar string de horarios para compatibilidad
+  generateHoursString(hoursObj) {
+    const dayNames = {
+      monday: 'Lun',
+      tuesday: 'Mar', 
+      wednesday: 'Mié',
+      thursday: 'Jue',
+      friday: 'Vie',
+      saturday: 'Sáb',
+      sunday: 'Dom'
+    };
+
+    const parts = [];
+    Object.entries(hoursObj).forEach(([day, data]) => {
+      if (day !== 'full' && data.isOpen && data.timeSlots && data.timeSlots.length > 0) {
+        const slots = data.timeSlots.map(slot => {
+          const slotStr = `${slot.open}-${slot.close}`;
+          return slot.label ? `${slotStr} (${slot.label})` : slotStr;
+        }).join(', ');
+        
+        parts.push(`${dayNames[day]}: ${slots}`);
+      }
+    });
+
+    return parts.join(' | ') || 'Horarios no configurados';
   }
 
   // ✅ ENDPOINT: /api/content/landing (contenido de la landing page)

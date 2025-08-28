@@ -1,4 +1,4 @@
-// src/models/index.js - SIMPLIFICADO Y CONFIABLE
+// src/models/index.js - COMPLETO: Con asociaciones de horarios flexibles integradas
 'use strict';
 
 const fs = require('fs');
@@ -18,7 +18,7 @@ if (!sequelize) {
 
 console.log('✅ Conexión a base de datos disponible');
 
-// ✅ LISTA EXPLÍCITA de modelos en orden de dependencias
+// ✅ LISTA EXPLÍCITA de modelos en orden de dependencias (CON HORARIOS FLEXIBLES)
 const MODEL_ORDER = [
   // Modelos base sin dependencias
   'User.js',
@@ -26,6 +26,10 @@ const MODEL_ORDER = [
   'StoreBrand.js',
   'StoreCategory.js',
   'DailyIncome.js',
+  
+  // ✅ CRÍTICO: GymHours ANTES que GymTimeSlots para asociaciones
+  'GymHours.js',
+  'GymTimeSlots.js',
   
   // Modelos que dependen de los anteriores
   'Membership.js',
@@ -234,6 +238,40 @@ const configureAssociations = () => {
       }
     }
     
+    // ✅ NUEVAS ASOCIACIONES CRÍTICAS PARA HORARIOS FLEXIBLES
+    console.log('🕐 Configurando asociaciones de horarios flexibles...');
+    
+    if (db.GymHours && db.GymTimeSlots) {
+      // GymHours -> GymTimeSlots (uno a muchos)
+      if (!db.GymHours.associations?.timeSlots) {
+        db.GymHours.hasMany(db.GymTimeSlots, {
+          foreignKey: 'gymHoursId',
+          as: 'timeSlots',
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE'
+        });
+        console.log('   ✅ Manual: GymHours -> GymTimeSlots');
+      } else {
+        console.log('   ℹ️ GymHours.timeSlots ya configurada');
+      }
+
+      // GymTimeSlots -> GymHours (muchos a uno)
+      if (!db.GymTimeSlots.associations?.gymHours) {
+        db.GymTimeSlots.belongsTo(db.GymHours, {
+          foreignKey: 'gymHoursId',
+          as: 'gymHours',
+          onDelete: 'CASCADE',
+          onUpdate: 'CASCADE'
+        });
+        console.log('   ✅ Manual: GymTimeSlots -> GymHours');
+      } else {
+        console.log('   ℹ️ GymTimeSlots.gymHours ya configurada');
+      }
+    } else {
+      if (!db.GymHours) console.log('   ⚠️ GymHours no disponible para asociaciones');
+      if (!db.GymTimeSlots) console.log('   ⚠️ GymTimeSlots no disponible para asociaciones');
+    }
+    
   } catch (error) {
     console.error('❌ Error en asociaciones manuales:', error.message);
   }
@@ -242,92 +280,7 @@ const configureAssociations = () => {
 // ✅ Ejecutar configuración de asociaciones
 configureAssociations();
 
-// ✅ Agregar sequelize al objeto db
-db.sequelize = sequelize;
-db.Sequelize = Sequelize;
-
-// ✅ FUNCIÓN DE VERIFICACIÓN DE MODELOS
-const verifyModels = () => {
-  const loadedModels = Object.keys(db).filter(key => !['sequelize', 'Sequelize'].includes(key));
-  
-  console.log('\n📊 RESUMEN FINAL:');
-  console.log(`✅ Modelos cargados: ${loadedModels.length}`);
-  
-  if (loadedModels.length > 0) {
-    console.log(`📦 Lista: ${loadedModels.join(', ')}`);
-    
-    // Mostrar asociaciones por modelo
-    loadedModels.forEach(modelName => {
-      const model = db[modelName];
-      if (model && model.associations) {
-        const assocCount = Object.keys(model.associations).length;
-        if (assocCount > 0) {
-          console.log(`🔗 ${modelName}: ${assocCount} asociaciones - ${Object.keys(model.associations).join(', ')}`);
-        } else {
-          console.log(`📦 ${modelName}: Sin asociaciones`);
-        }
-      }
-    });
-    
-    // ✅ VERIFICAR MODELOS CRÍTICOS DE TIENDA
-    const criticalStoreModels = ['StoreProduct', 'StoreCategory', 'StoreBrand'];
-    const missingCritical = criticalStoreModels.filter(model => !db[model]);
-    
-    if (missingCritical.length > 0) {
-      console.log(`⚠️ Modelos críticos faltantes: ${missingCritical.join(', ')}`);
-    } else {
-      console.log('✅ Todos los modelos críticos de tienda están cargados');
-    }
-    
-  } else {
-    console.log('❌ No se cargaron modelos - revisar estructura de archivos');
-  }
-};
-
-// ✅ Verificar modelos
-verifyModels();
-
-// ✅ VERIFICAR CONEXIÓN
-const verifyConnection = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('✅ Conexión a base de datos verificada desde models/index.js');
-  } catch (error) {
-    console.error('❌ Error de conexión:', error.message);
-  }
-};
-
-verifyConnection();
-
-console.log('🎉 Carga simplificada completada\n');
-
-// ✅ EXPORTAR FUNCIÓN DE DIAGNÓSTICO
-db.diagnose = () => {
-  console.log('\n🔍 DIAGNÓSTICO DE MODELOS:');
-  
-  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose'].includes(key));
-  
-  models.forEach(modelName => {
-    const model = db[modelName];
-    console.log(`\n📦 ${modelName}:`);
-    console.log(`   - Tabla: ${model.tableName || 'No definida'}`);
-    console.log(`   - Asociaciones: ${model.associations ? Object.keys(model.associations).length : 0}`);
-    
-    if (model.associations) {
-      Object.keys(model.associations).forEach(assocName => {
-        const assoc = model.associations[assocName];
-        console.log(`     * ${assocName}: ${assoc.associationType} -> ${assoc.target.name}`);
-      });
-    }
-  });
-  
-  return {
-    totalModels: models.length,
-    modelsWithAssociations: models.filter(m => db[m].associations && Object.keys(db[m].associations).length > 0).length,
-    storeModelsLoaded: ['StoreProduct', 'StoreCategory', 'StoreBrand', 'StoreProductImage'].filter(m => db[m]).length
-  };
-};
-
+// ✅ CONFIGURAR ASOCIACIONES ADICIONALES DE USUARIOS
 if (db.Membership && db.User) {
   if (!db.Membership.associations?.registeredByUser) {
     db.Membership.belongsTo(db.User, { 
@@ -361,5 +314,136 @@ if (db.Payment && db.User) {
     console.log('   ✅ Manual: Payment -> transferValidator');
   }
 }
+
+// ✅ Agregar sequelize al objeto db
+db.sequelize = sequelize;
+db.Sequelize = Sequelize;
+
+// ✅ FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
+const verifyFlexibleScheduleModels = () => {
+  console.log('\n🔍 DIAGNÓSTICO DE HORARIOS FLEXIBLES:');
+  
+  console.log(`📦 GymHours: ${db.GymHours ? 'Disponible' : 'No disponible'}`);
+  console.log(`📦 GymTimeSlots: ${db.GymTimeSlots ? 'Disponible' : 'No disponible'}`);
+  
+  if (db.GymHours && db.GymHours.associations) {
+    console.log(`🔗 GymHours.timeSlots: ${db.GymHours.associations.timeSlots ? 'Configurada' : 'No configurada'}`);
+  }
+  
+  if (db.GymTimeSlots && db.GymTimeSlots.associations) {
+    console.log(`🔗 GymTimeSlots.gymHours: ${db.GymTimeSlots.associations.gymHours ? 'Configurada' : 'No configurada'}`);
+  }
+  
+  return {
+    gymHoursAvailable: !!db.GymHours,
+    gymTimeSlotsAvailable: !!db.GymTimeSlots,
+    associationsConfigured: !!(db.GymHours?.associations?.timeSlots && db.GymTimeSlots?.associations?.gymHours)
+  };
+};
+
+// ✅ FUNCIÓN DE VERIFICACIÓN DE MODELOS GENERAL
+const verifyModels = () => {
+  const loadedModels = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels'].includes(key));
+  
+  console.log('\n📊 RESUMEN FINAL:');
+  console.log(`✅ Modelos cargados: ${loadedModels.length}`);
+  
+  if (loadedModels.length > 0) {
+    console.log(`📦 Lista: ${loadedModels.join(', ')}`);
+    
+    // Mostrar asociaciones por modelo
+    loadedModels.forEach(modelName => {
+      const model = db[modelName];
+      if (model && model.associations) {
+        const assocCount = Object.keys(model.associations).length;
+        if (assocCount > 0) {
+          console.log(`🔗 ${modelName}: ${assocCount} asociaciones - ${Object.keys(model.associations).join(', ')}`);
+        } else {
+          console.log(`📦 ${modelName}: Sin asociaciones`);
+        }
+      }
+    });
+    
+    // ✅ VERIFICAR MODELOS CRÍTICOS DE TIENDA
+    const criticalStoreModels = ['StoreProduct', 'StoreCategory', 'StoreBrand'];
+    const missingCritical = criticalStoreModels.filter(model => !db[model]);
+    
+    if (missingCritical.length > 0) {
+      console.log(`⚠️ Modelos críticos faltantes: ${missingCritical.join(', ')}`);
+    } else {
+      console.log('✅ Todos los modelos críticos de tienda están cargados');
+    }
+    
+    // ✅ VERIFICAR MODELOS CRÍTICOS DE HORARIOS FLEXIBLES
+    const criticalScheduleModels = ['GymHours', 'GymTimeSlots'];
+    const missingSchedule = criticalScheduleModels.filter(model => !db[model]);
+    
+    if (missingSchedule.length > 0) {
+      console.log(`⚠️ Modelos de horarios faltantes: ${missingSchedule.join(', ')}`);
+    } else {
+      console.log('✅ Todos los modelos de horarios flexibles están cargados');
+      // Verificar asociaciones específicas
+      verifyFlexibleScheduleModels();
+    }
+    
+  } else {
+    console.log('❌ No se cargaron modelos - revisar estructura de archivos');
+  }
+};
+
+// ✅ Verificar modelos
+verifyModels();
+
+// ✅ VERIFICAR CONEXIÓN
+const verifyConnection = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✅ Conexión a base de datos verificada desde models/index.js');
+  } catch (error) {
+    console.error('❌ Error de conexión:', error.message);
+  }
+};
+
+verifyConnection();
+
+console.log('🎉 Carga simplificada completada\n');
+
+// ✅ EXPORTAR FUNCIÓN DE DIAGNÓSTICO EXTENDIDA
+db.diagnose = () => {
+  console.log('\n🔍 DIAGNÓSTICO COMPLETO DE MODELOS:');
+  
+  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels'].includes(key));
+  
+  models.forEach(modelName => {
+    const model = db[modelName];
+    console.log(`\n📦 ${modelName}:`);
+    console.log(`   - Tabla: ${model.tableName || 'No definida'}`);
+    console.log(`   - Asociaciones: ${model.associations ? Object.keys(model.associations).length : 0}`);
+    
+    if (model.associations) {
+      Object.keys(model.associations).forEach(assocName => {
+        const assoc = model.associations[assocName];
+        console.log(`     * ${assocName}: ${assoc.associationType} -> ${assoc.target.name}`);
+      });
+    }
+  });
+  
+  // ✅ Diagnóstico específico de horarios flexibles
+  console.log('\n🕐 DIAGNÓSTICO DE HORARIOS FLEXIBLES:');
+  const flexibleDiagnosis = verifyFlexibleScheduleModels();
+  console.log(`   - Modelos disponibles: ${flexibleDiagnosis.gymHoursAvailable && flexibleDiagnosis.gymTimeSlotsAvailable ? 'SÍ' : 'NO'}`);
+  console.log(`   - Asociaciones configuradas: ${flexibleDiagnosis.associationsConfigured ? 'SÍ' : 'NO'}`);
+  
+  return {
+    totalModels: models.length,
+    modelsWithAssociations: models.filter(m => db[m].associations && Object.keys(db[m].associations).length > 0).length,
+    storeModelsLoaded: ['StoreProduct', 'StoreCategory', 'StoreBrand', 'StoreProductImage'].filter(m => db[m]).length,
+    flexibleScheduleModelsLoaded: ['GymHours', 'GymTimeSlots'].filter(m => db[m]).length,
+    flexibleScheduleReady: flexibleDiagnosis.associationsConfigured
+  };
+};
+
+// ✅ EXPORTAR FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
+db.verifyFlexibleScheduleModels = verifyFlexibleScheduleModels;
 
 module.exports = db;

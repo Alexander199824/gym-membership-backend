@@ -1,4 +1,4 @@
-// src/routes/gymRoutes.js - CORREGIDO: Sin error de middleware
+// src/routes/gymRoutes.js - COMPLETO: Con todas las rutas integradas
 
 const express = require('express');
 const gymController = require('../controllers/gymController');
@@ -22,18 +22,78 @@ if (developmentLimiter && typeof developmentLimiter === 'function') {
   router.use(developmentLimiter);
 }
 
+// ✅ ========== VALIDACIONES PARA NUEVAS RUTAS ==========
+const { body, param } = require('express-validator');
+
+// Middleware de manejo de errores de validación básico (si no existe)
+const handleValidationErrors = (req, res, next) => {
+  try {
+    const { validationResult } = require('express-validator');
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Error de validación',
+        errors: errors.array()
+      });
+    }
+    next();
+  } catch (error) {
+    next();
+  }
+};
+
+const timeSlotValidator = [
+  body('open')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Formato de hora de apertura inválido (HH:MM)'),
+  body('close')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Formato de hora de cierre inválido (HH:MM)')
+    .custom((closeTime, { req }) => {
+      if (closeTime <= req.body.open) {
+        throw new Error('La hora de cierre debe ser posterior a la hora de apertura');
+      }
+      return true;
+    }),
+  body('capacity')
+    .optional()
+    .isInt({ min: 1, max: 500 })
+    .withMessage('La capacidad debe estar entre 1 y 500'),
+  body('reservations')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Las reservas deben ser un número positivo'),
+  body('label')
+    .optional()
+    .isLength({ max: 100 })
+    .withMessage('La etiqueta no puede exceder 100 caracteres')
+];
+
+const dayValidator = [
+  param('day')
+    .isIn(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+    .withMessage('Día de la semana inválido')
+];
+
+const slotIndexValidator = [
+  param('slotIndex')
+    .isInt({ min: 0 })
+    .withMessage('Índice de franja debe ser un número positivo')
+];
+
 // ✅ RUTAS PÚBLICAS ESPECÍFICAS (según especificación del frontend)
 
 // Endpoint principal con toda la información básica
 router.get('/info', gymController.getGymInfo);
 
 // ✅ ENDPOINTS específicos que el frontend espera
-router.get('/config', gymController.getGymConfig);           // GET /api/gym/config
+router.get('/config', gymController.getGymConfig);           // GET /api/gym/config (con soporte flexible)
 router.get('/services', gymController.getServices);         // GET /api/gym/services  
 router.get('/testimonials', gymController.getTestimonials); // GET /api/gym/testimonials
 router.get('/stats', gymController.getStatistics);          // GET /api/gym/stats
 
-// ✅ NUEVAS RUTAS FALTANTES que el frontend necesita
+// ✅ NUEVAS RUTAS que el frontend necesita
 router.get('/membership-plans', gymController.getMembershipPlans); // NUEVA
 router.get('/promotions', gymController.getActivePromotions);      // NUEVA  
 router.get('/promotional-content', gymController.getActivePromotions); // ALIAS
@@ -45,6 +105,180 @@ router.get('/contact', gymController.getContactInfo);
 router.get('/hours', gymController.getHours);
 router.get('/plans', gymController.getMembershipPlans); // Alias para compatibility
 router.get('/membership-plans', gymController.getMembershipPlans);
+
+// ✅ ========== NUEVAS RUTAS PARA HORARIOS FLEXIBLES ==========
+
+// RUTA ESPECÍFICA para ContentEditor.js
+router.get('/config/editor', gymController.getGymConfigForEditor);
+
+// Actualizar configuración completa (para ContentEditor)
+router.put('/config/flexible', 
+  authenticateToken, 
+  requireAdmin, 
+  gymController.updateFlexibleSchedule
+);
+
+// Métricas de capacidad
+router.get('/capacity/metrics', 
+  authenticateToken, 
+  requireAdmin, 
+  gymController.getCapacityMetrics
+);
+
+// ✅ ========== OPERACIONES ESPECÍFICAS DE HORARIOS ==========
+
+// Alternar día abierto/cerrado
+router.post('/hours/:day/toggle', 
+  authenticateToken, 
+  requireAdmin,
+  dayValidator,
+  handleValidationErrors,
+  gymController.toggleDayOpen
+);
+
+// Agregar franja horaria (CON VALIDACIÓN)
+router.post('/hours/:day/slots', 
+  authenticateToken, 
+  requireAdmin,
+  dayValidator,
+  timeSlotValidator,
+  handleValidationErrors,
+  gymController.addTimeSlot
+);
+
+// Eliminar franja horaria (CON VALIDACIÓN)
+router.delete('/hours/:day/slots/:slotIndex', 
+  authenticateToken, 
+  requireAdmin,
+  dayValidator,
+  slotIndexValidator,
+  handleValidationErrors,
+  gymController.removeTimeSlot
+);
+
+// Actualizar franja horaria (CON VALIDACIÓN)
+router.patch('/hours/:day/slots/:slotIndex', 
+  authenticateToken, 
+  requireAdmin,
+  dayValidator,
+  slotIndexValidator,
+  [
+    body('field').isIn(['open', 'close', 'capacity', 'reservations', 'label']).withMessage('Campo inválido'),
+    body('value').notEmpty().withMessage('Valor requerido')
+  ],
+  handleValidationErrors,
+  gymController.updateTimeSlot
+);
+
+// Duplicar franja horaria (CON VALIDACIÓN)
+router.post('/hours/:day/slots/:slotIndex/duplicate', 
+  authenticateToken, 
+  requireAdmin,
+  dayValidator,
+  slotIndexValidator,
+  handleValidationErrors,
+  gymController.duplicateTimeSlot
+);
+
+// Aplicar capacidad a todas las franjas (CON VALIDACIÓN)
+router.post('/hours/capacity/apply-all', 
+  authenticateToken, 
+  requireAdmin,
+  [
+    body('capacity').isInt({ min: 1, max: 500 }).withMessage('La capacidad debe estar entre 1 y 500')
+  ],
+  handleValidationErrors,
+  gymController.applyCapacityToAllSlots
+);
+
+// ✅ ========== ENDPOINTS PARA CONSULTA ==========
+
+// Obtener horarios flexibles completos
+router.get('/hours/flexible', async (req, res) => {
+  try {
+    const { GymHours } = require('../models');
+    const flexibleSchedule = await GymHours.getFlexibleSchedule();
+    const metrics = await GymHours.getCapacityMetrics();
+    
+    res.json({
+      success: true,
+      data: {
+        hours: flexibleSchedule,
+        metrics: metrics
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener horarios flexibles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener horarios flexibles',
+      error: error.message
+    });
+  }
+});
+
+// Obtener disponibilidad en tiempo real
+router.get('/availability', async (req, res) => {
+  try {
+    const { day, time } = req.query;
+    
+    if (!day) {
+      return res.status(400).json({
+        success: false,
+        message: 'Parámetro day es requerido'
+      });
+    }
+    
+    const { GymHours, GymTimeSlots } = require('../models');
+    
+    const daySchedule = await GymHours.findOne({ 
+      where: { dayOfWeek: day },
+      include: [{
+        model: GymTimeSlots,
+        as: 'timeSlots',
+        where: { isActive: true },
+        required: false,
+        order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
+      }]
+    });
+    
+    if (!daySchedule || daySchedule.isClosed) {
+      return res.json({
+        success: true,
+        data: {
+          day,
+          isOpen: false,
+          message: 'El gimnasio está cerrado este día'
+        }
+      });
+    }
+    
+    let availableSlots = [];
+    if (daySchedule.timeSlots) {
+      availableSlots = daySchedule.timeSlots.map(slot => ({
+        ...slot.toFrontendFormat(),
+        isAvailableNow: time ? (time >= slot.openTime.slice(0, 5) && time <= slot.closeTime.slice(0, 5)) : false
+      }));
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        day,
+        isOpen: true,
+        slots: availableSlots,
+        currentTime: time || new Date().toTimeString().slice(0, 5)
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener disponibilidad:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener disponibilidad',
+      error: error.message
+    });
+  }
+});
 
 // ✅ RUTAS ADMINISTRATIVAS (solo admin)
 router.put('/config', 
