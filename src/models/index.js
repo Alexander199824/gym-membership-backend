@@ -1,4 +1,4 @@
-// src/models/index.js - COMPLETO: Con corrección para columnas faltantes y sincronización automática
+// src/models/index.js - CORREGIDO: Con MembershipPlans (plural) consistente
 'use strict';
 
 const fs = require('fs');
@@ -18,14 +18,15 @@ if (!sequelize) {
 
 console.log('✅ Conexión a base de datos disponible');
 
-// ✅ LISTA EXPLÍCITA de modelos en orden de dependencias (CON HORARIOS FLEXIBLES)
+// ✅ LISTA EXPLÍCITA de modelos en orden de dependencias (CORREGIDA)
 const MODEL_ORDER = [
   // Modelos base sin dependencias
   'User.js',
-  'MembershipPlan.js',
+  'MembershipPlans.js', // ✅ CORREGIDO: MembershipPlans (plural) como está en tu sistema
   'StoreBrand.js',
   'StoreCategory.js',
   'DailyIncome.js',
+  'GymConfiguration.js', // ✅ AGREGADO: Para solucionar el problema del ID
   
   // ✅ CRÍTICO: GymHours ANTES que GymTimeSlots para asociaciones
   'GymHours.js',
@@ -190,6 +191,18 @@ const configureAssociations = () => {
       }
     }
     
+    // ✅ CORREGIDO: MembershipPlans (plural) - Membership
+    if (db.MembershipPlans && db.Membership) {
+      if (!db.MembershipPlans.associations?.memberships) {
+        db.MembershipPlans.hasMany(db.Membership, { foreignKey: 'planId', as: 'memberships' });
+        console.log('   ✅ Manual: MembershipPlans -> Membership');
+      }
+      if (!db.Membership.associations?.plan) {
+        db.Membership.belongsTo(db.MembershipPlans, { foreignKey: 'planId', as: 'plan' });
+        console.log('   ✅ Manual: Membership -> MembershipPlans');
+      }
+    }
+    
     // User - Payment
     if (db.User && db.Payment) {
       if (!db.User.associations?.payments) {
@@ -297,7 +310,7 @@ const configureAssociations = () => {
 // ✅ Ejecutar configuración de asociaciones
 configureAssociations();
 
-// ✅ CONFIGURAR ASOCIACIONES ADICIONALES DE USUARIOS
+// ✅ CONFIGURAR ASOCIACIONES ADICIONALES DE USUARIOS (CORREGIDAS)
 if (db.Membership && db.User) {
   if (!db.Membership.associations?.registeredByUser) {
     db.Membership.belongsTo(db.User, { 
@@ -378,7 +391,7 @@ const repairPaymentModel = async () => {
   }
 };
 
-// Función de sincronización controlada MEJORADA
+// ✅ CORREGIDO: Función de sincronización controlada MEJORADA
 const syncDatabase = async (options = {}) => {
   console.log('🔄 Iniciando sincronización controlada de base de datos...');
   
@@ -400,9 +413,9 @@ const syncDatabase = async (options = {}) => {
     
     console.log(`🔧 Modo de sincronización: ${isDevelopment ? 'DESARROLLO (alter: true)' : 'PRODUCCIÓN (alter: false)'}`);
 
-    // ✅ Orden específico para modelos críticos + resto dinámicamente
+    // ✅ Orden específico para modelos críticos + resto dinámicamente (CORREGIDO)
     const prioritySyncOrder = [
-      'User', 'MembershipPlan', 'StoreBrand', 'StoreCategory', 'DailyIncome', 'GymHours',
+      'User', 'MembershipPlans', 'StoreBrand', 'StoreCategory', 'DailyIncome', 'GymConfiguration', 'GymHours',
       'GymTimeSlots', 'Membership', 'StoreProduct',
       'Payment', 'StoreProductImage', 'StoreCart', 'StoreOrder',
       'StoreOrderItem', 'FinancialMovements'
@@ -503,42 +516,29 @@ const syncDatabase = async (options = {}) => {
       console.log(`🔧 Tablas alteradas: ${alteredTables.join(', ')}`);
     }
 
-    // ✅ VERIFICACIÓN ESPECÍFICA PARA PAYMENT
-    if (db.Payment) {
+    // ✅ VERIFICACIÓN ESPECÍFICA PARA GYMCONFIGURATION
+    if (db.GymConfiguration) {
       try {
-        console.log('🔍 Verificando tabla payments...');
+        console.log('🔍 Verificando tabla gym_configuration...');
         
-        // Intentar una consulta simple para verificar que las columnas existen
-        await db.Payment.findOne({ 
-          attributes: ['id', 'paymentType', 'anonymousClientInfo'],
-          limit: 1 
-        });
-        console.log('✅ Tabla payments verificada correctamente');
+        // Intentar crear o verificar configuración
+        const config = await db.GymConfiguration.getConfig();
+        if (config && config.id) {
+          console.log(`✅ Tabla gym_configuration verificada correctamente (ID: ${config.id})`);
+        } else {
+          console.log('⚠️ Configuración creada pero sin ID verificable');
+        }
         
       } catch (verifyError) {
-        console.error('❌ Error verificando tabla payments:', verifyError.message);
-        
-        if (verifyError.message.includes('payment_type') || verifyError.message.includes('anonymous_client_info')) {
-          console.log('🔄 Forzando recreación de tabla payments...');
-          try {
-            if (isDevelopment) {
-              await db.Payment.sync({ alter: true, force: false });
-              console.log('✅ Tabla payments corregida');
-            } else {
-              console.log('⚠️ Tabla payments necesita migración manual en producción');
-            }
-          } catch (fixError) {
-            console.error('❌ No se pudo corregir tabla payments:', fixError.message);
-          }
-        }
+        console.error('❌ Error verificando tabla gym_configuration:', verifyError.message);
       }
     }
 
-    // ✅ Crear datos iniciales
-    if (db.MembershipPlan && db.MembershipPlan.seedDefaultPlans) {
+    // ✅ Crear datos iniciales (usando MembershipPlans plural)
+    if (db.MembershipPlans && db.MembershipPlans.seedDefaultPlans) {
       console.log('🌱 Creando planes de membresía por defecto...');
       try {
-        await db.MembershipPlan.seedDefaultPlans();
+        await db.MembershipPlans.seedDefaultPlans();
       } catch (error) {
         console.log('⚠️ Error creando planes por defecto:', error.message);
       }
@@ -578,12 +578,12 @@ const resetDatabase = async () => {
     !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
   );
 
-  // Orden inverso inteligente (prioridad inversa + resto)
+  // Orden inverso inteligente (prioridad inversa + resto) - CORREGIDO
   const priorityDropOrder = [
     'FinancialMovements', 'StoreOrderItem', 'StoreOrder', 'StoreCart', 
     'StoreProductImage', 'Payment', 'StoreProduct', 'Membership', 
-    'GymTimeSlots', 'GymHours', 'StoreCategory', 'StoreBrand', 
-    'MembershipPlan', 'DailyIncome', 'User'
+    'GymTimeSlots', 'GymHours', 'GymConfiguration', 'StoreCategory', 'StoreBrand', 
+    'MembershipPlans', 'DailyIncome', 'User'
   ];
   
   const remainingForDrop = allLoadedModels.filter(model => !priorityDropOrder.includes(model));
@@ -823,6 +823,13 @@ const verifyModels = () => {
       verifyFlexibleScheduleModels();
     }
     
+    // ✅ VERIFICAR QUE MEMBERSHIPPLANS ESTÉ CARGADO CORRECTAMENTE
+    if (db.MembershipPlans) {
+      console.log('✅ MembershipPlans (plural) cargado correctamente');
+    } else {
+      console.log('❌ MembershipPlans (plural) NO encontrado - esto puede causar errores');
+    }
+    
   } else {
     console.log('❌ No se cargaron modelos - revisar estructura de archivos');
   }
@@ -876,7 +883,8 @@ db.diagnose = () => {
     modelsWithAssociations: models.filter(m => db[m].associations && Object.keys(db[m].associations).length > 0).length,
     storeModelsLoaded: ['StoreProduct', 'StoreCategory', 'StoreBrand', 'StoreProductImage'].filter(m => db[m]).length,
     flexibleScheduleModelsLoaded: ['GymHours', 'GymTimeSlots'].filter(m => db[m]).length,
-    flexibleScheduleReady: flexibleDiagnosis.associationsConfigured
+    flexibleScheduleReady: flexibleDiagnosis.associationsConfigured,
+    membershipPlansLoaded: !!db.MembershipPlans
   };
 };
 

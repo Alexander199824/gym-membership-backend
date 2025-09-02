@@ -1,4 +1,4 @@
-// src/models/Membership.js - CORREGIDO: Referencias correctas a MembershipPlans
+// src/models/Membership.js - CORREGIDO: Referencias correctas a MembershipPlans (plural)
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -273,13 +273,13 @@ Membership.prototype.getSummary = function() {
 
 // ✅ MÉTODOS ESTÁTICOS MEJORADOS
 
-// ✅ NUEVO: Crear membresía con validación de plan
+// ✅ CORREGIDO: Crear membresía con validación de plan (usando MembershipPlans)
 Membership.createWithPlan = async function(membershipData, selectedSchedule = {}, options = {}) {
   const transaction = options.transaction || await sequelize.transaction();
   const shouldCommit = !options.transaction;
   
   try {
-    // Verificar que el plan existe
+    // ✅ CORREGIDO: Verificar que el plan existe usando MembershipPlans (plural)
     const { MembershipPlans } = require('./index');
     
     if (!MembershipPlans) {
@@ -469,7 +469,7 @@ Membership.addHook('afterCreate', (instance) => {
   console.log(`✅ Membresía creada: ${instance.id} - Usuario ${instance.userId} - Plan ${instance.planId}`);
 });
 
-// ✅ ASOCIACIONES CORREGIDAS
+// ✅ ASOCIACIONES CORREGIDAS - USANDO MembershipPlans (plural)
 Membership.associate = function(models) {
   // Usuario propietario
   Membership.belongsTo(models.User, {
@@ -477,7 +477,7 @@ Membership.associate = function(models) {
     as: 'user'
   });
   
-  // ✅ CORREGIDO: Plan de membresía
+  // ✅ CORREGIDO: Plan de membresía usando MembershipPlans (plural)
   Membership.belongsTo(models.MembershipPlans, {
     foreignKey: 'planId',
     as: 'plan'

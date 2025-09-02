@@ -1,13 +1,14 @@
-// src/models/GymConfiguration.js - CORREGIDO: Campo ID agregado
+// src/models/GymConfiguration.js - REPARADO: Campo ID explícito y correcto
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
 const GymConfiguration = sequelize.define('GymConfiguration', {
-  // ✅ CORREGIDO: Campo ID explícito que faltaba
+  // ✅ CRÍTICO: Campo ID explícito que estaba causando el error
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
-    autoIncrement: true
+    autoIncrement: true,
+    allowNull: false // Explícitamente no nulo
   },
   // ✅ Información básica del gimnasio
   gymName: {
@@ -143,7 +144,14 @@ const GymConfiguration = sequelize.define('GymConfiguration', {
   tableName: 'gym_configuration',
   timestamps: true,
   createdAt: 'created_at',
-  updatedAt: 'updated_at'
+  updatedAt: 'updated_at',
+  // ✅ CRÍTICO: Índices explícitos
+  indexes: [
+    {
+      unique: false,
+      fields: ['id']
+    }
+  ]
 });
 
 // ✅ CORREGIDO: Método estático para obtener configuración (singleton pattern)
@@ -177,7 +185,7 @@ GymConfiguration.getConfig = async function() {
         dangerColor: '#e74c3c'
       });
       
-      console.log('✅ Configuración por defecto creada');
+      console.log('✅ Configuración por defecto creada con ID:', config.id);
     }
     
     return config;
@@ -262,6 +270,11 @@ GymConfiguration.verifyAndRepair = async function() {
     
     const config = await this.getConfig();
     
+    // Verificar que el ID está presente
+    if (!config.id) {
+      throw new Error('CRÍTICO: Configuración sin ID - problema de modelo');
+    }
+    
     // Verificar campos críticos
     const requiredFields = ['id', 'gymName', 'gymDescription'];
     const missingFields = requiredFields.filter(field => !config[field]);
@@ -300,11 +313,22 @@ GymConfiguration.addHook('beforeSave', (instance) => {
   if (!instance.gymName) instance.gymName = 'Elite Fitness Club';
   if (!instance.gymTagline) instance.gymTagline = 'Tu mejor versión te está esperando';
   if (!instance.gymDescription) instance.gymDescription = 'Centro de entrenamiento integral';
+  
+  console.log(`🔧 Guardando configuración con ID: ${instance.id || 'nuevo'}`);
 });
 
 // ✅ Hook después de guardar para logging
 GymConfiguration.addHook('afterSave', (instance) => {
   console.log(`✅ Configuración del gym actualizada: ${instance.gymName} (ID: ${instance.id})`);
+});
+
+// ✅ Hook para verificar después de crear
+GymConfiguration.addHook('afterCreate', (instance) => {
+  if (!instance.id) {
+    console.error('❌ CRÍTICO: Configuración creada sin ID');
+  } else {
+    console.log(`✅ Nueva configuración creada con ID: ${instance.id}`);
+  }
 });
 
 module.exports = GymConfiguration;

@@ -1,4 +1,4 @@
-// test-membership-purchase.js - DOCTOR DEL SISTEMA v2: Usando rutas reales del backend
+// test-membership-purchase.js - DOCTOR DEL SISTEMA v2: Usando rutas reales del backend - REPARADO
 const axios = require('axios');
 
 class SystemDoctorV2 {
@@ -35,7 +35,7 @@ class SystemDoctorV2 {
         { method: 'GET', url: '/api/gym/testimonials', description: 'Testimonios', auth: false },
         { method: 'GET', url: '/api/gym/stats', description: 'Estadísticas gym', auth: false },
         { method: 'GET', url: '/api/gym/hours/flexible', description: 'Horarios flexibles', auth: false },
-        { method: 'GET', url: '/api/gym/availability', description: 'Disponibilidad gym', auth: false }
+        { method: 'GET', url: '/api/gym/availability?day=monday', description: 'Disponibilidad gym', auth: false } // ✅ CORREGIDO: Agregar parámetro day requerido
       ],
       
       // ✅ CORREGIDO: Rutas REALES de pagos (según paymentRoutes.js)
@@ -147,7 +147,7 @@ class SystemDoctorV2 {
         const configResponse = await axios.get(`${this.baseURL}/api/gym/config`);
         if (configResponse.data?.success) {
           this.diagnosis.database.details.push('✅ BD responde - consulta básica OK');
-          this.diagnosis.database.details.push(`✅ Gym: "${configResponse.data.data.name}"`);
+          this.diagnosis.database.details.push(`✅ Gym: "${configResponse.data.data.gymName || configResponse.data.data.name}"`); // ✅ CORREGIDO: Manejar ambos nombres de campo
         } else {
           this.diagnosis.database.issues.push('❌ BD responde pero sin datos válidos');
         }
@@ -189,7 +189,7 @@ class SystemDoctorV2 {
       // Test 2: Verificar planes de membresía
       console.log('   🔍 Test 2: Tabla membership_plans...');
       try {
-        const planesResponse = await axios.get(`${this.baseURL}/api/memberships/plans`);
+        const planesResponse = await axios.get(`${this.baseURL}/api/gym/membership-plans`); // ✅ CORREGIDO: Usar ruta real
         if (planesResponse.data?.success && planesResponse.data.data?.plans) {
           const plans = planesResponse.data.data.plans;
           this.diagnosis.database.details.push(`✅ Tabla membership_plans: ${plans.length} registros`);
@@ -209,7 +209,7 @@ class SystemDoctorV2 {
             }
           } else {
             this.diagnosis.database.issues.push('⚠️ Tabla membership_plans está vacía');
-            this.recommendations.push('Ejecutar seeders: npx sequelize-cli db:seed:all');
+            this.recommendations.push('Ejecutar seeders para membership_plans');
           }
         }
       } catch (error) {
@@ -270,7 +270,7 @@ class SystemDoctorV2 {
         description: 'Usuarios del sistema'
       },
       {
-        name: 'gym_configurations',
+        name: 'gym_configuration', // ✅ CORREGIDO: Nombre singular como en la tabla real
         test: async () => {
           const response = await axios.get(`${this.baseURL}/api/gym/config`);
           return { 
@@ -279,13 +279,13 @@ class SystemDoctorV2 {
             count: response.data.data ? 1 : 0
           };
         },
-        requiredFields: ['id', 'name', 'description'],
+        requiredFields: ['id', 'gymName', 'gymDescription'], // ✅ CORREGIDO: Campos reales del modelo
         description: 'Configuración del gimnasio'
       },
       {
         name: 'membership_plans',
         test: async () => {
-          const response = await axios.get(`${this.baseURL}/api/memberships/plans`);
+          const response = await axios.get(`${this.baseURL}/api/gym/membership-plans`); // ✅ CORREGIDO: Ruta real
           return { 
             status: 'ok', 
             data: response.data.data?.plans?.[0],
@@ -326,7 +326,7 @@ class SystemDoctorV2 {
             count: response.data.data?.length || 0
           };
         },
-        requiredFields: ['id', 'userId', 'amount', 'paymentMethod', 'status'],
+        requiredFields: ['id', 'amount', 'paymentMethod', 'status'],
         description: 'Pagos del sistema'
       }
     ];
@@ -356,13 +356,14 @@ class SystemDoctorV2 {
             const camposFaltantes = tabla.requiredFields.filter(campo => !camposEncontrados.includes(campo));
             
             if (camposFaltantes.length === 0) {
-              this.diagnosis.tables.details.push(`   ✅ Todos los campos requeridos presentes`);
+              this.diagnosis.tables.details.push(`   📊 Campos: ${camposEncontrados.slice(0, 6).join(', ')}...`);
             } else {
               this.diagnosis.tables.issues.push(`   ❌ Campos faltantes en ${tabla.name}: ${camposFaltantes.join(', ')}`);
               this.recommendations.push(`CRÍTICO: Agregar campos a tabla ${tabla.name}: ${camposFaltantes.join(', ')}`);
+              
+              // Mostrar campos encontrados para debug
+              this.diagnosis.tables.details.push(`   📊 Campos encontrados: ${camposEncontrados.slice(0, 6).join(', ')}...`);
             }
-            
-            this.diagnosis.tables.details.push(`   📊 Campos: ${camposEncontrados.slice(0, 6).join(', ')}...`);
           } else if (result.count === 0) {
             this.diagnosis.tables.issues.push(`   ⚠️ Tabla ${tabla.name} está vacía`);
             if (tabla.name === 'membership_plans' || tabla.name === 'users') {
@@ -666,6 +667,8 @@ class SystemDoctorV2 {
             }
           } else if (error.response?.status === 401) {
             this.diagnosis.membership.details.push(`⚠️ ${ruta.description}: Requiere autenticación`);
+          } else if (error.response?.status === 400) {
+            this.diagnosis.membership.issues.push(`❌ ${ruta.description}: VALIDACIÓN FALLIDA (400) - ${error.response.data?.message || 'Datos inválidos'}`);
           } else {
             this.diagnosis.membership.issues.push(`❌ ${ruta.description}: ${errorDetail}`);
           }
@@ -761,6 +764,8 @@ class SystemDoctorV2 {
             this.diagnosis.payments.details.push(`⚠️ ${ruta.description}: Requiere autenticación`);
           } else if (error.response?.status === 403) {
             this.diagnosis.payments.details.push(`⚠️ ${ruta.description}: Requiere permisos específicos`);
+          } else if (error.response?.status === 400) {
+            this.diagnosis.payments.issues.push(`❌ ${ruta.description}: VALIDACIÓN FALLIDA (400) - ${error.response.data?.message || 'Errores de validación'}`);
           } else {
             this.diagnosis.payments.issues.push(`❌ ${ruta.description}: ${errorDetail}`);
           }
@@ -789,6 +794,7 @@ class SystemDoctorV2 {
     this.mostrarResultadoDiagnostico('SISTEMA DE PAGOS', this.diagnosis.payments);
   }
 
+  // ✅ CORREGIDO: Datos de prueba mejorados
   generarDatosPrueba(url) {
     if (url.includes('/auth/login')) {
       return { email: 'admin@gym.com', password: 'Admin123!' };
@@ -816,18 +822,28 @@ class SystemDoctorV2 {
       return {
         planId: 1,
         selectedSchedule: { monday: [1] },
-        paymentMethod: 'cash'
+        paymentMethod: 'cash',
+        // ✅ AGREGADO: Datos adicionales que podrían requerirse
+        userId: 'test-user-id',
+        type: 'monthly'
       };
     }
     return {};
   }
 
+  // ✅ CORREGIDO: Datos de prueba para pagos mejorados
   generarDatosPruebaPagos(url) {
     if (url.includes('/daily-income')) {
       return {
         amount: 25.00,
         paymentMethod: 'cash',
-        description: 'Pago diario de prueba'
+        paymentType: 'daily', // ✅ AGREGADO: Campo que requiere el modelo Payment
+        description: 'Pago diario de prueba',
+        // ✅ AGREGADO: Para pagos anónimos
+        anonymousClientInfo: {
+          name: 'Cliente Prueba',
+          phone: '+502 1234-5678'
+        }
       };
     } else if (url.includes('/activate-cash-membership')) {
       return {
@@ -835,10 +851,15 @@ class SystemDoctorV2 {
       };
     } else if (url === '/api/payments') {
       return {
-        userId: 'test-id',
         amount: 100.00,
         paymentMethod: 'cash',
-        paymentType: 'membership'
+        paymentType: 'membership', // ✅ AGREGADO: Campo requerido
+        // ✅ AGREGADO: Información del cliente anónimo
+        anonymousClientInfo: {
+          name: 'Cliente Test',
+          phone: '+502 9999-9999',
+          notes: 'Pago de prueba'
+        }
       };
     }
     return {};
