@@ -112,7 +112,13 @@ const User = sequelize.define('User', {
       model: 'users',
       key: 'id'
     }
-  }
+  },
+  isDailyPaymentUser: {
+  type: DataTypes.BOOLEAN,
+  allowNull: false,
+  defaultValue: false,
+  field: 'is_daily_payment_user'
+}
 }, {
   tableName: 'users',
   timestamps: true,

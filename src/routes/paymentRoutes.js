@@ -521,4 +521,19 @@ router.post('/:id/validate-transfer',
   paymentController.validateTransfer
 );
 
+// Activar membresía pagada en efectivo
+router.post('/activate-cash-membership',
+  authenticateToken,
+  requireStaff,
+  paymentController.activateCashMembership
+);
+
+// Rechazar transferencia
+router.post('/:id/reject-transfer',
+  authenticateToken,
+  requireAdmin,
+  paymentController.rejectTransfer
+);
+
+
 module.exports = router;

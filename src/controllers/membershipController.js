@@ -1001,7 +1001,8 @@ async purchaseMembership(req, res) {
       selectedSchedule = {},
       paymentMethod = 'pending', // 'cash', 'card', 'transfer', 'pending'
       notes,
-      userId // Solo para staff
+      userId, // Solo para staff
+      promotionCode // ✅ NUEVO: Código promocional
     } = req.body;
     
     const { MembershipPlans, Membership, Payment, FinancialMovements } = require('../models');
@@ -1039,41 +1040,186 @@ async purchaseMembership(req, res) {
       });
     }
     
-    // Verificar disponibilidad de horarios si se seleccionaron
+    // ✅ NUEVO: Validar y aplicar código promocional
+    let appliedPromotion = null;
+    let finalPrice = plan.price;
+    let extraDays = 0;
+    
+    if (promotionCode) {
+      const { PromotionCodes, MembershipPromotions } = require('../models');
+      
+      const promotion = await PromotionCodes.findOne({
+        where: { code: promotionCode.toUpperCase(), isActive: true }
+      });
+      
+      if (!promotion) {
+        return res.status(400).json({
+          success: false,
+          message: 'Código promocional no válido o expirado'
+        });
+      }
+      
+      if (!promotion.isValid()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Código promocional expirado o agotado'
+        });
+      }
+      
+      const canUse = await promotion.canBeUsedBy(targetUserId);
+      if (!canUse) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ya has usado este código promocional anteriormente'
+        });
+      }
+      
+      // Verificar si es aplicable al plan
+      if (promotion.applicablePlans && promotion.applicablePlans.length > 0 && !promotion.applicablePlans.includes(planId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este código promocional no es válido para el plan seleccionado'
+        });
+      }
+      
+      // Aplicar promoción según tipo
+      switch (promotion.type) {
+        case 'percentage':
+          const discount = (plan.price * promotion.value) / 100;
+          finalPrice = Math.max(0, plan.price - discount);
+          appliedPromotion = { promotion, discount };
+          break;
+        case 'fixed_amount':
+          const fixedDiscount = Math.min(promotion.value, plan.price);
+          finalPrice = Math.max(0, plan.price - fixedDiscount);
+          appliedPromotion = { promotion, discount: fixedDiscount };
+          break;
+        case 'free_days':
+          extraDays = promotion.freeDays || 0;
+          appliedPromotion = { promotion, freeDaysAdded: extraDays };
+          break;
+        case 'gift':
+          finalPrice = 0;
+          appliedPromotion = { promotion, discount: plan.price };
+          break;
+      }
+    }
+    
+    // ✅ MEJORADO: Validar horarios según restricciones del plan
     if (Object.keys(selectedSchedule).length > 0) {
       const { GymTimeSlots } = require('../models');
       
+      // Verificar disponibilidad de capacidad en franjas
       for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
         if (Array.isArray(timeSlotIds)) {
+          // ✅ NUEVO: Verificar que el día esté permitido en el plan
+          if (!plan.allowedDays.includes(day)) {
+            return res.status(400).json({
+              success: false,
+              message: `El plan ${plan.planName} no permite reservas los ${day}`,
+              invalidDay: day
+            });
+          }
+          
+          // ✅ NUEVO: Verificar límite de slots por día
+          if (timeSlotIds.length > plan.maxSlotsPerDay) {
+            return res.status(400).json({
+              success: false,
+              message: `El plan ${plan.planName} permite máximo ${plan.maxSlotsPerDay} horario(s) por día`,
+              day,
+              maxAllowed: plan.maxSlotsPerDay
+            });
+          }
+          
           for (const timeSlotId of timeSlotIds) {
             const slot = await GymTimeSlots.findByPk(timeSlotId);
             
-            if (!slot || slot.currentReservations >= slot.capacity) {
+            if (!slot) {
               return res.status(400).json({
                 success: false,
-                message: `Franja horaria no disponible: ${day} ${slot?.openTime || timeSlotId}`,
+                message: `Franja horaria no encontrada: ${timeSlotId}`,
                 unavailableSlot: { day, timeSlotId }
               });
             }
+            
+            if (slot.currentReservations >= slot.capacity) {
+              return res.status(400).json({
+                success: false,
+                message: `Franja horaria sin capacidad: ${day} ${slot.openTime}`,
+                unavailableSlot: { day, timeSlotId }
+              });
+            }
+            
+            // ✅ NUEVO: Verificar restricciones de horario específicas del plan
+            if (plan.timeRestrictions && plan.timeRestrictions[day]) {
+              const allowedSlots = plan.timeRestrictions[day].map(id => parseInt(id));
+              if (!allowedSlots.includes(parseInt(timeSlotId))) {
+                return res.status(400).json({
+                  success: false,
+                  message: `Horario no permitido para este plan en ${day}: ${slot.openTime}`,
+                  invalidSlot: { day, timeSlotId, time: slot.openTime }
+                });
+              }
+            }
           }
         }
+      }
+      
+      // ✅ NUEVO: Verificar límite de reservas por semana
+      const totalReservations = Object.values(selectedSchedule).reduce((total, slots) => total + slots.length, 0);
+      if (totalReservations > plan.maxReservationsPerWeek) {
+        return res.status(400).json({
+          success: false,
+          message: `El plan ${plan.planName} permite máximo ${plan.maxReservationsPerWeek} reservas por semana`,
+          currentReservations: totalReservations,
+          maxAllowed: plan.maxReservationsPerWeek
+        });
       }
     }
     
     const transaction = await Membership.sequelize.transaction();
     
     try {
-      // Crear membresía con horarios
+      // Calcular duración en días según el tipo
+      let durationInDays;
+      switch (plan.durationType) {
+        case 'daily':
+          durationInDays = 1;
+          break;
+        case 'weekly':
+          durationInDays = 7;
+          break;
+        case 'monthly':
+          durationInDays = 30;
+          break;
+        case 'quarterly':
+          durationInDays = 90;
+          break;
+        case 'biannual':
+          durationInDays = 180;
+          break;
+        case 'annual':
+          durationInDays = 365;
+          break;
+        default:
+          durationInDays = 30;
+      }
+      
+      const totalDays = durationInDays + extraDays;
+      
+      // ✅ MEJORADO: Crear membresía con planId
       const membershipData = {
         userId: targetUserId,
+        planId: planId, // ✅ NUEVO: Asociar con el plan
         type: plan.durationType,
-        price: plan.price,
+        price: finalPrice, // ✅ NUEVO: Precio con descuento aplicado
         startDate: new Date(),
-        endDate: new Date(Date.now() + (plan.durationType === 'monthly' ? 30 : 
-                         plan.durationType === 'quarterly' ? 90 : 365) * 24 * 60 * 60 * 1000),
-        notes: notes || `Membresía ${plan.planName}`,
+        endDate: new Date(Date.now() + totalDays * 24 * 60 * 60 * 1000),
+        notes: notes || `Membresía ${plan.planName}${appliedPromotion ? ` (Promoción aplicada: ${appliedPromotion.promotion.code})` : ''}`,
         registeredBy: req.user.id,
-        status: paymentMethod === 'pending' ? 'pending' : 'active'
+        status: paymentMethod === 'pending' ? 'pending' : 'active',
+        totalDays: totalDays, // ✅ NUEVO: Días totales incluyendo promoción
+        remainingDays: totalDays // ✅ NUEVO: Días restantes iniciales
       };
       
       const membership = await Membership.createWithSchedule(
@@ -1082,16 +1228,31 @@ async purchaseMembership(req, res) {
         { transaction }
       );
       
+      // ✅ NUEVO: Registrar promoción aplicada
+      if (appliedPromotion) {
+        const { MembershipPromotions } = require('../models');
+        await MembershipPromotions.create({
+          membershipId: membership.id,
+          promotionCodeId: appliedPromotion.promotion.id,
+          userId: targetUserId,
+          discountAmount: appliedPromotion.discount || 0,
+          freeDaysAdded: appliedPromotion.freeDaysAdded || 0
+        }, { transaction });
+        
+        // Incrementar uso del código
+        await appliedPromotion.promotion.increment('currentUses', { transaction });
+      }
+      
       // Crear pago si no está pendiente
       let payment = null;
       if (paymentMethod !== 'pending') {
         const paymentData = {
           userId: targetUserId,
           membershipId: membership.id,
-          amount: plan.price,
+          amount: finalPrice, // ✅ MEJORADO: Usar precio final con descuento
           paymentMethod,
           paymentType: 'membership',
-          description: `Compra de membresía ${plan.planName}`,
+          description: `Compra de membresía ${plan.planName}${appliedPromotion ? ` (${appliedPromotion.promotion.code})` : ''}`,
           registeredBy: req.user.id,
           status: isStaffPurchase ? 'completed' : (paymentMethod === 'transfer' ? 'pending' : 'completed')
         };
@@ -1110,7 +1271,8 @@ async purchaseMembership(req, res) {
       const completeMembership = await Membership.findByPk(membership.id, {
         include: [
           { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
-          { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
+          { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] },
+          { association: 'plan', attributes: ['id', 'planName', 'price', 'durationType'] } // ✅ NUEVO: Incluir plan
         ]
       });
       
@@ -1118,12 +1280,12 @@ async purchaseMembership(req, res) {
       
       // ✅ ENVIAR EMAIL DE CONFIRMACIÓN
       try {
-        await this.sendMembershipConfirmationEmail(completeMembership, plan, detailedSchedule);
+        await this.sendMembershipConfirmationEmail(completeMembership, plan, detailedSchedule, appliedPromotion);
       } catch (emailError) {
         console.warn('⚠️ Error al enviar email de confirmación:', emailError.message);
       }
       
-      console.log(`✅ ${isStaffPurchase ? 'Staff creó' : 'Cliente compró'} membresía: ${plan.planName} para usuario ${targetUserId}`);
+      console.log(`✅ ${isStaffPurchase ? 'Staff creó' : 'Cliente compró'} membresía: ${plan.planName} para usuario ${targetUserId}${appliedPromotion ? ` con promoción ${appliedPromotion.promotion.code}` : ''}`);
       
       res.status(201).json({
         success: true,
@@ -1134,13 +1296,24 @@ async purchaseMembership(req, res) {
           membership: {
             ...completeMembership.toJSON(),
             summary: completeMembership.getSummary(),
-            schedule: detailedSchedule
+            schedule: detailedSchedule,
+            appliedPromotion: appliedPromotion ? {
+              code: appliedPromotion.promotion.code,
+              name: appliedPromotion.promotion.name,
+              type: appliedPromotion.promotion.type,
+              discount: appliedPromotion.discount || 0,
+              freeDaysAdded: appliedPromotion.freeDaysAdded || 0
+            } : null
           },
           payment: payment?.toJSON() || null,
           plan: {
+            id: plan.id,
             name: plan.planName,
-            price: plan.price,
-            durationType: plan.durationType
+            originalPrice: plan.price,
+            finalPrice: finalPrice,
+            durationType: plan.durationType,
+            totalDays: totalDays,
+            extraDaysFromPromotion: extraDays
           }
         }
       });
@@ -1155,7 +1328,7 @@ async purchaseMembership(req, res) {
     res.status(500).json({
       success: false,
       message: 'Error al procesar la compra de membresía',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno del servidor'
     });
   }
 }
@@ -1560,6 +1733,300 @@ Elite Fitness Club
   } catch (error) {
     console.error('Error enviando notificación de vencimiento:', error);
     throw error;
+  }
+}
+
+// AGREGAR estos métodos al final del membershipController.js existente:
+
+// Cambiar horarios de membresía (con validaciones del plan)
+  async changeSchedule(req, res) {
+    try {
+      const { id } = req.params;
+      const { selectedSchedule, removeSlots = [] } = req.body;
+      
+      const membership = await Membership.findByPk(id, {
+        include: [
+          { association: 'user', attributes: ['id', 'role'] },
+          { association: 'plan', attributes: ['allowedDays', 'timeRestrictions', 'maxSlotsPerDay', 'maxReservationsPerWeek', 'allowScheduleChanges', 'changeHoursAdvance'] }
+        ]
+      });
+      
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'Membresía no encontrada'
+        });
+      }
+      
+      // Validar permisos
+      if (req.user.role === 'cliente' && membership.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes modificar tus propios horarios'
+        });
+      }
+      
+      if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes modificar horarios de usuarios clientes'
+        });
+      }
+      
+      // Validar si el plan permite cambios
+      if (!membership.plan.allowScheduleChanges) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este plan no permite cambios de horario'
+        });
+      }
+      
+      // Validar horarios según plan (igual que en purchaseMembership)
+      if (selectedSchedule && Object.keys(selectedSchedule).length > 0) {
+    const { GymTimeSlots } = require('../models');
+    
+    // Verificar disponibilidad de capacidad en franjas
+    for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+      if (Array.isArray(timeSlotIds)) {
+        // ✅ Verificar que el día esté permitido en el plan
+        if (!membership.plan.allowedDays.includes(day)) {
+          return res.status(400).json({
+            success: false,
+            message: `El plan ${membership.plan.planName} no permite reservas los ${day}`,
+            invalidDay: day
+          });
+        }
+        
+        // ✅ Verificar límite de slots por día
+        if (timeSlotIds.length > membership.plan.maxSlotsPerDay) {
+          return res.status(400).json({
+            success: false,
+            message: `El plan ${membership.plan.planName} permite máximo ${membership.plan.maxSlotsPerDay} horario(s) por día`,
+            day,
+            maxAllowed: membership.plan.maxSlotsPerDay
+          });
+        }
+        
+        for (const timeSlotId of timeSlotIds) {
+          const slot = await GymTimeSlots.findByPk(timeSlotId);
+          
+          if (!slot) {
+            return res.status(400).json({
+              success: false,
+              message: `Franja horaria no encontrada: ${timeSlotId}`,
+              unavailableSlot: { day, timeSlotId }
+            });
+          }
+          
+          if (slot.currentReservations >= slot.capacity) {
+            return res.status(400).json({
+              success: false,
+              message: `Franja horaria sin capacidad: ${day} ${slot.openTime}`,
+              unavailableSlot: { day, timeSlotId }
+            });
+          }
+          
+          // ✅ Verificar restricciones de horario específicas del plan
+          if (membership.plan.timeRestrictions && membership.plan.timeRestrictions[day]) {
+            const allowedSlots = membership.plan.timeRestrictions[day].map(id => parseInt(id));
+            if (!allowedSlots.includes(parseInt(timeSlotId))) {
+              return res.status(400).json({
+                success: false,
+                message: `Horario no permitido para este plan en ${day}: ${slot.openTime}`,
+                invalidSlot: { day, timeSlotId, time: slot.openTime }
+              });
+            }
+          }
+        }
+      }
+    }
+  
+  // ✅ Verificar límite de reservas por semana
+  // Obtener reservas actuales de la membresía
+  const currentSchedule = await membership.getDetailedSchedule();
+  const currentReservations = Object.values(currentSchedule).reduce((total, daySlots) => {
+    return total + (daySlots ? daySlots.length : 0);
+  }, 0);
+  
+  // Calcular nuevas reservas (considerando las que se van a remover)
+  const newReservations = Object.values(selectedSchedule).reduce((total, slots) => total + slots.length, 0);
+  const removedReservations = removeSlots.length;
+  const totalReservationsAfterChange = currentReservations - removedReservations + newReservations;
+  
+  if (totalReservationsAfterChange > membership.plan.maxReservationsPerWeek) {
+    return res.status(400).json({
+      success: false,
+      message: `El plan ${membership.plan.planName} permite máximo ${membership.plan.maxReservationsPerWeek} reservas por semana`,
+      currentReservations,
+      newReservations,
+      removedReservations,
+      totalAfterChange: totalReservationsAfterChange,
+      maxAllowed: membership.plan.maxReservationsPerWeek
+    });
+  }
+}
+
+// ✅ VALIDACIÓN ADICIONAL: Verificar tiempo de anticipación para cambios
+if (membership.plan.changeHoursAdvance && membership.plan.changeHoursAdvance > 0) {
+  const now = new Date();
+  const minChangeTime = new Date(now.getTime() + membership.plan.changeHoursAdvance * 60 * 60 * 1000);
+  
+  // Verificar si hay alguna reserva que se esté intentando cambiar muy cerca del horario
+  for (const { day, timeSlotId } of removeSlots) {
+    const slot = await GymTimeSlots.findByPk(timeSlotId);
+    if (slot) {
+      // Calcular la fecha/hora de la reserva (esto depende de cómo manejes las fechas)
+      // Aquí asumo que necesitas validar contra el próximo día de la semana
+      const nextSlotDate = getNextDateForDay(day); // Esta función necesitarías implementarla
+      const slotDateTime = new Date(`${nextSlotDate}T${slot.openTime}`);
+      
+      if (slotDateTime < minChangeTime) {
+        return res.status(400).json({
+          success: false,
+          message: `No puedes cancelar reservas con menos de ${membership.plan.changeHoursAdvance} horas de anticipación`,
+          slot: { day, time: slot.openTime },
+          requiredAdvance: membership.plan.changeHoursAdvance
+        });
+      }
+    }
+  }
+}
+    
+    const transaction = await Membership.sequelize.transaction();
+    
+    try {
+      // Remover slots especificados
+      for (const { day, timeSlotId } of removeSlots) {
+        await membership.cancelTimeSlot(day, timeSlotId);
+      }
+      
+      // Agregar nuevos slots
+      if (selectedSchedule) {
+        for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+          if (Array.isArray(timeSlotIds)) {
+            for (const timeSlotId of timeSlotIds) {
+              await membership.reserveTimeSlot(day, timeSlotId);
+            }
+          }
+        }
+      }
+      
+      await transaction.commit();
+      
+      const updatedSchedule = await membership.getDetailedSchedule();
+      
+      res.json({
+        success: true,
+        message: 'Horarios actualizados exitosamente',
+        data: {
+          membershipId: membership.id,
+          schedule: updatedSchedule,
+          summary: membership.getSummary()
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al cambiar horarios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al cambiar horarios',
+      error: error.message
+    });
+  }
+}
+
+// Obtener opciones de horario disponibles según plan
+async getAvailableScheduleOptions(req, res) {
+  try {
+    const { planId } = req.params;
+    
+    const plan = await MembershipPlans.findByPk(planId);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Plan no encontrado'
+      });
+    }
+    
+    const { GymHours, GymTimeSlots } = require('../models');
+    const availableOptions = {};
+    
+    // Días en español
+    const dayNames = {
+      monday: 'Lunes',
+      tuesday: 'Martes', 
+      wednesday: 'Miércoles',
+      thursday: 'Jueves',
+      friday: 'Viernes',
+      saturday: 'Sábado',
+      sunday: 'Domingo'
+    };
+    
+    for (const dayOfWeek of plan.allowedDays) {
+      const daySchedule = await GymHours.findOne({
+        where: { dayOfWeek },
+        include: [{
+          model: GymTimeSlots,
+          as: 'timeSlots',
+          where: { isActive: true },
+          required: false,
+          order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
+        }]
+      });
+      
+      if (daySchedule && !daySchedule.isClosed) {
+        let availableSlots = daySchedule.timeSlots || [];
+        
+        // Filtrar por restricciones del plan
+        if (plan.timeRestrictions && plan.timeRestrictions[dayOfWeek]) {
+          const allowedSlotIds = plan.timeRestrictions[dayOfWeek].map(id => parseInt(id));
+          availableSlots = availableSlots.filter(slot => allowedSlotIds.includes(slot.id));
+        }
+        
+        availableOptions[dayOfWeek] = {
+          dayName: dayNames[dayOfWeek],
+          dayCode: dayOfWeek,
+          slots: availableSlots.map(slot => ({
+            id: slot.id,
+            openTime: slot.openTime.slice(0, 5),
+            closeTime: slot.closeTime.slice(0, 5),
+            label: slot.slotLabel || `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+            capacity: slot.capacity,
+            currentReservations: slot.currentReservations,
+            available: slot.capacity - slot.currentReservations,
+            canReserve: slot.capacity > slot.currentReservations
+          }))
+        };
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        plan: {
+          id: plan.id,
+          name: plan.planName,
+          allowedDays: plan.allowedDays,
+          maxSlotsPerDay: plan.maxSlotsPerDay,
+          maxReservationsPerWeek: plan.maxReservationsPerWeek,
+          allowScheduleChanges: plan.allowScheduleChanges
+        },
+        availableOptions
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error al obtener opciones de horario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener opciones de horario',
+      error: error.message
+    });
   }
 }
 

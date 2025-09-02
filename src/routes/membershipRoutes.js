@@ -2,9 +2,9 @@
 
 const express = require('express');
 const membershipController = require('../controllers/membershipController');
-const { 
-  createMembershipValidator, 
-  updateMembershipValidator 
+const {
+  createMembershipValidator,
+  updateMembershipValidator
 } = require('../validators/membershipValidators');
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
@@ -25,27 +25,27 @@ router.get('/purchase/plans', membershipController.getPurchaseableePlans);
 // ✅ RUTAS EXISTENTES MANTENIDAS
 
 // ✅ Cliente puede ver SUS membresías, staff ve según permisos
-router.get('/', 
+router.get('/',
   authenticateToken,
   membershipController.getMemberships
 );
 
 // ✅ Solo STAFF puede ver membresías vencidas - CLIENTES NO PUEDEN
-router.get('/expired', 
+router.get('/expired',
   authenticateToken,
   requireStaff,
   membershipController.getExpiredMemberships
 );
 
 // ✅ Solo STAFF puede ver membresías próximas a vencer - CLIENTES NO PUEDEN
-router.get('/expiring-soon', 
+router.get('/expiring-soon',
   authenticateToken,
   requireStaff,
   membershipController.getExpiringSoon
 );
 
 // ✅ Solo STAFF puede ver estadísticas - CLIENTES NO PUEDEN
-router.get('/stats', 
+router.get('/stats',
   authenticateToken,
   requireStaff,
   membershipController.getMembershipStats
@@ -54,7 +54,7 @@ router.get('/stats',
 // =============== RUTAS NUEVAS PARA CLIENTES ===============
 
 // 🛒 NUEVA - Verificar disponibilidad de horarios antes de comprar
-router.post('/purchase/check-availability', 
+router.post('/purchase/check-availability',
   authenticateToken,
   [
     body('planId').isInt().withMessage('ID de plan requerido'),
@@ -65,7 +65,7 @@ router.post('/purchase/check-availability',
 );
 
 // 🛒 NUEVA - COMPRAR membresía (clientes) o crear con horarios (staff)
-router.post('/purchase', 
+router.post('/purchase',
   authenticateToken,
   [
     body('planId').isInt().withMessage('ID de plan requerido'),
@@ -79,7 +79,7 @@ router.post('/purchase',
 );
 
 // 👤 NUEVA - Obtener MI membresía actual con horarios (solo clientes)
-router.get('/my-current', 
+router.get('/my-current',
   authenticateToken,
   (req, res, next) => {
     // Solo clientes pueden acceder a esta ruta específica
@@ -97,7 +97,7 @@ router.get('/my-current',
 // =============== RUTAS EXISTENTES PARA STAFF ===============
 
 // ✅ Solo STAFF puede crear membresías
-router.post('/', 
+router.post('/',
   authenticateToken,
   requireStaff,
   createMembershipValidator,
@@ -105,14 +105,14 @@ router.post('/',
   membershipController.createMembership
 );
 
-// ✅ Cliente puede ver SUS membresías por ID, staff ve según permisos
-router.get('/:id', 
+//  Cliente puede ver SUS membresías por ID, staff ve según permisos
+router.get('/:id',
   authenticateToken,
   membershipController.getMembershipById
 );
 
-// ✅ Solo STAFF puede actualizar membresías - CLIENTES NO PUEDEN
-router.patch('/:id', 
+//  Solo STAFF puede actualizar membresías - CLIENTES NO PUEDEN
+router.patch('/:id',
   authenticateToken,
   requireStaff,
   updateMembershipValidator,
@@ -120,15 +120,15 @@ router.patch('/:id',
   membershipController.updateMembership
 );
 
-// ✅ Solo STAFF puede renovar membresías - CLIENTES NO PUEDEN
-router.post('/:id/renew', 
+//  Solo STAFF puede renovar membresías - CLIENTES NO PUEDEN
+router.post('/:id/renew',
   authenticateToken,
   requireStaff,
   membershipController.renewMembership
 );
 
-// ✅ Solo STAFF puede cancelar membresías - CLIENTES NO PUEDEN
-router.post('/:id/cancel', 
+//  Solo STAFF puede cancelar membresías - CLIENTES NO PUEDEN
+router.post('/:id/cancel',
   authenticateToken,
   requireStaff,
   membershipController.cancelMembership
@@ -136,8 +136,8 @@ router.post('/:id/cancel',
 
 // =============== RUTAS PARA GESTIÓN DE HORARIOS ===============
 
-// 📅 Cliente puede actualizar horarios de SUS membresías, staff según permisos (EXISTENTE)
-router.patch('/:id/schedule', 
+//  Cliente puede actualizar horarios de SUS membresías, staff según permisos (EXISTENTE)
+router.patch('/:id/schedule',
   authenticateToken,
   [
     param('id').isUUID().withMessage('ID de membresía inválido'),
@@ -148,8 +148,8 @@ router.patch('/:id/schedule',
   membershipController.updateMembershipSchedule || membershipController.updateSchedule
 );
 
-// 📊 NUEVA - Obtener horarios detallados de una membresía
-router.get('/:id/schedule-details', 
+//  NUEVA - Obtener horarios detallados de una membresía
+router.get('/:id/schedule-details',
   authenticateToken,
   [
     param('id').isUUID().withMessage('ID de membresía inválido')
@@ -159,18 +159,18 @@ router.get('/:id/schedule-details',
     try {
       const { id } = req.params;
       const { Membership } = require('../models');
-      
+
       const membership = await Membership.findByPk(id, {
         include: [{ association: 'user', attributes: ['id', 'role'] }]
       });
-      
+
       if (!membership) {
         return res.status(404).json({
           success: false,
           message: 'Membresía no encontrada'
         });
       }
-      
+
       // Validar permisos
       if (req.user.role === 'cliente' && membership.userId !== req.user.id) {
         return res.status(403).json({
@@ -183,10 +183,10 @@ router.get('/:id/schedule-details',
           message: 'Solo puedes ver horarios de usuarios clientes'
         });
       }
-      
+
       const detailedSchedule = await membership.getDetailedSchedule();
       const summary = membership.getSummary();
-      
+
       res.json({
         success: true,
         data: {
@@ -207,17 +207,29 @@ router.get('/:id/schedule-details',
   }
 );
 
+// Cambiar horarios de membresía
+router.patch('/:id/schedule',
+  authenticateToken,
+  membershipController.changeSchedule
+);
+
+// Obtener opciones de horario por plan
+router.get('/plans/:planId/schedule-options',
+  authenticateToken,
+  membershipController.getAvailableScheduleOptions
+);
+
 // =============== RUTAS ADMINISTRATIVAS NUEVAS ===============
 
 // 🔧 NUEVA - Procesar deducción diaria (solo admin - para cron jobs)
-router.post('/process-daily-deduction', 
+router.post('/process-daily-deduction',
   authenticateToken,
   requireAdmin,
   membershipController.processDailyDeduction
 );
 
 // 📊 NUEVA - Obtener membresías próximas a expirar con detalles (solo staff)
-router.get('/expiring-detailed', 
+router.get('/expiring-detailed',
   authenticateToken,
   requireStaff,
   [
@@ -228,20 +240,20 @@ router.get('/expiring-detailed',
     try {
       const { days = 7 } = req.query;
       const { Membership } = require('../models');
-      
+
       let expiringMemberships = await Membership.getExpiringMemberships(parseInt(days));
-      
+
       // Colaborador solo ve clientes
       if (req.user.role === 'colaborador') {
         expiringMemberships = expiringMemberships.filter(m => m.user.role === 'cliente');
       }
-      
+
       // Obtener horarios detallados para cada una
       const detailedMemberships = await Promise.all(
         expiringMemberships.map(async (membership) => {
           const schedule = await membership.getDetailedSchedule();
           const summary = membership.getSummary();
-          
+
           return {
             ...membership.toJSON(),
             schedule,
@@ -249,7 +261,7 @@ router.get('/expiring-detailed',
           };
         })
       );
-      
+
       res.json({
         success: true,
         data: {
@@ -270,21 +282,21 @@ router.get('/expiring-detailed',
 );
 
 // 📈 NUEVA - Estadísticas de membresías con días (solo staff)
-router.get('/stats-with-days', 
+router.get('/stats-with-days',
   authenticateToken,
   requireStaff,
   async (req, res) => {
     try {
       const { Membership } = require('../models');
       const { Op } = require('sequelize');
-      
+
       let baseWhere = { status: 'active' };
-      
+
       // Colaborador solo ve clientes
       if (req.user.role === 'colaborador') {
         baseWhere['$user.role$'] = 'cliente';
       }
-      
+
       const [
         totalActive,
         totalDaysRemaining,
@@ -295,59 +307,59 @@ router.get('/stats-with-days',
       ] = await Promise.all([
         Membership.count({
           where: baseWhere,
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : []
         }),
-        
+
         Membership.sum('remainingDays', {
           where: baseWhere,
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : []
         }),
-        
+
         Membership.findAll({
           attributes: [
             [Membership.sequelize.fn('AVG', Membership.sequelize.col('remaining_days')), 'avgDays']
           ],
           where: baseWhere,
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : [],
           raw: true
         }),
-        
+
         Membership.count({
           where: {
             ...baseWhere,
             remainingDays: { [Op.between]: [1, 7] }
           },
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : []
         }),
-        
+
         Membership.count({
           where: {
             ...baseWhere,
             remainingDays: { [Op.between]: [8, 14] }
           },
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : []
         }),
-        
+
         Membership.count({
           where: {
             ...baseWhere,
@@ -356,14 +368,14 @@ router.get('/stats-with-days',
               { reservedSchedule: {} }
             ]
           },
-          include: req.user.role === 'colaborador' ? [{ 
-            association: 'user', 
+          include: req.user.role === 'colaborador' ? [{
+            association: 'user',
             where: { role: 'cliente' },
             attributes: []
           }] : []
         })
       ]);
-      
+
       res.json({
         success: true,
         data: {
@@ -373,7 +385,7 @@ router.get('/stats-with-days',
           expiringThisWeek,
           expiringNextWeek,
           membershipsWithoutSchedule,
-          scheduleAdoptionRate: totalActive > 0 
+          scheduleAdoptionRate: totalActive > 0
             ? (((totalActive - membershipsWithoutSchedule) / totalActive) * 100).toFixed(1)
             : '0',
           role: req.user.role
@@ -391,7 +403,7 @@ router.get('/stats-with-days',
 );
 
 // 🔄 NUEVA - Renovar membresía manualmente con opción de cambiar horarios (solo staff)
-router.post('/:id/renew-with-schedule', 
+router.post('/:id/renew-with-schedule',
   authenticateToken,
   requireStaff,
   [
@@ -406,18 +418,18 @@ router.post('/:id/renew-with-schedule',
       const { id } = req.params;
       const { additionalDays, newSchedule, price } = req.body;
       const { Membership, Payment, FinancialMovements } = require('../models');
-      
+
       const membership = await Membership.findByPk(id, {
         include: [{ association: 'user', attributes: ['id', 'role', 'firstName', 'lastName', 'email'] }]
       });
-      
+
       if (!membership) {
         return res.status(404).json({
           success: false,
           message: 'Membresía no encontrada'
         });
       }
-      
+
       // Colaborador solo puede renovar membresías de clientes
       if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
         return res.status(403).json({
@@ -425,26 +437,26 @@ router.post('/:id/renew-with-schedule',
           message: 'Solo puedes renovar membresías de usuarios clientes'
         });
       }
-      
+
       const transaction = await Membership.sequelize.transaction();
-      
+
       try {
         // Agregar días
         membership.remainingDays += parseInt(additionalDays);
         membership.totalDays += parseInt(additionalDays);
-        
+
         // Extender fecha de fin
         const newEndDate = new Date(membership.endDate);
         newEndDate.setDate(newEndDate.getDate() + parseInt(additionalDays));
         membership.endDate = newEndDate;
-        
+
         // Si estaba expirada, reactivar
         if (membership.status === 'expired') {
           membership.status = 'active';
         }
-        
+
         await membership.save({ transaction });
-        
+
         // Actualizar horarios si se proporcionan
         if (newSchedule && Object.keys(newSchedule).length > 0) {
           // Liberar horarios actuales
@@ -457,7 +469,7 @@ router.post('/:id/renew-with-schedule',
               }
             }
           }
-          
+
           // Reservar nuevos horarios
           for (const [day, timeSlotIds] of Object.entries(newSchedule)) {
             if (Array.isArray(timeSlotIds)) {
@@ -467,7 +479,7 @@ router.post('/:id/renew-with-schedule',
             }
           }
         }
-        
+
         // Crear registro de pago si se especifica precio
         if (price && parseFloat(price) > 0) {
           const payment = await Payment.create({
@@ -480,18 +492,18 @@ router.post('/:id/renew-with-schedule',
             registeredBy: req.user.id,
             status: 'completed'
           }, { transaction });
-          
+
           // Crear movimiento financiero
           await FinancialMovements.createFromAnyPayment(payment, { transaction });
         }
-        
+
         await transaction.commit();
-        
+
         const updatedSchedule = await membership.getDetailedSchedule();
         const summary = membership.getSummary();
-        
+
         console.log(`✅ ${req.user.role} renovó membresía ID: ${id} - ${additionalDays} días adicionales`);
-        
+
         res.json({
           success: true,
           message: `Membresía renovada exitosamente - ${additionalDays} días adicionales`,
@@ -509,12 +521,12 @@ router.post('/:id/renew-with-schedule',
             }
           }
         });
-        
+
       } catch (error) {
         await transaction.rollback();
         throw error;
       }
-      
+
     } catch (error) {
       console.error('Error al renovar membresía con horarios:', error);
       res.status(500).json({

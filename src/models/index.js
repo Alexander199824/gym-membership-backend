@@ -43,7 +43,9 @@ const MODEL_ORDER = [
   'StoreOrderItem.js',
   
   // Otros modelos
-  'FinancialMovements.js'
+  'FinancialMovements.js',
+  'PromotionCodes.js',
+  'MembershipPromotions.js'
 ];
 
 // ✅ FUNCIÓN para cargar un modelo específico

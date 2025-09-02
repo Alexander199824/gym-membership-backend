@@ -12,6 +12,7 @@ const scheduleRoutes = require('./scheduleRoutes');
 const adminRoutes = require('./adminRoutes');
 const stripeRoutes = require('./stripeRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
+//const promotionRoutes = require('./promotionsRoutes');
 
 // ✅ NUEVAS RUTAS para el frontend
 const contentRoutes = require('./contentRoutes');
@@ -179,6 +180,7 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/content', contentRoutes);       // /api/content/*
 router.use('/branding', brandingRoutes);     // /api/branding/*
 router.use('/promotions', promotionsRoutes); // /api/promotions/*
+router.use('/promotions', promotionsRoutes);
 
 // 🎬 Rutas multimedia
 router.use('/gym-media', gymMediaRoutes);    // /api/gym-media/*

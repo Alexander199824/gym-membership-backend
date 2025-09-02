@@ -1164,6 +1164,168 @@ class PaymentController {
       console.error('⚠️ Error general al enviar notificaciones de pago:', error.message);
     }
   }
+// AGREGAR estos métodos al paymentController.js existente:
+
+// Habilitar membresía pagada en efectivo (solo staff en gym)
+async activateCashMembership(req, res) {
+  try {
+    const { membershipId } = req.body;
+    
+    if (!['admin', 'colaborador'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el personal puede activar membresías en efectivo'
+      });
+    }
+    
+    const { Membership, Payment, FinancialMovements } = require('../models');
+    
+    const membership = await Membership.findByPk(membershipId, {
+      include: [
+        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { association: 'plan', attributes: ['planName', 'price'] }
+      ]
+    });
+    
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'Membresía no encontrada'
+      });
+    }
+    
+    if (membership.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `La membresía ya está ${membership.status}`
+      });
+    }
+    
+    const transaction = await Membership.sequelize.transaction();
+    
+    try {
+      // Activar membresía
+      membership.status = 'active';
+      await membership.save({ transaction });
+      
+      // Crear registro de pago en efectivo
+      const payment = await Payment.create({
+        userId: membership.userId,
+        membershipId: membership.id,
+        amount: membership.price,
+        paymentMethod: 'cash',
+        paymentType: 'membership',
+        description: `Pago en efectivo - ${membership.plan.planName}`,
+        notes: `Activado por ${req.user.getFullName()} en gym`,
+        registeredBy: req.user.id,
+        status: 'completed'
+      }, { transaction });
+      
+      // Crear movimiento financiero
+      await FinancialMovements.createFromAnyPayment(payment, { transaction });
+      
+      await transaction.commit();
+      
+      res.json({
+        success: true,
+        message: 'Membresía activada exitosamente',
+        data: {
+          membership: {
+            id: membership.id,
+            status: membership.status,
+            user: membership.user,
+            plan: membership.plan
+          },
+          payment: {
+            id: payment.id,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod
+          }
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al activar membresía en efectivo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al activar membresía',
+      error: error.message
+    });
+  }
+}
+
+// Rechazar pago por transferencia
+async rejectTransfer(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo administradores pueden rechazar transferencias'
+      });
+    }
+    
+    const { Payment, Membership } = require('../models');
+    
+    const payment = await Payment.findByPk(id, {
+      include: ['membership']
+    });
+    
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
+    
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
+      payment.status = 'failed';
+      payment.transferValidated = false;
+      payment.transferValidatedBy = req.user.id;
+      payment.transferValidatedAt = new Date();
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\nRechazado: ${reason || 'Sin razón especificada'}`
+        : `Rechazado: ${reason || 'Sin razón especificada'}`;
+      await payment.save({ transaction });
+      
+      // Cancelar membresía si existe
+      if (payment.membership) {
+        payment.membership.status = 'cancelled';
+        await payment.membership.save({ transaction });
+      }
+      
+      await transaction.commit();
+      
+      res.json({
+        success: true,
+        message: 'Transferencia rechazada exitosamente'
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al rechazar transferencia:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al rechazar transferencia',
+      error: error.message
+    });
+  }
+}
+
+
 }
 
 module.exports = new PaymentController();
