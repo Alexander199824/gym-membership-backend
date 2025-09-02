@@ -1,4 +1,4 @@
-// src/models/Membership.js - COMPLETO: Con todas las funciones avanzadas restauradas
+// src/models/Membership.js - CORREGIDO: Referencias correctas a MembershipPlans
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -16,18 +16,32 @@ const Membership = sequelize.define('Membership', {
       key: 'id'
     }
   },
+  // ✅ CORREGIDO: Referencia correcta a membership_plans
+  planId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'membership_plans',
+      key: 'id'
+    },
+    field: 'plan_id'
+  },
   type: {
     type: DataTypes.ENUM('monthly', 'daily', 'weekly', 'quarterly', 'biannual', 'annual'),
-    allowNull: false
+    allowNull: false,
+    defaultValue: 'monthly'
   },
   status: {
     type: DataTypes.ENUM('active', 'expired', 'suspended', 'cancelled', 'pending'),
     allowNull: false,
-    defaultValue: 'active'
+    defaultValue: 'pending'
   },
   price: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false
+    allowNull: false,
+    validate: {
+      min: 0
+    }
   },
   startDate: {
     type: DataTypes.DATEONLY,
@@ -109,15 +123,30 @@ const Membership = sequelize.define('Membership', {
   timestamps: true,
   indexes: [
     { fields: ['userId'] },
+    { fields: ['plan_id'] }, // ✅ CORREGIDO: Usar field name real
     { fields: ['status'] },
     { fields: ['type'] },
     { fields: ['endDate'] },
     { fields: ['remainingDays'] },
-    { fields: ['last_day_deducted'] }  // Usar el nombre real de la columna en BD
-  ]
+    { fields: ['last_day_deducted'] }
+  ],
+  // ✅ VALIDACIONES SIMPLIFICADAS
+  validate: {
+    validDates() {
+      if (this.endDate <= this.startDate) {
+        throw new Error('La fecha de fin debe ser posterior a la fecha de inicio');
+      }
+    },
+    
+    validPrice() {
+      if (!this.price || this.price <= 0) {
+        throw new Error('El precio debe ser mayor a 0');
+      }
+    }
+  }
 });
 
-// ✅ MÉTODOS DE INSTANCIA RESTAURADOS
+// ✅ MÉTODOS DE INSTANCIA RESTAURADOS Y MEJORADOS
 
 // Calcular días totales basado en el tipo
 Membership.prototype.calculateTotalDays = function() {
@@ -137,6 +166,17 @@ Membership.prototype.calculateTotalDays = function() {
     default:
       return 30;
   }
+};
+
+// ✅ CORREGIDO: Calcular fecha de fin basada en el tipo
+Membership.prototype.calculateEndDate = function(startDate = null) {
+  const start = startDate ? new Date(startDate) : new Date(this.startDate || new Date());
+  const days = this.calculateTotalDays();
+  
+  const endDate = new Date(start);
+  endDate.setDate(endDate.getDate() + days);
+  
+  return endDate;
 };
 
 // Deducir un día automáticamente
@@ -171,117 +211,49 @@ Membership.prototype.getDetailedSchedule = async function() {
     return {};
   }
   
-  const { GymTimeSlots } = require('./index');
-  const detailedSchedule = {};
-  
-  for (const [day, timeSlotIds] of Object.entries(this.reservedSchedule)) {
-    if (Array.isArray(timeSlotIds) && timeSlotIds.length > 0) {
-      const slots = await GymTimeSlots.findAll({
-        where: { 
-          id: timeSlotIds,
-          isActive: true 
-        },
-        order: [['openTime', 'ASC']]
-      });
-      
-      detailedSchedule[day] = slots.map(slot => ({
-        id: slot.id,
-        openTime: slot.openTime,
-        closeTime: slot.closeTime,
-        capacity: slot.capacity,
-        currentReservations: slot.currentReservations,
-        label: slot.slotLabel,
-        availability: slot.capacity - slot.currentReservations
-      }));
-    } else {
-      detailedSchedule[day] = [];
+  try {
+    const { GymTimeSlots } = require('./index');
+    const detailedSchedule = {};
+    
+    for (const [day, timeSlotIds] of Object.entries(this.reservedSchedule)) {
+      if (Array.isArray(timeSlotIds) && timeSlotIds.length > 0) {
+        const slots = await GymTimeSlots.findAll({
+          where: { 
+            id: timeSlotIds,
+            isActive: true 
+          },
+          order: [['openTime', 'ASC']]
+        });
+        
+        detailedSchedule[day] = slots.map(slot => ({
+          id: slot.id,
+          openTime: slot.openTime,
+          closeTime: slot.closeTime,
+          capacity: slot.capacity,
+          currentReservations: slot.currentReservations,
+          label: slot.slotLabel,
+          availability: slot.capacity - slot.currentReservations
+        }));
+      } else {
+        detailedSchedule[day] = [];
+      }
     }
+    
+    return detailedSchedule;
+  } catch (error) {
+    console.warn('⚠️ Error obteniendo horarios detallados:', error.message);
+    return {};
   }
-  
-  return detailedSchedule;
-};
-
-// Reservar horario específico
-Membership.prototype.reserveTimeSlot = async function(dayOfWeek, timeSlotId) {
-  const { GymTimeSlots } = require('./index');
-  
-  // Verificar que la franja existe y tiene capacidad
-  const timeSlot = await GymTimeSlots.findByPk(timeSlotId);
-  if (!timeSlot) {
-    throw new Error('Franja horaria no encontrada');
-  }
-  
-  if (timeSlot.currentReservations >= timeSlot.capacity) {
-    throw new Error('Franja horaria sin capacidad disponible');
-  }
-  
-  // Inicializar reservedSchedule si no existe
-  if (!this.reservedSchedule) {
-    this.reservedSchedule = {};
-  }
-  
-  // Inicializar día si no existe
-  if (!this.reservedSchedule[dayOfWeek]) {
-    this.reservedSchedule[dayOfWeek] = [];
-  }
-  
-  // Verificar que no esté ya reservado
-  if (this.reservedSchedule[dayOfWeek].includes(timeSlotId)) {
-    throw new Error('Ya tienes este horario reservado');
-  }
-  
-  // Agregar la reserva
-  this.reservedSchedule[dayOfWeek].push(timeSlotId);
-  this.changed('reservedSchedule', true);
-  
-  // Incrementar contador en la franja
-  await timeSlot.increment('currentReservations');
-  
-  await this.save();
-  return true;
-};
-
-// Cancelar reserva de horario
-Membership.prototype.cancelTimeSlot = async function(dayOfWeek, timeSlotId) {
-  if (!this.reservedSchedule || !this.reservedSchedule[dayOfWeek]) {
-    return false;
-  }
-  
-  const index = this.reservedSchedule[dayOfWeek].indexOf(timeSlotId);
-  if (index === -1) {
-    return false;
-  }
-  
-  // Remover de la lista
-  this.reservedSchedule[dayOfWeek].splice(index, 1);
-  this.changed('reservedSchedule', true);
-  
-  // Decrementar contador en la franja
-  const { GymTimeSlots } = require('./index');
-  const timeSlot = await GymTimeSlots.findByPk(timeSlotId);
-  if (timeSlot && timeSlot.currentReservations > 0) {
-    await timeSlot.decrement('currentReservations');
-  }
-  
-  await this.save();
-  return true;
-};
-
-// Verificar si necesita notificación
-Membership.prototype.needsExpirationNotification = function() {
-  const settings = this.notificationSettings || { remindAt: [7, 3, 1] };
-  const remindDays = settings.remindAt || [7, 3, 1];
-  
-  return remindDays.includes(this.remainingDays);
 };
 
 // Obtener resumen de membresía
 Membership.prototype.getSummary = function() {
   const daysUsed = this.totalDays - this.remainingDays;
-  const progressPercentage = ((daysUsed / this.totalDays) * 100).toFixed(1);
+  const progressPercentage = this.totalDays > 0 ? ((daysUsed / this.totalDays) * 100).toFixed(1) : '0';
   
   return {
     id: this.id,
+    planId: this.planId,
     type: this.type,
     status: this.status,
     daysTotal: this.totalDays,
@@ -290,7 +262,7 @@ Membership.prototype.getSummary = function() {
     progressPercentage: parseFloat(progressPercentage),
     startDate: this.startDate,
     endDate: this.endDate,
-    price: this.price,
+    price: parseFloat(this.price),
     isExpiring: this.remainingDays <= 7,
     isExpired: this.remainingDays === 0,
     hasSchedule: this.reservedSchedule && Object.keys(this.reservedSchedule).length > 0,
@@ -299,35 +271,104 @@ Membership.prototype.getSummary = function() {
   };
 };
 
-// ✅ MÉTODOS ESTÁTICOS RESTAURADOS
+// ✅ MÉTODOS ESTÁTICOS MEJORADOS
+
+// ✅ NUEVO: Crear membresía con validación de plan
+Membership.createWithPlan = async function(membershipData, selectedSchedule = {}, options = {}) {
+  const transaction = options.transaction || await sequelize.transaction();
+  const shouldCommit = !options.transaction;
+  
+  try {
+    // Verificar que el plan existe
+    const { MembershipPlans } = require('./index');
+    
+    if (!MembershipPlans) {
+      throw new Error('MembershipPlans model no disponible');
+    }
+    
+    const plan = await MembershipPlans.findByPk(membershipData.planId);
+    
+    if (!plan) {
+      throw new Error(`Plan de membresía ${membershipData.planId} no encontrado`);
+    }
+    
+    console.log(`🎫 Plan encontrado: ${plan.planName} - ${plan.price} (${plan.durationType})`);
+    
+    // Calcular días totales basado en el plan
+    const totalDays = this.prototype.calculateTotalDays.call({ type: membershipData.type || plan.durationType });
+    
+    // Calcular fecha de fin
+    const startDate = membershipData.startDate ? new Date(membershipData.startDate) : new Date();
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + totalDays);
+    
+    // Datos completos de membresía
+    const fullMembershipData = {
+      ...membershipData,
+      type: membershipData.type || plan.durationType,
+      price: membershipData.price || plan.price,
+      totalDays,
+      remainingDays: totalDays,
+      startDate,
+      endDate,
+      reservedSchedule: selectedSchedule || {},
+      status: 'pending' // Inicia como pending hasta que se confirme el pago
+    };
+    
+    console.log(`🎫 Creando membresía: Plan ${plan.planName} (${plan.price}) - ${totalDays} días`);
+    
+    // Crear membresía
+    const membership = await this.create(fullMembershipData, { transaction });
+    
+    if (shouldCommit) {
+      await transaction.commit();
+    }
+    
+    console.log(`✅ Membresía creada: ${membership.id} (${membership.type})`);
+    return membership;
+    
+  } catch (error) {
+    if (shouldCommit) {
+      await transaction.rollback();
+    }
+    console.error('❌ Error creando membresía:', error.message);
+    throw error;
+  }
+};
 
 // Procesar deducción diaria automática para todas las membresías activas
 Membership.processDailyDeduction = async function() {
-  console.log('🕐 Iniciando proceso de deducción diaria de membresías...');
-  
-  const activeMemberships = await this.findAll({
-    where: {
-      status: 'active',
-      autoDeductDays: true,
-      remainingDays: { [sequelize.Sequelize.Op.gt]: 0 }
-    }
-  });
-  
-  let processed = 0;
-  let expired = 0;
-  
-  for (const membership of activeMemberships) {
-    const deducted = await membership.deductDay();
-    if (deducted) {
-      processed++;
-      if (membership.remainingDays === 0) {
-        expired++;
+  try {
+    console.log('🕐 Iniciando proceso de deducción diaria de membresías...');
+    
+    const activeMemberships = await this.findAll({
+      where: {
+        status: 'active',
+        autoDeductDays: true,
+        remainingDays: { [sequelize.Sequelize.Op.gt]: 0 }
+      }
+    });
+    
+    let processed = 0;
+    let expired = 0;
+    
+    for (const membership of activeMemberships) {
+      const deducted = await membership.deductDay();
+      if (deducted) {
+        processed++;
+        if (membership.remainingDays === 0) {
+          expired++;
+        }
       }
     }
+    
+    console.log(`✅ Procesadas ${processed} membresías, ${expired} expiraron`);
+    return { processed, expired };
+    
+  } catch (error) {
+    console.error('❌ Error en deducción diaria:', error.message);
+    throw error;
   }
-  
-  console.log(`✅ Procesadas ${processed} membresías, ${expired} expiraron`);
-  return { processed, expired };
 };
 
 // Obtener membresías que expiran pronto
@@ -339,52 +380,68 @@ Membership.getExpiringMemberships = async function(days = 7) {
         [sequelize.Sequelize.Op.between]: [1, days]
       }
     },
-    include: ['user'],
+    include: [
+      {
+        association: 'user',
+        attributes: ['id', 'firstName', 'lastName', 'email']
+      }
+    ],
     order: [['remainingDays', 'ASC']]
   });
 };
 
-// Crear membresía con horarios
-Membership.createWithSchedule = async function(membershipData, scheduleData, options = {}) {
-  const transaction = options.transaction || await sequelize.transaction();
-  const shouldCommit = !options.transaction;
-  
+// ✅ NUEVO: Método para crear datos de prueba
+Membership.createTestData = async function() {
   try {
-    // Calcular días totales
-    const totalDays = this.prototype.calculateTotalDays.call({ type: membershipData.type });
+    console.log('🧪 Creando datos de prueba para membresías...');
     
-    // Crear membresía
-    const membership = await this.create({
-      ...membershipData,
-      totalDays,
-      remainingDays: totalDays,
-      reservedSchedule: {}
-    }, { transaction });
+    // Buscar un plan activo
+    const { MembershipPlans, User } = require('./index');
+    const plans = await MembershipPlans.findAll({ 
+      where: { isActive: true },
+      limit: 1 
+    });
     
-    // Reservar horarios si se proporcionan
-    if (scheduleData && Object.keys(scheduleData).length > 0) {
-      for (const [day, timeSlotIds] of Object.entries(scheduleData)) {
-        if (Array.isArray(timeSlotIds)) {
-          for (const timeSlotId of timeSlotIds) {
-            await membership.reserveTimeSlot(day, timeSlotId);
-          }
-        }
-      }
+    if (plans.length === 0) {
+      console.log('⚠️ No hay planes activos para crear membresías de prueba');
+      return 0;
     }
     
-    if (shouldCommit) {
-      await transaction.commit();
+    // Buscar un usuario
+    const users = await User.findAll({ 
+      where: { role: 'cliente' },
+      limit: 1 
+    });
+    
+    if (users.length === 0) {
+      console.log('⚠️ No hay usuarios clientes para crear membresías de prueba');
+      return 0;
     }
-    return membership;
+    
+    const plan = plans[0];
+    const user = users[0];
+    
+    // Crear membresía de prueba
+    const membership = await this.createWithPlan({
+      userId: user.id,
+      planId: plan.id,
+      registeredBy: user.id
+    });
+    
+    // Activar membresía para pruebas
+    membership.status = 'active';
+    await membership.save();
+    
+    console.log(`✅ Membresía de prueba creada: ${plan.planName} para ${user.firstName}`);
+    return 1;
+    
   } catch (error) {
-    if (shouldCommit) {
-      await transaction.rollback();
-    }
-    throw error;
+    console.error('❌ Error creando datos de prueba de membresías:', error.message);
+    return 0;
   }
 };
 
-// ✅ HOOKS RESTAURADOS
+// ✅ HOOKS MEJORADOS
 Membership.addHook('beforeSave', (instance) => {
   // Si es una membresía nueva o se cambió el tipo, recalcular días
   if (instance.isNewRecord || instance.changed('type')) {
@@ -393,16 +450,37 @@ Membership.addHook('beforeSave', (instance) => {
     if (instance.isNewRecord) {
       instance.totalDays = calculatedDays;
       instance.remainingDays = calculatedDays;
+      
+      // Calcular fecha de fin si no está establecida
+      if (!instance.endDate) {
+        instance.endDate = instance.calculateEndDate();
+      }
     }
+  }
+  
+  // Asegurar que el precio sea válido
+  if (!instance.price || instance.price <= 0) {
+    console.warn('⚠️ Precio inválido en membresía, usando precio por defecto');
+    instance.price = 100.00; // Precio por defecto
   }
 });
 
-// ✅ ASOCIACIONES RESTAURADAS
+Membership.addHook('afterCreate', (instance) => {
+  console.log(`✅ Membresía creada: ${instance.id} - Usuario ${instance.userId} - Plan ${instance.planId}`);
+});
+
+// ✅ ASOCIACIONES CORREGIDAS
 Membership.associate = function(models) {
   // Usuario propietario
   Membership.belongsTo(models.User, {
     foreignKey: 'userId',
     as: 'user'
+  });
+  
+  // ✅ CORREGIDO: Plan de membresía
+  Membership.belongsTo(models.MembershipPlans, {
+    foreignKey: 'planId',
+    as: 'plan'
   });
   
   // Usuario que registró

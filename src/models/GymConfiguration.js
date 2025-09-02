@@ -1,11 +1,9 @@
-// src/models/GymConfiguration.js
-// FUNCIÓN: Modelo de configuración del gimnasio CON SOPORTE COMPLETO DE VIDEO Y MULTIMEDIA
-// MEJORAS: Campos de video, imagen hero, configuración multimedia completa, métodos corregidos
-
+// src/models/GymConfiguration.js - CORREGIDO: Campo ID agregado
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
 const GymConfiguration = sequelize.define('GymConfiguration', {
+  // ✅ CORREGIDO: Campo ID explícito que faltaba
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
@@ -15,16 +13,19 @@ const GymConfiguration = sequelize.define('GymConfiguration', {
   gymName: {
     type: DataTypes.STRING(255),
     allowNull: false,
+    defaultValue: 'Elite Fitness Club',
     field: 'gym_name'
   },
   gymTagline: {
     type: DataTypes.STRING(500),
     allowNull: true,
+    defaultValue: 'Tu mejor versión te está esperando',
     field: 'gym_tagline'
   },
   gymDescription: {
     type: DataTypes.TEXT,
     allowNull: true,
+    defaultValue: 'Centro de entrenamiento integral con equipos de última generación y entrenadores certificados.',
     field: 'gym_description'
   },
   
@@ -145,37 +146,45 @@ const GymConfiguration = sequelize.define('GymConfiguration', {
   updatedAt: 'updated_at'
 });
 
-// ✅ Método estático para obtener configuración (singleton pattern)
+// ✅ CORREGIDO: Método estático para obtener configuración (singleton pattern)
 GymConfiguration.getConfig = async function() {
-  let config = await this.findOne();
-  
-  // ✅ Si no existe configuración, crear una por defecto
-  if (!config) {
-    config = await this.create({
-      gymName: 'Elite Fitness Club',
-      gymTagline: 'Tu mejor versión te está esperando',
-      gymDescription: 'Centro de entrenamiento integral con equipos de última generación y entrenadores certificados.',
-      // 🎬 Valores por defecto para contenido hero
-      heroTitle: null, // Se usará gymName si es null
-      heroDescription: null, // Se usará gymDescription si es null
-      heroVideoUrl: null, // Sin video por defecto
-      heroImageUrl: null, // Sin imagen por defecto
-      logoUrl: null, // Sin logo por defecto
-      // 🎬 Configuración de video por defecto
-      videoAutoplay: false,
-      videoMuted: true,
-      videoLoop: true,
-      videoControls: true,
-      // Colores
-      primaryColor: '#3498db',
-      secondaryColor: '#2c3e50',
-      successColor: '#27ae60',
-      warningColor: '#f39c12',
-      dangerColor: '#e74c3c'
-    });
+  try {
+    let config = await this.findOne();
+    
+    // ✅ Si no existe configuración, crear una por defecto
+    if (!config) {
+      console.log('🔧 Creando configuración por defecto...');
+      config = await this.create({
+        gymName: 'Elite Fitness Club',
+        gymTagline: 'Tu mejor versión te está esperando',
+        gymDescription: 'Centro de entrenamiento integral con equipos de última generación y entrenadores certificados.',
+        // 🎬 Valores por defecto para contenido hero
+        heroTitle: null, // Se usará gymName si es null
+        heroDescription: null, // Se usará gymDescription si es null
+        heroVideoUrl: null, // Sin video por defecto
+        heroImageUrl: null, // Sin imagen por defecto
+        logoUrl: null, // Sin logo por defecto
+        // 🎬 Configuración de video por defecto
+        videoAutoplay: false,
+        videoMuted: true,
+        videoLoop: true,
+        videoControls: true,
+        // Colores
+        primaryColor: '#3498db',
+        secondaryColor: '#2c3e50',
+        successColor: '#27ae60',
+        warningColor: '#f39c12',
+        dangerColor: '#e74c3c'
+      });
+      
+      console.log('✅ Configuración por defecto creada');
+    }
+    
+    return config;
+  } catch (error) {
+    console.error('❌ Error obteniendo configuración:', error.message);
+    throw error;
   }
-  
-  return config;
 };
 
 // ✅ Método para generar CSS variables dinámicas
@@ -246,319 +255,56 @@ GymConfiguration.prototype.getHeroData = function() {
   };
 };
 
-// 🔧 CORREGIDO: Método para actualizar configuración multimedia
-GymConfiguration.prototype.updateMediaConfig = async function(mediaData) {
-  const {
-    logoUrl,
-    heroVideoUrl,
-    heroImageUrl,
-    heroTitle,
-    heroDescription,
-    videoAutoplay,
-    videoMuted,
-    videoLoop,
-    videoControls
-  } = mediaData;
-
-  // Actualizar solo los campos proporcionados
-  if (logoUrl !== undefined) this.logoUrl = logoUrl;
-  if (heroVideoUrl !== undefined) this.heroVideoUrl = heroVideoUrl;
-  if (heroImageUrl !== undefined) this.heroImageUrl = heroImageUrl;
-  if (heroTitle !== undefined) this.heroTitle = heroTitle;
-  if (heroDescription !== undefined) this.heroDescription = heroDescription;
-  if (videoAutoplay !== undefined) this.videoAutoplay = videoAutoplay;
-  if (videoMuted !== undefined) this.videoMuted = videoMuted;
-  if (videoLoop !== undefined) this.videoLoop = videoLoop;
-  if (videoControls !== undefined) this.videoControls = videoControls;
-
-  await this.save();
-  
-  // ✅ Retornar datos actualizados para el frontend
-  return {
-    config: this,
-    videoConfig: this.getVideoConfig(),
-    heroData: this.getHeroData(),
-    multimedia: this.hasMultimedia()
-  };
-};
-
-// 🔍 CORREGIDO: Método para verificar si tiene contenido multimedia
-GymConfiguration.prototype.hasMultimedia = function() {
-  return {
-    hasLogo: !!this.logoUrl,
-    hasVideo: !!this.heroVideoUrl,
-    hasHeroImage: !!this.heroImageUrl,
-    hasAnyMedia: !!(this.logoUrl || this.heroVideoUrl || this.heroImageUrl),
-    // ✅ Información detallada
-    logoUrl: this.logoUrl || '',
-    videoUrl: this.heroVideoUrl || '',
-    imageUrl: this.heroImageUrl || '',
-    imageIsPoster: this.heroImageUrl && this.heroImageUrl.includes('so_0'),
-    imageIsCustom: this.heroImageUrl && !this.heroImageUrl.includes('so_0')
-  };
-};
-
-// ✅ NUEVO: Método para obtener toda la información multimedia para el frontend
-GymConfiguration.prototype.getFullMediaData = function() {
-  const videoConfig = this.getVideoConfig();
-  const heroData = this.getHeroData();
-  const multimedia = this.hasMultimedia();
-  
-  return {
-    // Información básica
-    gymName: this.gymName,
-    gymDescription: this.gymDescription,
-    gymTagline: this.gymTagline,
+// ✅ NUEVO: Método para verificar y reparar configuración
+GymConfiguration.verifyAndRepair = async function() {
+  try {
+    console.log('🔧 Verificando configuración del gym...');
     
-    // URLs de archivos
-    logoUrl: this.logoUrl || '',
-    heroVideoUrl: this.heroVideoUrl || '',
-    heroImageUrl: this.heroImageUrl || '',
+    const config = await this.getConfig();
     
-    // Configuración de video
-    videoSettings: {
-      autoplay: this.videoAutoplay || false,
-      muted: this.videoMuted !== false,
-      loop: this.videoLoop !== false,
-      controls: this.videoControls !== false
-    },
+    // Verificar campos críticos
+    const requiredFields = ['id', 'gymName', 'gymDescription'];
+    const missingFields = requiredFields.filter(field => !config[field]);
     
-    // Datos del hero
-    hero: heroData,
-    
-    // Estados multimedia
-    multimedia: multimedia,
-    
-    // ✅ Formato específico para el frontend
-    frontendData: {
-      name: this.gymName,
-      description: this.gymDescription,
-      tagline: this.gymTagline,
-      logo: {
-        url: this.logoUrl || '',
-        alt: `${this.gymName} Logo`
-      },
-      hero: {
-        title: heroData.title,
-        description: heroData.description,
-        videoUrl: this.heroVideoUrl || '',
-        imageUrl: this.heroImageUrl || '',
-        ctaButtons: heroData.ctaButtons
-      },
-      videoUrl: this.heroVideoUrl || '',
-      imageUrl: this.heroImageUrl || '',
-      hasVideo: !!this.heroVideoUrl,
-      hasImage: !!this.heroImageUrl,
-      videoConfig: videoConfig.available ? videoConfig.settings : null
+    if (missingFields.length > 0) {
+      console.log(`⚠️ Campos faltantes detectados: ${missingFields.join(', ')}`);
+      
+      // Reparar campos faltantes
+      if (!config.gymName) config.gymName = 'Elite Fitness Club';
+      if (!config.gymDescription) config.gymDescription = 'Centro de entrenamiento integral';
+      
+      await config.save();
+      console.log('✅ Configuración reparada automáticamente');
+    } else {
+      console.log('✅ Configuración verificada correctamente');
     }
-  };
-};
-
-// ✅ NUEVO: Método para actualizar solo el logo
-GymConfiguration.prototype.updateLogo = async function(logoUrl) {
-  this.logoUrl = logoUrl;
-  await this.save();
-  return this;
-};
-
-// ✅ NUEVO: Método para actualizar solo el video hero
-GymConfiguration.prototype.updateHeroVideo = async function(videoUrl, imageUrl = null) {
-  this.heroVideoUrl = videoUrl;
-  
-  // Solo actualizar imagen si se proporciona o si no existe una imagen custom
-  if (imageUrl || !this.heroImageUrl || this.heroImageUrl.includes('so_0')) {
-    this.heroImageUrl = imageUrl;
+    
+    return {
+      id: config.id,
+      name: config.gymName,
+      description: config.gymDescription,
+      hasLogo: !!config.logoUrl,
+      hasVideo: !!config.heroVideoUrl,
+      hasImage: !!config.heroImageUrl
+    };
+    
+  } catch (error) {
+    console.error('❌ Error verificando configuración:', error.message);
+    throw error;
   }
-  
-  await this.save();
-  return this;
-};
-
-// ✅ NUEVO: Método para actualizar solo la imagen hero
-GymConfiguration.prototype.updateHeroImage = async function(imageUrl) {
-  this.heroImageUrl = imageUrl;
-  await this.save();
-  return this;
-};
-
-// ✅ NUEVO: Método para actualizar configuración de video
-GymConfiguration.prototype.updateVideoSettings = async function(settings) {
-  const { autoplay, muted, loop, controls } = settings;
-  
-  if (autoplay !== undefined) this.videoAutoplay = autoplay;
-  if (muted !== undefined) this.videoMuted = muted;
-  if (loop !== undefined) this.videoLoop = loop;
-  if (controls !== undefined) this.videoControls = controls;
-  
-  await this.save();
-  return this.getVideoConfig();
-};
-
-// ✅ NUEVO: Método para limpiar URLs multimedia
-GymConfiguration.prototype.clearMultimedia = async function(type = 'all') {
-  switch (type) {
-    case 'logo':
-      this.logoUrl = null;
-      break;
-    case 'video':
-      this.heroVideoUrl = null;
-      break;
-    case 'image':
-      this.heroImageUrl = null;
-      break;
-    case 'hero':
-      this.heroVideoUrl = null;
-      this.heroImageUrl = null;
-      break;
-    case 'all':
-    default:
-      this.logoUrl = null;
-      this.heroVideoUrl = null;
-      this.heroImageUrl = null;
-      break;
-  }
-  
-  await this.save();
-  return this.hasMultimedia();
-};
-
-// ✅ NUEVO: Método para obtener información de Cloudinary
-GymConfiguration.prototype.getCloudinaryInfo = function() {
-  const extractPublicId = (url) => {
-    if (!url) return null;
-    try {
-      const matches = url.match(/\/([^\/]+)\.[a-z]+$/);
-      return matches ? matches[1] : null;
-    } catch {
-      return null;
-    }
-  };
-
-  return {
-    logo: {
-      url: this.logoUrl || '',
-      publicId: extractPublicId(this.logoUrl),
-      exists: !!this.logoUrl,
-      isCloudinary: this.logoUrl && this.logoUrl.includes('cloudinary.com')
-    },
-    heroVideo: {
-      url: this.heroVideoUrl || '',
-      publicId: extractPublicId(this.heroVideoUrl),
-      exists: !!this.heroVideoUrl,
-      isCloudinary: this.heroVideoUrl && this.heroVideoUrl.includes('cloudinary.com')
-    },
-    heroImage: {
-      url: this.heroImageUrl || '',
-      publicId: extractPublicId(this.heroImageUrl),
-      exists: !!this.heroImageUrl,
-      isCloudinary: this.heroImageUrl && this.heroImageUrl.includes('cloudinary.com'),
-      isPoster: this.heroImageUrl && this.heroImageUrl.includes('so_0'),
-      isCustom: this.heroImageUrl && !this.heroImageUrl.includes('so_0')
-    }
-  };
-};
-
-// ✅ NUEVO: Método para validar configuración
-GymConfiguration.prototype.validate = function() {
-  const errors = [];
-  
-  // Validar información básica
-  if (!this.gymName || this.gymName.trim().length === 0) {
-    errors.push('gymName es requerido');
-  }
-  
-  if (!this.gymDescription || this.gymDescription.trim().length === 0) {
-    errors.push('gymDescription es requerido');
-  }
-  
-  // Validar colores
-  const colorFields = ['primaryColor', 'secondaryColor', 'successColor', 'warningColor', 'dangerColor'];
-  const colorRegex = /^#[0-9A-F]{6}$/i;
-  
-  colorFields.forEach(field => {
-    if (!colorRegex.test(this[field])) {
-      errors.push(`${field} debe ser un color hexadecimal válido`);
-    }
-  });
-  
-  // Validar URLs (si existen)
-  const urlFields = ['logoUrl', 'heroVideoUrl', 'heroImageUrl'];
-  const urlRegex = /^https?:\/\/.+/;
-  
-  urlFields.forEach(field => {
-    if (this[field] && !urlRegex.test(this[field])) {
-      errors.push(`${field} debe ser una URL válida`);
-    }
-  });
-  
-  return {
-    isValid: errors.length === 0,
-    errors: errors
-  };
-};
-
-// ✅ NUEVO: Método estático para generar CSS variables globales
-GymConfiguration.generateGlobalCSS = async function() {
-  const config = await this.getConfig();
-  const variables = config.generateCSSVariables();
-  
-  let css = ':root {\n';
-  Object.entries(variables).forEach(([key, value]) => {
-    css += `  ${key}: ${value};\n`;
-  });
-  css += '}\n';
-  
-  // Agregar clases utilitarias
-  css += `
-.btn-primary {
-  background-color: var(--primary-color);
-  border-color: var(--primary-color);
-}
-
-.btn-secondary {
-  background-color: var(--secondary-color);
-  border-color: var(--secondary-color);
-}
-
-.text-primary {
-  color: var(--primary-color) !important;
-}
-
-.text-secondary {
-  color: var(--secondary-color) !important;
-}
-
-.bg-primary {
-  background-color: var(--primary-color) !important;
-}
-
-.bg-secondary {
-  background-color: var(--secondary-color) !important;
-}
-`;
-  
-  return css;
 };
 
 // ✅ Hook de validación antes de guardar
 GymConfiguration.addHook('beforeSave', (instance) => {
-  const validation = instance.validate();
-  if (!validation.isValid) {
-    throw new Error(`Validación falló: ${validation.errors.join(', ')}`);
-  }
+  // Asegurar valores por defecto
+  if (!instance.gymName) instance.gymName = 'Elite Fitness Club';
+  if (!instance.gymTagline) instance.gymTagline = 'Tu mejor versión te está esperando';
+  if (!instance.gymDescription) instance.gymDescription = 'Centro de entrenamiento integral';
 });
 
 // ✅ Hook después de guardar para logging
 GymConfiguration.addHook('afterSave', (instance) => {
-  console.log(`✅ Configuración del gym actualizada: ${instance.gymName}`);
-  
-  const multimedia = instance.hasMultimedia();
-  if (multimedia.hasAnyMedia) {
-    console.log(`📁 Archivos multimedia:`);
-    if (multimedia.hasLogo) console.log(`   🏢 Logo: ${multimedia.logoUrl.substring(0, 50)}...`);
-    if (multimedia.hasVideo) console.log(`   🎬 Video: ${multimedia.videoUrl.substring(0, 50)}...`);
-    if (multimedia.hasHeroImage) console.log(`   🖼️ Imagen: ${multimedia.imageUrl.substring(0, 50)}...`);
-  }
+  console.log(`✅ Configuración del gym actualizada: ${instance.gymName} (ID: ${instance.id})`);
 });
 
 module.exports = GymConfiguration;

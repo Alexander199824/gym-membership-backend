@@ -18,7 +18,7 @@ class SystemDoctorV2 {
     this.realRoutes = this.getRealRoutes();
   }
 
-  getRealRoutes() {
+ getRealRoutes() {
     return {
       // Rutas básicas y críticas
       critical: [
@@ -28,17 +28,17 @@ class SystemDoctorV2 {
         { method: 'GET', url: '/api/users', description: 'Lista usuarios', auth: true }
       ],
       
-      // Rutas de membresías (según membershipRoutes.js)
+      // ✅ CORREGIDO: Rutas REALES de membresías (según gymRoutes.js)
       membership: [
-        { method: 'GET', url: '/api/memberships/plans', description: 'Planes públicos', auth: false },
-        { method: 'GET', url: '/api/memberships', description: 'Mis membresías', auth: true },
-        { method: 'POST', url: '/api/memberships/purchase', description: 'Comprar membresía', auth: true },
-        { method: 'GET', url: '/api/memberships/plans/1/schedule-options', description: 'Opciones horario', auth: true },
-        { method: 'GET', url: '/api/memberships/my-current', description: 'Mi membresía actual', auth: true },
-        { method: 'GET', url: '/api/memberships/stats', description: 'Estadísticas', auth: true, requireStaff: true }
+        { method: 'GET', url: '/api/gym/membership-plans', description: 'Planes públicos', auth: false },
+        { method: 'GET', url: '/api/gym/services', description: 'Servicios gym', auth: false },
+        { method: 'GET', url: '/api/gym/testimonials', description: 'Testimonios', auth: false },
+        { method: 'GET', url: '/api/gym/stats', description: 'Estadísticas gym', auth: false },
+        { method: 'GET', url: '/api/gym/hours/flexible', description: 'Horarios flexibles', auth: false },
+        { method: 'GET', url: '/api/gym/availability', description: 'Disponibilidad gym', auth: false }
       ],
       
-      // Rutas de pagos (según paymentRoutes.js)
+      // ✅ CORREGIDO: Rutas REALES de pagos (según paymentRoutes.js)
       payments: [
         { method: 'GET', url: '/api/payments', description: 'Mis pagos', auth: true },
         { method: 'POST', url: '/api/payments', description: 'Crear pago', auth: true, requireStaff: true },

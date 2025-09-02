@@ -1,4 +1,4 @@
-// src/models/Payment.js - CORREGIDO para manejar usuarios invitados
+// src/models/Payment.js - CORREGIDO: Validaciones simplificadas y mejoradas
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -34,7 +34,8 @@ const Payment = sequelize.define('Payment', {
   },
   paymentMethod: {
     type: DataTypes.ENUM('cash', 'card', 'transfer', 'online'),
-    allowNull: false
+    allowNull: false,
+    defaultValue: 'cash'
   },
   // ✅ AMPLIADO: Incluir tipos de pago de tienda
   paymentType: {
@@ -42,17 +43,18 @@ const Payment = sequelize.define('Payment', {
       'membership', 'daily', 'bulk_daily',
       'store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'
     ),
-    allowNull: false
+    allowNull: false,
+    defaultValue: 'daily'
   },
   status: {
     type: DataTypes.ENUM('pending', 'completed', 'failed', 'cancelled', 'refunded'),
     allowNull: false,
     defaultValue: 'completed'
   },
-  // ✅ NUEVO: Información del cliente anónimo
+  // ✅ CORREGIDO: Información del cliente anónimo - más flexible
   anonymousClientInfo: {
     type: DataTypes.JSONB,
-    allowNull: true,
+    allowNull: true
     // Estructura: { name: 'Juan Pérez', phone: '+502...', email: 'juan@example.com', notes: 'Cliente ocasional' }
   },
   // Para pagos por transferencia
@@ -88,16 +90,17 @@ const Payment = sequelize.define('Payment', {
   // Información general
   description: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    defaultValue: 'Pago registrado'
   },
   notes: {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  // ✅ CORREGIDO: Quien registró el pago - Permitir NULL para pagos de invitados
+  // ✅ CORREGIDO: Quien registró el pago - Permitir NULL para pagos automatizados
   registeredBy: {
     type: DataTypes.UUID,
-    allowNull: true, // ✅ FIX: Permitir null para pagos de usuarios invitados
+    allowNull: true, // ✅ FIX: Permitir null para pagos automatizados
     references: {
       model: 'users',
       key: 'id'
@@ -150,50 +153,44 @@ const Payment = sequelize.define('Payment', {
     { fields: ['transferValidated'] },
     { fields: ['referenceId', 'referenceType'] }
   ],
-  // ✅ VALIDACIONES PERSONALIZADAS CORREGIDAS
+  // ✅ VALIDACIONES SIMPLIFICADAS Y MÁS FLEXIBLES
   validate: {
-    membershipRequiresUser() {
-      if (this.paymentType === 'membership' && !this.userId) {
-        throw new Error('Los pagos de membresía requieren un usuario registrado');
+    // ✅ CORREGIDO: Validación más simple para membresías
+    basicMembershipValidation() {
+      if (this.paymentType === 'membership') {
+        if (!this.userId && !this.anonymousClientInfo?.name) {
+          throw new Error('Los pagos de membresía requieren usuario registrado o información del cliente');
+        }
       }
     },
-    membershipRequiresMembershipId() {
-      if (this.paymentType === 'membership' && !this.membershipId) {
-        throw new Error('Los pagos de membresía requieren un ID de membresía');
-      }
-    },
-    // ✅ CORREGIDO: Validación mejorada para pagos diarios
+    
+    // ✅ CORREGIDO: Validación más flexible para pagos diarios
     dailyPaymentsValidation() {
-      if ((this.paymentType === 'daily' || this.paymentType === 'bulk_daily')) {
-        // Si no hay usuario, debe haber información anónima
-        if (!this.userId && !this.anonymousClientInfo) {
-          throw new Error('Los pagos diarios sin usuario requieren información del cliente (anonymousClientInfo)');
+      if (this.paymentType === 'daily' || this.paymentType === 'bulk_daily') {
+        // Si no hay usuario, debe haber al menos un nombre
+        if (!this.userId && (!this.anonymousClientInfo || !this.anonymousClientInfo.name)) {
+          throw new Error('Los pagos diarios requieren usuario registrado o al menos el nombre del cliente');
         }
       }
     },
+    
+    // ✅ CORREGIDO: Validación simplificada para pagos en lote
     bulkPaymentValidation() {
-      if (this.paymentType === 'bulk_daily' && (!this.dailyPaymentCount || this.dailyPaymentCount < 2)) {
-        throw new Error('Los pagos en lote deben tener al menos 2 entradas');
-      }
-    },
-    // ✅ NUEVO: Validación para pagos de tienda
-    storePaymentValidation() {
-      const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
-      if (storeTypes.includes(this.paymentType)) {
-        // Para pagos de tienda, debe haber usuario O información anónima
-        if (!this.userId && !this.anonymousClientInfo) {
-          throw new Error('Los pagos de tienda requieren usuario registrado o información del cliente');
-        }
-        // Para pagos de tienda, se recomienda tener referencia a la orden
-        if (!this.referenceId || this.referenceType !== 'store_order') {
-          console.warn('⚠️ Pago de tienda sin referencia a orden - se recomienda vincular');
+      if (this.paymentType === 'bulk_daily') {
+        if (!this.dailyPaymentCount || this.dailyPaymentCount < 2) {
+          throw new Error('Los pagos en lote deben tener al menos 2 entradas');
         }
       }
     }
   },
-  // ✅ HOOKS para calcular automáticamente valores
+  // ✅ HOOKS SIMPLIFICADOS para calcular automáticamente valores
   hooks: {
     beforeValidate: (payment) => {
+      // Asegurar valores por defecto
+      if (!payment.description) {
+        payment.description = `Pago ${payment.paymentType} - ${payment.paymentMethod}`;
+      }
+      
       // Si es bulk_daily, calcular unitPrice automáticamente
       if (payment.paymentType === 'bulk_daily' && payment.amount && payment.dailyPaymentCount) {
         payment.unitPrice = (payment.amount / payment.dailyPaymentCount).toFixed(2);
@@ -205,17 +202,20 @@ const Payment = sequelize.define('Payment', {
         payment.unitPrice = payment.amount;
       }
 
-      // ✅ NUEVO: Para pagos de Stripe sin registeredBy, usar el userId si existe
-      const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
-      if (storeTypes.includes(payment.paymentType) && !payment.registeredBy && payment.userId) {
-        console.log('ℹ️ Asignando userId como registeredBy para pago de tienda');
-        payment.registeredBy = payment.userId;
+      // ✅ CORREGIDO: Para pagos automatizados, no requiere registeredBy
+      if (!payment.registeredBy && payment.userId && ['membership', 'daily'].includes(payment.paymentType)) {
+        // Solo asignar si es un pago normal de usuario
+        console.log('ℹ️ Pago sin registeredBy asignado - puede ser automatizado');
       }
+    },
+    
+    afterCreate: (payment) => {
+      console.log(`✅ Pago creado: ID ${payment.id} - $${payment.amount} (${payment.paymentType})`);
     }
   }
 });
 
-// Métodos de instancia
+// ✅ MÉTODOS DE INSTANCIA MEJORADOS
 Payment.prototype.isPending = function() {
   return this.status === 'pending';
 };
@@ -229,7 +229,7 @@ Payment.prototype.needsValidation = function() {
 };
 
 Payment.prototype.getClientName = function() {
-  if (this.user) {
+  if (this.user && typeof this.user.getFullName === 'function') {
     return this.user.getFullName();
   }
   if (this.anonymousClientInfo && this.anonymousClientInfo.name) {
@@ -242,7 +242,7 @@ Payment.prototype.getClientInfo = function() {
   if (this.user) {
     return {
       type: 'registered',
-      name: this.user.getFullName(),
+      name: typeof this.user.getFullName === 'function' ? this.user.getFullName() : `${this.user.firstName} ${this.user.lastName}`,
       email: this.user.email,
       phone: this.user.phone
     };
@@ -273,7 +273,7 @@ Payment.prototype.isStorePayment = function() {
   return storeTypes.includes(this.paymentType);
 };
 
-// Métodos estáticos existentes...
+// ✅ MÉTODOS ESTÁTICOS MEJORADOS
 Payment.findPendingTransfers = function() {
   return this.findAll({
     where: {
@@ -281,7 +281,13 @@ Payment.findPendingTransfers = function() {
       transferValidated: false,
       status: 'pending'
     },
-    include: ['user'],
+    include: [
+      {
+        association: 'user',
+        required: false,
+        attributes: ['id', 'firstName', 'lastName', 'email']
+      }
+    ],
     order: [['createdAt', 'ASC']]
   });
 };
@@ -309,7 +315,13 @@ Payment.findByDateRange = function(startDate, endDate, paymentType = null) {
   
   return this.findAll({
     where,
-    include: ['user'],
+    include: [
+      {
+        association: 'user',
+        required: false,
+        attributes: ['id', 'firstName', 'lastName', 'email']
+      }
+    ],
     order: [['paymentDate', 'DESC']]
   });
 };
@@ -329,60 +341,66 @@ Payment.findGuestPayments = function(limit = null) {
   return this.findAll(options);
 };
 
-// ✅ MEJORADO: Método para obtener estadísticas de pagos diarios
-Payment.getDailyPaymentStats = async function(startDate, endDate) {
-  const dailyPayments = await this.findAll({
-    where: {
-      paymentType: ['daily', 'bulk_daily'],
-      status: 'completed',
-      paymentDate: {
-        [sequelize.Sequelize.Op.between]: [startDate, endDate]
+// ✅ NUEVO: Método para verificar y crear datos de prueba
+Payment.createTestData = async function() {
+  try {
+    console.log('🧪 Creando datos de prueba para pagos...');
+    
+    const testPayments = [
+      {
+        amount: 25.00,
+        paymentMethod: 'cash',
+        paymentType: 'daily',
+        description: 'Pago diario de prueba',
+        anonymousClientInfo: {
+          name: 'Cliente Prueba',
+          phone: '+502 1234-5678'
+        },
+        status: 'completed'
       }
-    },
-    attributes: [
-      [sequelize.fn('DATE', sequelize.col('paymentDate')), 'date'],
-      [sequelize.fn('SUM', sequelize.col('dailyPaymentCount')), 'totalEntries'],
-      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
-      [sequelize.fn('COUNT', sequelize.col('id')), 'totalTransactions']
-    ],
-    group: [sequelize.fn('DATE', sequelize.col('paymentDate'))],
-    order: [[sequelize.fn('DATE', sequelize.col('paymentDate')), 'DESC']]
-  });
-
-  return dailyPayments.map(payment => ({
-    date: payment.dataValues.date,
-    totalEntries: parseInt(payment.dataValues.totalEntries),
-    totalAmount: parseFloat(payment.dataValues.totalAmount),
-    totalTransactions: parseInt(payment.dataValues.totalTransactions),
-    averagePerEntry: parseFloat(payment.dataValues.totalAmount) / parseInt(payment.dataValues.totalEntries)
-  }));
+    ];
+    
+    let createdCount = 0;
+    for (const paymentData of testPayments) {
+      try {
+        const payment = await this.create(paymentData);
+        createdCount++;
+        console.log(`✅ Pago de prueba creado: $${payment.amount}`);
+      } catch (error) {
+        console.log(`⚠️ Error creando pago de prueba: ${error.message}`);
+      }
+    }
+    
+    console.log(`🧪 ${createdCount} pagos de prueba creados`);
+    return createdCount;
+    
+  } catch (error) {
+    console.error('❌ Error creando datos de prueba de pagos:', error.message);
+    throw error;
+  }
 };
 
-// ✅ NUEVO: Método para obtener estadísticas de tienda
-Payment.getStorePaymentStats = async function(startDate, endDate) {
-  const storeTypes = ['store_cash_delivery', 'store_card_delivery', 'store_online', 'store_transfer', 'store_other'];
-  
-  const storePayments = await this.findAll({
-    where: {
-      paymentType: storeTypes,
-      status: 'completed',
-      paymentDate: {
-        [sequelize.Sequelize.Op.between]: [startDate, endDate]
-      }
-    },
-    attributes: [
-      'paymentType',
-      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
-      [sequelize.fn('COUNT', sequelize.col('id')), 'totalTransactions']
-    ],
-    group: ['paymentType']
+// ✅ Asociaciones
+Payment.associate = function(models) {
+  Payment.belongsTo(models.User, {
+    foreignKey: 'userId',
+    as: 'user'
   });
-
-  return storePayments.map(payment => ({
-    paymentType: payment.paymentType,
-    totalAmount: parseFloat(payment.dataValues.totalAmount),
-    totalTransactions: parseInt(payment.dataValues.totalTransactions)
-  }));
+  
+  Payment.belongsTo(models.Membership, {
+    foreignKey: 'membershipId',
+    as: 'membership'
+  });
+  
+  Payment.belongsTo(models.User, {
+    foreignKey: 'registeredBy',
+    as: 'registeredByUser'
+  });
+  
+  Payment.belongsTo(models.User, {
+    foreignKey: 'transferValidatedBy',
+    as: 'transferValidator'
+  });
 };
 
 module.exports = Payment;
