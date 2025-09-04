@@ -57,7 +57,8 @@ const MODEL_ORDER = [
   'MembershipPromotions.js',
   'FinancialMovements.js',    // Depende de User
   'Notification.js',          // Depende de User, Membership, Payment
-  'UserSchedulePreferences.js' // Depende de User
+  'UserSchedulePreferences.js', // Depende de User
+  'MembershipPromoUsage.js'
 ];
 
 // ✅ FUNCIÓN para cargar un modelo específico
