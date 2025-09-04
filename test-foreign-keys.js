@@ -1,788 +1,477 @@
-// test-foreign-keys-fixed.js - Test corregido con nombres de columnas correctos
+// clean-fk-test.js - Test MEJORADO - Solo verificación, sin modificar nada
 const { sequelize } = require('./src/config/database');
-const db = require('./src/models');
 
-class ForeignKeyTester {
+class CleanFKVerificationTest {
   constructor() {
-    this.results = {
-      connection: false,
-      modelsLoaded: false,
-      foreignKeysFound: false,
-      associationsConfigured: false,
-      referentialIntegrity: false,
-      dataRelations: false
-    };
-    
-    this.statistics = {
-      totalModels: 0,
-      totalAssociations: 0,
-      totalForeignKeys: 0,
-      criticalFKsFound: 0,
-      criticalFKsExpected: 0
-    };
-    
-    this.testData = {};
-    this.cleanup = [];
+    this.expectedFKs = [
+      // Users (auto-referencial)
+      { table: 'users', column: 'createdBy', references: 'users', referencedColumn: 'id', description: 'Usuario creador' },
+      
+      // Memberships
+      { table: 'memberships', column: 'userId', references: 'users', referencedColumn: 'id', description: 'Usuario propietario' },
+      { table: 'memberships', column: 'plan_id', references: 'membership_plans', referencedColumn: 'id', description: 'Plan de membresía' },
+      { table: 'memberships', column: 'registeredBy', references: 'users', referencedColumn: 'id', description: 'Usuario registrador' },
+      
+      // Payments
+      { table: 'payments', column: 'userId', references: 'users', referencedColumn: 'id', description: 'Usuario pagador' },
+      { table: 'payments', column: 'membershipId', references: 'memberships', referencedColumn: 'id', description: 'Membresía asociada' },
+      { table: 'payments', column: 'registeredBy', references: 'users', referencedColumn: 'id', description: 'Usuario que registró' },
+      { table: 'payments', column: 'transferValidatedBy', references: 'users', referencedColumn: 'id', description: 'Validador transferencia' },
+      
+      // Store Products
+      { table: 'store_products', column: 'category_id', references: 'store_categories', referencedColumn: 'id', description: 'Categoría producto' },
+      { table: 'store_products', column: 'brand_id', references: 'store_brands', referencedColumn: 'id', description: 'Marca producto' },
+      
+      // Store Product Images
+      { table: 'store_product_images', column: 'product_id', references: 'store_products', referencedColumn: 'id', description: 'Producto imagen' },
+      
+      // Store Cart
+      { table: 'store_cart_items', column: 'user_id', references: 'users', referencedColumn: 'id', description: 'Usuario carrito' },
+      { table: 'store_cart_items', column: 'product_id', references: 'store_products', referencedColumn: 'id', description: 'Producto carrito' },
+      
+      // Store Orders
+      { table: 'store_orders', column: 'user_id', references: 'users', referencedColumn: 'id', description: 'Usuario orden' },
+      { table: 'store_orders', column: 'processed_by', references: 'users', referencedColumn: 'id', description: 'Procesador orden' },
+      
+      // Store Order Items
+      { table: 'store_order_items', column: 'order_id', references: 'store_orders', referencedColumn: 'id', description: 'Orden item' },
+      { table: 'store_order_items', column: 'product_id', references: 'store_products', referencedColumn: 'id', description: 'Producto item' },
+      
+      // Gym Time Slots
+      { table: 'gym_time_slots', column: 'gym_hours_id', references: 'gym_hours', referencedColumn: 'id', description: 'Horario gym' },
+      
+      // User Schedule Preferences
+      { table: 'user_schedule_preferences', column: 'user_id', references: 'users', referencedColumn: 'id', description: 'Usuario preferencia' },
+      
+      // Financial Movements
+      { table: 'financial_movements', column: 'registeredBy', references: 'users', referencedColumn: 'id', description: 'Registrador movimiento' },
+      
+      // Daily Income
+      { table: 'daily_incomes', column: 'registeredBy', references: 'users', referencedColumn: 'id', description: 'Registrador ingreso' },
+      
+      // Promotion Codes
+      { table: 'promotion_codes', column: 'created_by', references: 'users', referencedColumn: 'id', description: 'Creador promoción' },
+      { table: 'promotion_codes', column: 'gift_product_id', references: 'store_products', referencedColumn: 'id', description: 'Producto regalo' },
+      { table: 'promotion_codes', column: 'upgrade_plan_id', references: 'membership_plans', referencedColumn: 'id', description: 'Plan upgrade' },
+      
+      // User Promotions
+      { table: 'user_promotions', column: 'user_id', references: 'users', referencedColumn: 'id', description: 'Usuario promoción' },
+      { table: 'user_promotions', column: 'promotion_code_id', references: 'promotion_codes', referencedColumn: 'id', description: 'Código promoción' },
+      
+      // Membership Promotions
+      { table: 'membership_promotions', column: 'user_id', references: 'users', referencedColumn: 'id', description: 'Usuario membresía promo' },
+      { table: 'membership_promotions', column: 'membership_id', references: 'memberships', referencedColumn: 'id', description: 'Membresía promo' },
+      { table: 'membership_promotions', column: 'promotion_code_id', references: 'promotion_codes', referencedColumn: 'id', description: 'Código promo membresía' },
+      
+      // Notifications
+      { table: 'notifications', column: 'userId', references: 'users', referencedColumn: 'id', description: 'Usuario notificación' },
+      { table: 'notifications', column: 'membershipId', references: 'memberships', referencedColumn: 'id', description: 'Membresía notificación' },
+      { table: 'notifications', column: 'paymentId', references: 'payments', referencedColumn: 'id', description: 'Pago notificación' }
+    ];
+
+    this.expectedAssociations = [
+      // User associations
+      { model: 'User', association: 'memberships', type: 'HasMany', target: 'Membership' },
+      { model: 'User', association: 'payments', type: 'HasMany', target: 'Payment' },
+      
+      // MembershipPlans associations  
+      { model: 'MembershipPlans', association: 'memberships', type: 'HasMany', target: 'Membership' },
+      { model: 'MembershipPlans', association: 'promotionUpgrades', type: 'HasMany', target: 'PromotionCodes' },
+      
+      // Membership associations
+      { model: 'Membership', association: 'user', type: 'BelongsTo', target: 'User' },
+      { model: 'Membership', association: 'plan', type: 'BelongsTo', target: 'MembershipPlans' },
+      { model: 'Membership', association: 'registeredByUser', type: 'BelongsTo', target: 'User' },
+      { model: 'Membership', association: 'payments', type: 'HasMany', target: 'Payment' },
+      
+      // Payment associations
+      { model: 'Payment', association: 'user', type: 'BelongsTo', target: 'User' },
+      { model: 'Payment', association: 'membership', type: 'BelongsTo', target: 'Membership' },
+      { model: 'Payment', association: 'registeredByUser', type: 'BelongsTo', target: 'User' },
+      { model: 'Payment', association: 'transferValidator', type: 'BelongsTo', target: 'User' },
+      
+      // Store associations
+      { model: 'StoreProduct', association: 'category', type: 'BelongsTo', target: 'StoreCategory' },
+      { model: 'StoreProduct', association: 'brand', type: 'BelongsTo', target: 'StoreBrand' },
+      { model: 'StoreProduct', association: 'images', type: 'HasMany', target: 'StoreProductImage' },
+      { model: 'StoreProduct', association: 'cartItems', type: 'HasMany', target: 'StoreCart' },
+      { model: 'StoreProduct', association: 'orderItems', type: 'HasMany', target: 'StoreOrderItem' },
+      
+      { model: 'StoreCategory', association: 'products', type: 'HasMany', target: 'StoreProduct' },
+      { model: 'StoreBrand', association: 'products', type: 'HasMany', target: 'StoreProduct' },
+      { model: 'StoreProductImage', association: 'product', type: 'BelongsTo', target: 'StoreProduct' },
+      
+      // Cart and Orders
+      { model: 'StoreCart', association: 'user', type: 'BelongsTo', target: 'User' },
+      { model: 'StoreCart', association: 'product', type: 'BelongsTo', target: 'StoreProduct' },
+      { model: 'StoreOrder', association: 'user', type: 'BelongsTo', target: 'User' },
+      { model: 'StoreOrder', association: 'processor', type: 'BelongsTo', target: 'User' },
+      { model: 'StoreOrder', association: 'items', type: 'HasMany', target: 'StoreOrderItem' },
+      { model: 'StoreOrderItem', association: 'order', type: 'BelongsTo', target: 'StoreOrder' },
+      { model: 'StoreOrderItem', association: 'product', type: 'BelongsTo', target: 'StoreProduct' },
+      
+      // Gym schedules
+      { model: 'GymHours', association: 'timeSlots', type: 'HasMany', target: 'GymTimeSlots' },
+      { model: 'GymTimeSlots', association: 'gymHours', type: 'BelongsTo', target: 'GymHours' },
+      
+      // Financial and Promotions
+      { model: 'FinancialMovements', association: 'registeredByUser', type: 'BelongsTo', target: 'User' },
+      { model: 'PromotionCodes', association: 'createdByUser', type: 'BelongsTo', target: 'User' },
+      { model: 'PromotionCodes', association: 'giftProduct', type: 'BelongsTo', target: 'StoreProduct' },
+      { model: 'PromotionCodes', association: 'upgradePlan', type: 'BelongsTo', target: 'MembershipPlans' },
+      { model: 'PromotionCodes', association: 'userPromotions', type: 'HasMany', target: 'UserPromotions' },
+      { model: 'PromotionCodes', association: 'membershipPromotions', type: 'HasMany', target: 'MembershipPromotions' },
+      
+      { model: 'UserPromotions', association: 'user', type: 'BelongsTo', target: 'User' },
+      { model: 'UserPromotions', association: 'promotionCode', type: 'BelongsTo', target: 'PromotionCodes' }
+    ];
   }
 
-  async runTest() {
-    console.log('🔗 ELITE FITNESS CLUB - TEST DE LLAVES FORÁNEAS (CORREGIDO)');
-    console.log('=' .repeat(65));
-    console.log('📋 Verificando integridad referencial con nombres de columnas correctos\n');
+  async runVerification() {
+    console.log('\n🔍 ELITE FITNESS CLUB - VERIFICACIÓN COMPLETA DE INTEGRIDAD');
+    console.log('═'.repeat(80));
+    console.log('✅ MODO SOLO LECTURA - No modifica la base de datos');
+    console.log('📋 Verifica Foreign Keys y Asociaciones de Sequelize\n');
     
     try {
-      await this.step1_CheckConnection();
-      await this.step2_VerifyModels();
-      await this.step3_CheckForeignKeys();
-      await this.step4_VerifyAssociations();
-      await this.step5_TestReferentialIntegrity();
-      await this.step6_TestDataRelations();
-      await this.step7_Cleanup();
+      await this.verifyConnection();
+      const models = await this.loadModels();
+      const fkResults = await this.verifyForeignKeys();
+      const assocResults = await this.verifyAssociations(models);
       
-      this.showResults();
-      
-      console.log('\n✅ ¡Test de Foreign Keys completado exitosamente!');
+      this.generateFinalReport(fkResults, assocResults);
       
     } catch (error) {
-      console.error('\n❌ Error en el test:', error.message);
-      await this.emergencyCleanup();
+      console.error('\n❌ ERROR EN VERIFICACIÓN:', error.message);
       process.exit(1);
-    } finally {
-      await sequelize.close();
     }
   }
 
-  async step1_CheckConnection() {
-    console.log('1️⃣ VERIFICANDO CONEXIÓN A BASE DE DATOS');
-    console.log('-' .repeat(50));
+  async verifyConnection() {
+    console.log('🔌 VERIFICANDO CONEXIÓN A BASE DE DATOS');
+    console.log('-'.repeat(50));
     
     try {
       await sequelize.authenticate();
-      console.log('   ✅ Conexión establecida exitosamente');
+      console.log('✅ Conexión exitosa a la base de datos');
       
-      // Obtener información de la base de datos
+      // Obtener info de la BD
       const [dbInfo] = await sequelize.query('SELECT version() as version, current_database() as database');
-      console.log(`   📊 Base de datos: ${dbInfo[0].database}`);
-      console.log(`   🐘 PostgreSQL: ${dbInfo[0].version.split(' ')[1]}`);
-      
-      this.results.connection = true;
+      if (dbInfo && dbInfo[0]) {
+        console.log(`📊 Base de datos: ${dbInfo[0].database}`);
+        const version = dbInfo[0].version.split(' ')[0] + ' ' + dbInfo[0].version.split(' ')[1];
+        console.log(`🐘 Motor: ${version}`);
+      }
       
     } catch (error) {
-      throw new Error(`No se puede conectar a la base de datos: ${error.message}`);
+      throw new Error(`No se puede conectar a la BD: ${error.message}`);
     }
   }
 
-  async step2_VerifyModels() {
-    console.log('\n2️⃣ VERIFICANDO MODELOS CARGADOS');
-    console.log('-' .repeat(50));
+  async loadModels() {
+    console.log('\n📦 CARGANDO MODELOS DE SEQUELIZE');
+    console.log('-'.repeat(50));
     
-    // Obtener todos los modelos cargados
-    const modelNames = Object.keys(db).filter(key => 
-      !['sequelize', 'Sequelize', 'diagnose', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'verifyFlexibleScheduleModels'].includes(key)
-    );
-    
-    this.statistics.totalModels = modelNames.length;
-    
-    console.log(`   📦 Total de modelos cargados: ${modelNames.length}`);
-    console.log('   📋 Lista de modelos:');
-    
-    const criticalModels = ['User', 'Membership', 'MembershipPlans', 'Payment', 'StoreProduct', 'StoreCategory'];
-    let criticalFound = 0;
-    
-    modelNames.forEach(modelName => {
-      const isCritical = criticalModels.includes(modelName);
-      if (isCritical) criticalFound++;
+    try {
+      // Cargar models desde el index
+      const db = require('./src/models');
       
-      console.log(`      ${isCritical ? '⭐' : '📦'} ${modelName}`);
-    });
-    
-    console.log(`   ⭐ Modelos críticos encontrados: ${criticalFound}/${criticalModels.length}`);
-    
-    if (criticalFound < criticalModels.length) {
-      const missing = criticalModels.filter(model => !modelNames.includes(model));
-      console.log(`   ❌ Modelos críticos faltantes: ${missing.join(', ')}`);
-      throw new Error('Modelos críticos no están cargados');
-    }
-    
-    this.results.modelsLoaded = true;
-    console.log('   ✅ Todos los modelos críticos están cargados');
-  }
-
-  async step3_CheckForeignKeys() {
-    console.log('\n3️⃣ VERIFICANDO FOREIGN KEYS EN LA BASE DE DATOS');
-    console.log('-' .repeat(50));
-    
-    // Consulta SQL para obtener todas las foreign keys
-    const [foreignKeys] = await sequelize.query(`
-      SELECT 
-        tc.table_name, 
-        kcu.column_name, 
-        ccu.table_name AS foreign_table_name,
-        ccu.column_name AS foreign_column_name,
-        tc.constraint_name
-      FROM 
-        information_schema.table_constraints AS tc 
-        JOIN information_schema.key_column_usage AS kcu
-          ON tc.constraint_name = kcu.constraint_name
-          AND tc.table_schema = kcu.table_schema
-        JOIN information_schema.constraint_column_usage AS ccu
-          ON ccu.constraint_name = tc.constraint_name
-          AND ccu.table_schema = tc.table_schema
-      WHERE tc.constraint_type = 'FOREIGN KEY'
-      AND tc.table_schema = 'public'
-      ORDER BY tc.table_name, kcu.column_name;
-    `);
-    
-    this.statistics.totalForeignKeys = foreignKeys.length;
-    
-    if (foreignKeys.length === 0) {
-      console.log('   ❌ NO SE ENCONTRARON FOREIGN KEYS');
-      console.log('   💡 Esto indica que las FKs no se están creando');
-      return;
-    }
-    
-    console.log(`   📊 Total Foreign Keys encontradas: ${foreignKeys.length}`);
-    console.log('   📋 Foreign Keys por tabla:');
-    
-    // Agrupar por tabla
-    const fksByTable = {};
-    foreignKeys.forEach(fk => {
-      if (!fksByTable[fk.table_name]) {
-        fksByTable[fk.table_name] = [];
-      }
-      fksByTable[fk.table_name].push(fk);
-    });
-    
-    Object.keys(fksByTable).sort().forEach(tableName => {
-      console.log(`      📋 ${tableName} (${fksByTable[tableName].length} FKs):`);
-      fksByTable[tableName].forEach(fk => {
-        console.log(`         └── ${fk.column_name} → ${fk.foreign_table_name}.${fk.foreign_column_name}`);
-      });
-    });
-    
-    // ✅ CORREGIDO: FKs críticas con nombres de columnas CORRECTOS de la BD
-    const criticalFKs = [
-      // Memberships - usar nombres de BD (con field: 'plan_id')
-      { table: 'memberships', column: 'userId', references: 'users' },
-      { table: 'memberships', column: 'plan_id', references: 'membership_plans' }, // ← CORREGIDO
-      { table: 'memberships', column: 'registeredBy', references: 'users' },
-      
-      // Payments
-      { table: 'payments', column: 'userId', references: 'users' },
-      { table: 'payments', column: 'membershipId', references: 'memberships' },
-      { table: 'payments', column: 'registeredBy', references: 'users' },
-      { table: 'payments', column: 'transferValidatedBy', references: 'users' },
-      
-      // Store Products - usar nombres de BD (con field: 'category_id', 'brand_id')
-      { table: 'store_products', column: 'category_id', references: 'store_categories' }, // ← CORREGIDO
-      { table: 'store_products', column: 'brand_id', references: 'store_brands' }, // ← CORREGIDO
-      
-      // Store relacionados
-      { table: 'store_cart_items', column: 'user_id', references: 'users' },
-      { table: 'store_cart_items', column: 'product_id', references: 'store_products' },
-      { table: 'store_product_images', column: 'product_id', references: 'store_products' },
-      { table: 'store_order_items', column: 'order_id', references: 'store_orders' },
-      { table: 'store_order_items', column: 'product_id', references: 'store_products' },
-      { table: 'store_orders', column: 'user_id', references: 'users' },
-      { table: 'store_orders', column: 'processed_by', references: 'users' },
-      
-      // Gym Time Slots
-      { table: 'gym_time_slots', column: 'gym_hours_id', references: 'gym_hours' },
-      
-      // User Schedule Preferences
-      { table: 'user_schedule_preferences', column: 'user_id', references: 'users' },
-      
-      // Financial Movements
-      { table: 'financial_movements', column: 'registeredBy', references: 'users' },
-      { table: 'daily_incomes', column: 'registeredBy', references: 'users' },
-      
-      // Promotion Codes
-      { table: 'promotion_codes', column: 'created_by', references: 'users' },
-      { table: 'promotion_codes', column: 'gift_product_id', references: 'store_products' },
-      { table: 'promotion_codes', column: 'upgrade_plan_id', references: 'membership_plans' },
-      
-      // User and Membership Promotions
-      { table: 'user_promotions', column: 'user_id', references: 'users' },
-      { table: 'user_promotions', column: 'promotion_code_id', references: 'promotion_codes' },
-      { table: 'membership_promotions', column: 'user_id', references: 'users' },
-      { table: 'membership_promotions', column: 'membership_id', references: 'memberships' },
-      { table: 'membership_promotions', column: 'promotion_code_id', references: 'promotion_codes' },
-      
-      // Notifications
-      { table: 'notifications', column: 'userId', references: 'users' },
-      { table: 'notifications', column: 'membershipId', references: 'memberships' },
-      { table: 'notifications', column: 'paymentId', references: 'payments' },
-      
-      // Users self-reference
-      { table: 'users', column: 'createdBy', references: 'users' }
-    ];
-    
-    this.statistics.criticalFKsExpected = criticalFKs.length;
-    console.log('\n   🎯 Verificando FKs críticas (con nombres corregidos):');
-    
-    let criticalFound = 0;
-    const notFoundFKs = [];
-    const foundFKs = [];
-    
-    criticalFKs.forEach(expectedFK => {
-      const found = foreignKeys.find(fk => 
-        fk.table_name === expectedFK.table &&
-        fk.column_name.toLowerCase() === expectedFK.column.toLowerCase() &&
-        fk.foreign_table_name === expectedFK.references
+      // Filtrar solo modelos (no funciones de utilidad)
+      const modelNames = Object.keys(db).filter(key => 
+        !['sequelize', 'Sequelize', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'diagnose', 'verifyFlexibleScheduleModels', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
       );
       
-      if (found) {
-        console.log(`      ✅ ${expectedFK.table}.${expectedFK.column} → ${expectedFK.references}`);
-        criticalFound++;
-        foundFKs.push(expectedFK);
-      } else {
-        console.log(`      ❌ ${expectedFK.table}.${expectedFK.column} → ${expectedFK.references} (FALTANTE)`);
-        notFoundFKs.push(expectedFK);
-      }
-    });
-    
-    this.statistics.criticalFKsFound = criticalFound;
-    console.log(`\n   📊 FKs críticas encontradas: ${criticalFound}/${criticalFKs.length}`);
-    
-    // Mostrar detalles de las faltantes si las hay
-    if (notFoundFKs.length > 0) {
-      console.log('\n   🔍 DIAGNÓSTICO DE FKs FALTANTES:');
-      for (const missingFK of notFoundFKs.slice(0, 5)) { // Solo mostrar las primeras 5
-        console.log(`      🔎 Buscando variaciones de ${missingFK.table}.${missingFK.column}:`);
-        
-        // Buscar FKs similares en esa tabla
-        const similarFKs = foreignKeys.filter(fk => fk.table_name === missingFK.table);
-        if (similarFKs.length > 0) {
-          console.log(`         Columnas FK encontradas en ${missingFK.table}:`);
-          similarFKs.forEach(fk => {
-            console.log(`         - ${fk.column_name} → ${fk.foreign_table_name}.${fk.foreign_column_name}`);
-          });
-        } else {
-          console.log(`         ⚠️ No se encontraron FKs en la tabla ${missingFK.table}`);
-        }
-      }
-    }
-    
-    if (criticalFound >= (criticalFKs.length * 0.7)) { // Si al menos 70% están presentes
-      console.log('   ✅ La mayoría de Foreign Keys críticas están creadas');
-      this.results.foreignKeysFound = true;
-    } else {
-      console.log('   ⚠️ Muchas Foreign Keys críticas están faltando');
-    }
-  }
-
-  async step4_VerifyAssociations() {
-    console.log('\n4️⃣ VERIFICANDO ASOCIACIONES DE SEQUELIZE');
-    console.log('-' .repeat(50));
-    
-    const modelNames = Object.keys(db).filter(key => 
-      !['sequelize', 'Sequelize'].includes(key) && 
-      !key.startsWith('diagnose') && 
-      !key.startsWith('sync') && 
-      !key.startsWith('reset') && 
-      !key.startsWith('check') && 
-      !key.startsWith('init') && 
-      !key.startsWith('full') && 
-      !key.startsWith('repair') &&
-      !key.startsWith('verify')
-    );
-    
-    let totalAssociations = 0;
-    let modelsWithAssociations = 0;
-    
-    console.log('   🔗 Asociaciones por modelo:');
-    
-    modelNames.forEach(modelName => {
-      const model = db[modelName];
-      if (model && model.associations) {
-        const associations = Object.keys(model.associations);
-        if (associations.length > 0) {
-          console.log(`      📦 ${modelName} (${associations.length} asociaciones):`);
-          associations.forEach(assocName => {
-            const assoc = model.associations[assocName];
-            const assocType = assoc.associationType || 'Unknown';
-            const targetModel = assoc.target ? assoc.target.name : 'Unknown';
-            console.log(`         └── ${assocName}: ${assocType} → ${targetModel}`);
-            totalAssociations++;
-          });
-          modelsWithAssociations++;
-        } else {
-          console.log(`      📦 ${modelName}: Sin asociaciones`);
-        }
-      }
-    });
-    
-    this.statistics.totalAssociations = totalAssociations;
-    
-    console.log(`\n   📊 Resumen de asociaciones:`);
-    console.log(`      📦 Total modelos: ${modelNames.length}`);
-    console.log(`      🔗 Modelos con asociaciones: ${modelsWithAssociations}`);
-    console.log(`      📈 Total asociaciones: ${totalAssociations}`);
-    console.log(`      📊 Promedio por modelo: ${(totalAssociations / modelNames.length).toFixed(1)}`);
-    
-    // ✅ CORREGIDO: Asociaciones críticas con nombres correctos
-    const criticalAssociations = [
-      // User
-      { model: 'User', association: 'memberships' },
-      { model: 'User', association: 'payments' },
+      console.log(`✅ ${modelNames.length} modelos cargados correctamente`);
+      console.log(`📋 Modelos: ${modelNames.join(', ')}`);
       
-      // Membership
-      { model: 'Membership', association: 'user' },
-      { model: 'Membership', association: 'plan' },
-      { model: 'Membership', association: 'registeredByUser' },
-      { model: 'Membership', association: 'payments' },
-      
-      // Payment
-      { model: 'Payment', association: 'user' },
-      { model: 'Payment', association: 'membership' },
-      { model: 'Payment', association: 'registeredByUser' },
-      { model: 'Payment', association: 'transferValidator' },
-      
-      // MembershipPlans
-      { model: 'MembershipPlans', association: 'memberships' },
-      { model: 'MembershipPlans', association: 'promotionUpgrades' },
-      
-      // Store Models
-      { model: 'StoreProduct', association: 'category' },
-      { model: 'StoreProduct', association: 'brand' },
-      { model: 'StoreProduct', association: 'images' },
-      { model: 'StoreProduct', association: 'cartItems' },
-      { model: 'StoreProduct', association: 'orderItems' },
-      
-      { model: 'StoreCategory', association: 'products' },
-      { model: 'StoreBrand', association: 'products' },
-      { model: 'StoreProductImage', association: 'product' },
-      
-      { model: 'StoreCart', association: 'user' },
-      { model: 'StoreCart', association: 'product' },
-      
-      { model: 'StoreOrder', association: 'user' },
-      { model: 'StoreOrder', association: 'processor' },
-      { model: 'StoreOrder', association: 'items' },
-      
-      { model: 'StoreOrderItem', association: 'order' },
-      { model: 'StoreOrderItem', association: 'product' },
-      
-      // Gym Hours
-      { model: 'GymHours', association: 'timeSlots' },
-      { model: 'GymTimeSlots', association: 'gymHours' },
-      
-      // Financial
-      { model: 'FinancialMovements', association: 'registeredByUser' },
-      
-      // Promotions
-      { model: 'PromotionCodes', association: 'createdByUser' },
-      { model: 'PromotionCodes', association: 'giftProduct' },
-      { model: 'PromotionCodes', association: 'upgradePlan' },
-      { model: 'PromotionCodes', association: 'userPromotions' },
-      { model: 'PromotionCodes', association: 'membershipPromotions' },
-      
-      { model: 'UserPromotions', association: 'user' },
-      { model: 'UserPromotions', association: 'promotionCode' }
-    ];
-    
-    console.log('\n   🎯 Verificando asociaciones críticas:');
-    let criticalAssocFound = 0;
-    let criticalAssocMissing = [];
-    
-    criticalAssociations.forEach(({ model, association }) => {
-      if (db[model] && db[model].associations && db[model].associations[association]) {
-        console.log(`      ✅ ${model}.${association}`);
-        criticalAssocFound++;
-      } else {
-        console.log(`      ❌ ${model}.${association} (FALTANTE)`);
-        criticalAssocMissing.push(`${model}.${association}`);
-      }
-    });
-    
-    // Mostrar detalles de modelos sin asociaciones esperadas
-    if (criticalAssocMissing.length > 0) {
-      console.log('\n   🔍 DIAGNÓSTICO DE ASOCIACIONES FALTANTES:');
-      const modelsMissing = [...new Set(criticalAssocMissing.map(item => item.split('.')[0]))];
-      modelsMissing.slice(0, 3).forEach(modelName => { // Solo mostrar 3 primeros
-        if (db[modelName]) {
-          const actualAssocs = db[modelName].associations ? Object.keys(db[modelName].associations) : [];
-          console.log(`      🔎 ${modelName} tiene: [${actualAssocs.join(', ')}]`);
-        } else {
-          console.log(`      ⚠️ Modelo ${modelName} no encontrado`);
-        }
-      });
-    }
-    
-    const successRate = criticalAssocFound / criticalAssociations.length;
-    if (successRate >= 0.7) { // Si al menos 70% están presentes
-      console.log('   ✅ La mayoría de asociaciones críticas están configuradas');
-      this.results.associationsConfigured = true;
-    } else {
-      console.log('   ⚠️ Muchas asociaciones críticas están faltando');
-    }
-  }
-
-  async step5_TestReferentialIntegrity() {
-    console.log('\n5️⃣ PROBANDO INTEGRIDAD REFERENCIAL');
-    console.log('-' .repeat(50));
-    
-    try {
-      console.log('   🧪 Intentando crear registros con FKs inválidas...');
-      
-      // Test 1: Intentar crear Membership con userId inválido
-      console.log('   📋 Test 1: Membership con userId inválido');
-      try {
-        await db.Membership.create({
-          userId: '00000000-0000-0000-0000-000000000000',
-          planId: 1,
-          type: 'monthly',
-          price: 100,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          status: 'active'
-        });
-        console.log('      ❌ ERROR: Se permitió FK inválida');
-      } catch (error) {
-        console.log('      ✅ FK inválida fue rechazada correctamente');
-      }
-      
-      // Test 2: Intentar crear StoreProduct con categoryId inválido
-      console.log('   📋 Test 2: StoreProduct con categoryId inválido');
-      try {
-        await db.StoreProduct.create({
-          name: 'Test Product',
-          price: 50,
-          categoryId: 99999,
-          sku: 'TEST-001',
-          stockQuantity: 10
-        });
-        console.log('      ❌ ERROR: Se permitió FK inválida');
-      } catch (error) {
-        console.log('      ✅ FK inválida fue rechazada correctamente');
-      }
-      
-      // Test 3: Intentar crear Payment con membershipId inválido
-      console.log('   📋 Test 3: Payment con membershipId inválido');
-      try {
-        await db.Payment.create({
-          membershipId: '00000000-0000-0000-0000-000000000000',
-          amount: 100,
-          paymentMethod: 'cash',
-          paymentType: 'membership',
-          status: 'completed'
-        });
-        console.log('      ❌ ERROR: Se permitió FK inválida');
-      } catch (error) {
-        console.log('      ✅ FK inválida fue rechazada correctamente');
-      }
-      
-      console.log('   ✅ Integridad referencial funcionando correctamente');
-      this.results.referentialIntegrity = true;
+      return db;
       
     } catch (error) {
-      console.log(`   ❌ Error probando integridad: ${error.message}`);
+      throw new Error(`Error cargando modelos: ${error.message}`);
     }
   }
 
-  async step6_TestDataRelations() {
-    console.log('\n6️⃣ PROBANDO RELACIONES DE DATOS REALES');
-    console.log('-' .repeat(50));
+  async verifyForeignKeys() {
+    console.log('\n🔗 VERIFICANDO FOREIGN KEYS EN LA BASE DE DATOS');
+    console.log('-'.repeat(50));
     
     try {
-      console.log('   🧪 Creando datos de prueba y verificando relaciones...');
+      // Consultar FK existentes
+      const query = `
+        SELECT
+          tc.table_name,
+          kcu.column_name,
+          ccu.table_name AS foreign_table_name,
+          ccu.column_name AS foreign_column_name,
+          tc.constraint_name
+        FROM
+          information_schema.table_constraints AS tc
+          JOIN information_schema.key_column_usage AS kcu
+            ON tc.constraint_name = kcu.constraint_name
+            AND tc.table_schema = kcu.table_schema
+          JOIN information_schema.constraint_column_usage AS ccu
+            ON ccu.constraint_name = tc.constraint_name
+            AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        ORDER BY tc.table_name, kcu.column_name;
+      `;
+
+      const [existingFKs] = await sequelize.query(query);
       
-      // Crear usuario de prueba
-      console.log('   👤 Creando usuario de prueba...');
-      const testUser = await db.User.create({
-        firstName: 'Test',
-        lastName: 'User',
-        email: `test_fk_${Date.now()}@example.com`,
-        password: 'password123',
-        role: 'cliente'
-      });
-      this.cleanup.push({ model: 'User', id: testUser.id });
-      console.log(`      ✅ Usuario creado: ${testUser.firstName} ${testUser.lastName}`);
+      console.log(`📊 Total Foreign Keys encontradas en BD: ${existingFKs.length}`);
       
-      // Buscar o crear plan de membresía
-      let testPlan = null;
-      if (db.MembershipPlans) {
-        console.log('   🎫 Buscando o creando plan de membresía...');
-        testPlan = await db.MembershipPlans.findOne() || await db.MembershipPlans.create({
-          planName: 'Test Plan FK',
-          price: 100,
-          durationType: 'monthly',
-          features: ['Test feature']
-        });
-        if (testPlan.isNewRecord !== false) {
-          this.cleanup.push({ model: 'MembershipPlans', id: testPlan.id });
-        }
-        console.log(`      ✅ Plan disponible: ${testPlan.planName}`);
-      }
+      // Comparar con las esperadas
+      const foundFKs = [];
+      const missingFKs = [];
       
-      // Crear membresía
-      let membership = null;
-      if (testPlan) {
-        console.log('   🎫 Creando membresía...');
-        membership = await db.Membership.create({
-          userId: testUser.id,
-          planId: testPlan.id,
-          type: 'monthly',
-          price: 100,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          status: 'active'
-        });
-        this.cleanup.push({ model: 'Membership', id: membership.id });
-        console.log(`✅ Membresía creada: ${membership.id} - Usuario ${membership.userId} - Plan ${membership.planId}`);
-        console.log('      ✅ Membresía creada correctamente');
-        
-        // Probar relación: Usuario → Membresías
-        console.log('   🔗 Probando relación Usuario → Membresías...');
-        const userWithMemberships = await db.User.findByPk(testUser.id, {
-          include: [{ association: 'memberships' }]
-        });
-        
-        if (userWithMemberships && userWithMemberships.memberships && userWithMemberships.memberships.length > 0) {
-          console.log('      ✅ Relación Usuario → Membresías funciona');
+      for (const expectedFK of this.expectedFKs) {
+        const found = existingFKs.find(fk => 
+          fk.table_name === expectedFK.table &&
+          fk.column_name === expectedFK.column &&
+          fk.foreign_table_name === expectedFK.references &&
+          fk.foreign_column_name === expectedFK.referencedColumn
+        );
+
+        if (found) {
+          foundFKs.push({ ...expectedFK, constraintName: found.constraint_name });
         } else {
-          console.log('      ❌ Relación Usuario → Membresías no funciona');
-        }
-        
-        // Probar relación: Membresía → Usuario
-        console.log('   🔗 Probando relación Membresía → Usuario...');
-        const membershipWithUser = await db.Membership.findByPk(membership.id, {
-          include: [{ association: 'user' }]
-        });
-        
-        if (membershipWithUser && membershipWithUser.user) {
-          console.log('      ✅ Relación Membresía → Usuario funciona');
-        } else {
-          console.log('      ❌ Relación Membresía → Usuario no funciona');
-        }
-        
-        // Probar relación: Membresía → Plan
-        console.log('   🔗 Probando relación Membresía → Plan...');
-        const membershipWithPlan = await db.Membership.findByPk(membership.id, {
-          include: [{ association: 'plan' }]
-        });
-        
-        if (membershipWithPlan && membershipWithPlan.plan) {
-          console.log('      ✅ Relación Membresía → Plan funciona');
-        } else {
-          console.log('      ❌ Relación Membresía → Plan no funciona');
+          missingFKs.push(expectedFK);
         }
       }
-      
-      // Crear pago
-      console.log('   💳 Creando pago...');
-      console.log('ℹ️ Pago sin registeredBy asignado - puede ser automatizado');
-      const payment = await db.Payment.create({
-        userId: testUser.id,
-        amount: 50,
-        paymentMethod: 'cash',
-        paymentType: 'daily',
-        status: 'completed'
-      });
-      this.cleanup.push({ model: 'Payment', id: payment.id });
-      console.log(`✅ Pago creado: ID ${payment.id} - $${payment.amount} (${payment.paymentType})`);
-      console.log('      ✅ Pago creado correctamente');
-      
-      // Probar relación: Usuario → Pagos
-      console.log('   🔗 Probando relación Usuario → Pagos...');
-      const userWithPayments = await db.User.findByPk(testUser.id, {
-        include: [{ association: 'payments' }]
-      });
-      
-      if (userWithPayments && userWithPayments.payments && userWithPayments.payments.length > 0) {
-        console.log('      ✅ Relación Usuario → Pagos funciona');
-      } else {
-        console.log('      ❌ Relación Usuario → Pagos no funciona');
-      }
-      
-      // Probar relación: Pago → Usuario
-      console.log('   🔗 Probando relación Pago → Usuario...');
-      const paymentWithUser = await db.Payment.findByPk(payment.id, {
-        include: [{ association: 'user' }]
-      });
-      
-      if (paymentWithUser && paymentWithUser.user) {
-        console.log('      ✅ Relación Pago → Usuario funciona');
-      } else {
-        console.log('      ❌ Relación Pago → Usuario no funciona');
-      }
-      
-      // Probar relaciones de tienda si están disponibles
-      if (db.StoreCategory && db.StoreProduct) {
-        console.log('   🛒 Probando relaciones de tienda...');
-        
-        // Buscar o crear categoría
-        let testCategory = await db.StoreCategory.findOne() || await db.StoreCategory.create({
-          name: 'Test Category FK',
-          slug: 'test-category-fk',
-          description: 'Test category for FK test'
-        });
-        
-        if (testCategory.isNewRecord !== false) {
-          this.cleanup.push({ model: 'StoreCategory', id: testCategory.id });
-        }
-        
-        // Crear producto
-        const testProduct = await db.StoreProduct.create({
-          name: 'Test Product FK',
-          price: 25.99,
-          categoryId: testCategory.id,
-          sku: `TEST-FK-${Date.now()}`,
-          stockQuantity: 10
-        });
-        this.cleanup.push({ model: 'StoreProduct', id: testProduct.id });
-        
-        // Probar relación: Producto → Categoría
-        const productWithCategory = await db.StoreProduct.findByPk(testProduct.id, {
-          include: [{ association: 'category' }]
-        });
-        
-        if (productWithCategory && productWithCategory.category) {
-          console.log('      ✅ Relación StoreProduct → StoreCategory funciona');
-        } else {
-          console.log('      ❌ Relación StoreProduct → StoreCategory no funciona');
-        }
-      }
-      
-      console.log('   ✅ Todas las relaciones de datos funcionan correctamente');
-      this.results.dataRelations = true;
+
+      // Identificar FK extras
+      const extraFKs = existingFKs.filter(existingFK => {
+        return !this.expectedFKs.find(expectedFK =>
+          expectedFK.table === existingFK.table_name &&
+          expectedFK.column === existingFK.column_name &&
+          expectedFK.references === existingFK.foreign_table_name &&
+          expectedFK.referencedColumn === existingFK.foreign_column_name
+        );
+      }).map(fk => ({
+        table: fk.table_name,
+        column: fk.column_name,
+        references: fk.foreign_table_name,
+        referencedColumn: fk.foreign_column_name,
+        constraintName: fk.constraint_name,
+        description: 'FK no esperada'
+      }));
+
+      console.log(`✅ Foreign Keys encontradas: ${foundFKs.length}/${this.expectedFKs.length}`);
+      console.log(`❌ Foreign Keys faltantes: ${missingFKs.length}`);
+      console.log(`➕ Foreign Keys extras: ${extraFKs.length}`);
+
+      const percentage = ((foundFKs.length / this.expectedFKs.length) * 100).toFixed(1);
+      console.log(`📈 Porcentaje completado: ${percentage}%`);
+
+      return {
+        found: foundFKs,
+        missing: missingFKs,
+        extra: extraFKs,
+        percentage: parseFloat(percentage),
+        total: this.expectedFKs.length
+      };
       
     } catch (error) {
-      console.log(`   ❌ Error probando relaciones de datos: ${error.message}`);
-      console.log(`      Stack: ${error.stack}`);
+      throw new Error(`Error verificando Foreign Keys: ${error.message}`);
     }
   }
 
-  async step7_Cleanup() {
-    console.log('\n7️⃣ LIMPIANDO DATOS DE PRUEBA');
-    console.log('-' .repeat(50));
+  async verifyAssociations(models) {
+    console.log('\n🔄 VERIFICANDO ASOCIACIONES DE SEQUELIZE');
+    console.log('-'.repeat(50));
     
-    console.log('   🧹 Eliminando datos de prueba...');
-    
-    // Eliminar en orden inverso (por dependencias)
-    const reverseCleanup = [...this.cleanup].reverse();
-    let cleaned = 0;
-    
-    for (const item of reverseCleanup) {
-      try {
-        if (db[item.model]) {
-          const deletedCount = await db[item.model].destroy({
-            where: { id: item.id },
-            force: true
-          });
-          if (deletedCount > 0) cleaned++;
-        }
-      } catch (error) {
-        console.log(`      ⚠️ No se pudo eliminar ${item.model} ${item.id}: ${error.message}`);
-      }
-    }
-    
-    console.log(`   ✅ ${cleaned} registros de prueba eliminados`);
-  }
-
-  async emergencyCleanup() {
-    console.log('\n🚨 LIMPIEZA DE EMERGENCIA');
-    if (this.cleanup.length > 0) {
-      await this.step7_Cleanup();
-    }
-  }
-
-  showResults() {
-    console.log('\n📊 RESULTADOS DEL TEST');
-    console.log('=' .repeat(60));
-    
-    const results = this.results;
-    const stats = this.statistics;
-    
-    // Mostrar resultados individuales
-    console.log('📋 Verificaciones:');
-    console.log(`   🔌 Conexión a BD: ${results.connection ? '✅ ÉXITO' : '❌ FALLO'}`);
-    console.log(`   📦 Modelos cargados: ${results.modelsLoaded ? '✅ ÉXITO' : '❌ FALLO'}`);
-    console.log(`   🔗 Foreign Keys: ${results.foreignKeysFound ? '✅ ÉXITO' : '❌ FALLO'}`);
-    console.log(`   🔄 Asociaciones: ${results.associationsConfigured ? '✅ ÉXITO' : '❌ FALLO'}`);
-    console.log(`   🔒 Integridad: ${results.referentialIntegrity ? '✅ ÉXITO' : '❌ FALLO'}`);
-    console.log(`   📊 Relaciones: ${results.dataRelations ? '✅ ÉXITO' : '❌ FALLO'}`);
-    
-    // Estadísticas
-    console.log('\n📈 Estadísticas:');
-    console.log(`   📦 Total modelos: ${stats.totalModels}`);
-    console.log(`   🔗 Total asociaciones: ${stats.totalAssociations}`);
-    console.log(`   🔑 Total Foreign Keys: ${stats.totalForeignKeys}`);
-    console.log(`   ⭐ FKs críticas: ${stats.criticalFKsFound}/${stats.criticalFKsExpected}`);
-    
-    // Puntaje final
-    const totalTests = Object.keys(results).length;
-    const passedTests = Object.values(results).filter(Boolean).length;
-    const successRate = ((passedTests / totalTests) * 100).toFixed(1);
-    
-    console.log(`\n🎯 PUNTAJE FINAL: ${passedTests}/${totalTests} (${successRate}%)`);
-    
-    if (successRate >= 90) {
-      console.log('🎉 EXCELENTE: Tu base de datos tiene perfecta integridad referencial');
-    } else if (successRate >= 70) {
-      console.log('✅ BUENO: La mayoría de Foreign Keys funcionan correctamente');
-    } else if (successRate >= 50) {
-      console.log('⚠️ REGULAR: Hay problemas que necesitan atención');
-    } else {
-      console.log('❌ CRÍTICO: Problemas graves con Foreign Keys');
-    }
-    
-    // Recomendaciones
-    if (successRate < 100) {
-      console.log('\n💡 RECOMENDACIONES:');
+    try {
+      const foundAssociations = [];
+      const missingAssociations = [];
       
-      if (!results.foreignKeysFound) {
-        console.log('   - Ejecuta sincronización: await db.syncDatabase({ alter: true })');
-        console.log('   - Verifica que los campos "field:" en modelos coincidan con BD');
+      for (const expectedAssoc of this.expectedAssociations) {
+        const model = models[expectedAssoc.model];
+        
+        if (!model) {
+          missingAssociations.push({ ...expectedAssoc, reason: 'Modelo no encontrado' });
+          continue;
+        }
+        
+        const association = model.associations && model.associations[expectedAssoc.association];
+        
+        if (association) {
+          const actualType = association.associationType;
+          const actualTarget = association.target.name;
+          
+          // Verificar que coincida el tipo y target
+          if (actualType === expectedAssoc.type && actualTarget === expectedAssoc.target) {
+            foundAssociations.push({
+              ...expectedAssoc,
+              actualType,
+              actualTarget,
+              status: 'perfect_match'
+            });
+          } else {
+            foundAssociations.push({
+              ...expectedAssoc,
+              actualType,
+              actualTarget,
+              status: 'partial_match',
+              issues: [
+                actualType !== expectedAssoc.type ? `Tipo: esperado ${expectedAssoc.type}, encontrado ${actualType}` : null,
+                actualTarget !== expectedAssoc.target ? `Target: esperado ${expectedAssoc.target}, encontrado ${actualTarget}` : null
+              ].filter(Boolean)
+            });
+          }
+        } else {
+          missingAssociations.push({ ...expectedAssoc, reason: 'Asociación no encontrada' });
+        }
       }
-      if (!results.associationsConfigured) {
-        console.log('   - Verifica métodos associate() en tus modelos');
-        console.log('   - Verifica que los nombres de asociaciones sean correctos');
-      }
-      if (!results.referentialIntegrity) {
-        console.log('   - Revisa configuración de constraints en tus modelos');
-      }
-      if (!results.dataRelations) {
-        console.log('   - Verifica nombres de asociaciones en include queries');
-        console.log('   - Revisa que las asociaciones estén bien definidas');
+      
+      const perfectMatches = foundAssociations.filter(a => a.status === 'perfect_match').length;
+      const partialMatches = foundAssociations.filter(a => a.status === 'partial_match').length;
+      
+      console.log(`✅ Asociaciones perfectas: ${perfectMatches}/${this.expectedAssociations.length}`);
+      console.log(`⚠️ Asociaciones parciales: ${partialMatches}`);
+      console.log(`❌ Asociaciones faltantes: ${missingAssociations.length}`);
+      
+      const assocPercentage = (((perfectMatches + partialMatches) / this.expectedAssociations.length) * 100).toFixed(1);
+      console.log(`📈 Porcentaje asociaciones: ${assocPercentage}%`);
+      
+      return {
+        found: foundAssociations,
+        missing: missingAssociations,
+        perfectMatches,
+        partialMatches,
+        percentage: parseFloat(assocPercentage),
+        total: this.expectedAssociations.length
+      };
+      
+    } catch (error) {
+      throw new Error(`Error verificando asociaciones: ${error.message}`);
+    }
+  }
+
+  generateFinalReport(fkResults, assocResults) {
+    console.log('\n📋 REPORTE FINAL DE INTEGRIDAD');
+    console.log('═'.repeat(80));
+    
+    // Resumen ejecutivo
+    console.log('\n📊 RESUMEN EJECUTIVO:');
+    console.log(`🔗 Foreign Keys: ${fkResults.found.length}/${fkResults.total} (${fkResults.percentage}%)`);
+    console.log(`🔄 Asociaciones: ${assocResults.perfectMatches + assocResults.partialMatches}/${assocResults.total} (${assocResults.percentage}%)`);
+    
+    // Calcular score general
+    const generalScore = ((fkResults.percentage + assocResults.percentage) / 2).toFixed(1);
+    console.log(`🎯 Score General: ${generalScore}%`);
+    
+    // Diagnóstico
+    if (generalScore >= 95) {
+      console.log('\n🎉 EXCELENTE - Tu base de datos tiene integridad perfecta');
+      console.log('   ✅ Todas las relaciones están correctamente configuradas');
+      console.log('   ✅ El sistema puede funcionar sin problemas');
+    } else if (generalScore >= 80) {
+      console.log('\n✅ BUENO - Tu base de datos es funcional');
+      console.log('   ⚠️ Algunas relaciones menores pueden faltar');
+      console.log('   💡 Se recomienda completar las FK/asociaciones faltantes');
+    } else if (generalScore >= 60) {
+      console.log('\n⚠️ REGULAR - Problemas de integridad moderados');
+      console.log('   🔧 Varias relaciones importantes faltan');
+      console.log('   🚨 El sistema puede tener errores en algunas funciones');
+    } else {
+      console.log('\n🚨 CRÍTICO - Problemas graves de integridad');
+      console.log('   ❌ Muchas relaciones críticas faltan');
+      console.log('   🛑 El sistema probablemente tendrá errores frecuentes');
+    }
+    
+    // Detalles de problemas críticos
+    if (fkResults.missing.length > 0) {
+      console.log('\n❌ FOREIGN KEYS FALTANTES CRÍTICAS:');
+      fkResults.missing.slice(0, 10).forEach(fk => {
+        console.log(`   🔴 ${fk.table}.${fk.column} → ${fk.references}.${fk.referencedColumn}`);
+        console.log(`      💬 ${fk.description}`);
+      });
+      
+      if (fkResults.missing.length > 10) {
+        console.log(`   ... y ${fkResults.missing.length - 10} más`);
       }
     }
     
-    console.log('\n📝 NOTAS TÉCNICAS:');
-    console.log('   - Este test usa los nombres REALES de columnas en BD (field: values)');
-    console.log('   - Se verificaron más FKs que la versión anterior del test');
-    console.log('   - Las asociaciones de Sequelize se verifican por separado de las FKs');
+    if (assocResults.missing.length > 0) {
+      console.log('\n❌ ASOCIACIONES FALTANTES CRÍTICAS:');
+      assocResults.missing.slice(0, 10).forEach(assoc => {
+        console.log(`   🔴 ${assoc.model}.${assoc.association} (${assoc.type} → ${assoc.target})`);
+        console.log(`      💬 ${assoc.reason}`);
+      });
+      
+      if (assocResults.missing.length > 10) {
+        console.log(`   ... y ${assocResults.missing.length - 10} más`);
+      }
+    }
+    
+    // FK extras (informativo)
+    if (fkResults.extra.length > 0) {
+      console.log('\n➕ FOREIGN KEYS ADICIONALES (no críticas):');
+      fkResults.extra.slice(0, 5).forEach(fk => {
+        console.log(`   🟡 ${fk.table}.${fk.column} → ${fk.references}.${fk.referencedColumn}`);
+      });
+      
+      if (fkResults.extra.length > 5) {
+        console.log(`   ... y ${fkResults.extra.length - 5} más`);
+      }
+    }
+    
+    // Resumen por categorías
+    console.log('\n📋 ANÁLISIS POR CATEGORÍAS:');
+    this.analyzeByCategoryFK(fkResults.found, fkResults.missing);
+    
+    console.log('\n✅ VERIFICACIÓN COMPLETADA - Base de datos NO modificada');
+    console.log('📄 Reporte generado exitosamente');
+    
+    return {
+      fkScore: fkResults.percentage,
+      assocScore: assocResults.percentage,
+      generalScore: parseFloat(generalScore),
+      fkFound: fkResults.found.length,
+      fkMissing: fkResults.missing.length,
+      assocFound: assocResults.perfectMatches + assocResults.partialMatches,
+      assocMissing: assocResults.missing.length
+    };
   }
-}
 
-// Función principal
-async function main() {
-  const args = process.argv.slice(2);
-  
-  if (args.includes('--help') || args.includes('-h')) {
-    console.log('\n🔗 ELITE FITNESS CLUB - Test de Foreign Keys CORREGIDO\n');
-    console.log('📋 Este test verifica las llaves foráneas usando nombres correctos de BD\n');
-    console.log('Uso:');
-    console.log('   node test-foreign-keys-fixed.js     # Ejecutar test corregido');
-    console.log('   node test-foreign-keys-fixed.js -h  # Mostrar ayuda\n');
-    console.log('✅ CORRECCIONES en esta versión:');
-    console.log('   - Usa nombres reales de columnas BD (plan_id, category_id, etc.)');
-    console.log('   - Verifica más FKs críticas');
-    console.log('   - Mejor diagnóstico de problemas');
-    console.log('   - Más asociaciones verificadas');
-    return;
+  analyzeByCategoryFK(foundFKs, missingFKs) {
+    const categories = {
+      'Usuarios': ['users'],
+      'Membresías': ['memberships', 'membership_plans'],
+      'Pagos': ['payments'],
+      'Tienda': ['store_products', 'store_categories', 'store_brands', 'store_cart_items', 'store_orders', 'store_order_items', 'store_product_images'],
+      'Gym': ['gym_hours', 'gym_time_slots', 'user_schedule_preferences'],
+      'Promociones': ['promotion_codes', 'user_promotions', 'membership_promotions'],
+      'Sistema': ['financial_movements', 'daily_incomes', 'notifications']
+    };
+    
+    Object.entries(categories).forEach(([categoryName, tables]) => {
+      const categoryFound = foundFKs.filter(fk => tables.includes(fk.table)).length;
+      const categoryMissing = missingFKs.filter(fk => tables.includes(fk.table)).length;
+      const categoryTotal = categoryFound + categoryMissing;
+      
+      if (categoryTotal > 0) {
+        const categoryPercentage = ((categoryFound / categoryTotal) * 100).toFixed(0);
+        const status = categoryPercentage == 100 ? '✅' : categoryPercentage >= 80 ? '⚠️' : '❌';
+        console.log(`   ${status} ${categoryName}: ${categoryFound}/${categoryTotal} (${categoryPercentage}%)`);
+      }
+    });
   }
-  
-  const tester = new ForeignKeyTester();
-  await tester.runTest();
 }
 
 // Ejecutar si se llama directamente
 if (require.main === module) {
-  main().catch(error => {
-    console.error('\n💥 Error fatal:', error.message);
-    process.exit(1);
-  });
+  const test = new CleanFKVerificationTest();
+  test.runVerification()
+    .then(() => {
+      console.log('\n🎯 Test completado exitosamente');
+      process.exit(0);
+    })
+    .catch(error => {
+      console.error('\n💀 Error en test:', error.message);
+      process.exit(1);
+    });
 }
 
-module.exports = { ForeignKeyTester };
+module.exports = CleanFKVerificationTest;
