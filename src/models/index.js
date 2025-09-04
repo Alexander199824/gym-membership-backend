@@ -22,21 +22,29 @@ console.log('✅ Conexión a base de datos disponible');
 const MODEL_ORDER = [
   // Modelos base sin dependencias
   'User.js',
-  'MembershipPlans.js', // ✅ CORREGIDO: MembershipPlans (plural) como está en tu sistema
+  'MembershipPlans.js', 
   'StoreBrand.js',
   'StoreCategory.js',
-  'DailyIncome.js',
-  'GymConfiguration.js', // ✅ AGREGADO: Para solucionar el problema del ID
-  
-  // ✅ CRÍTICO: GymHours ANTES que GymTimeSlots para asociaciones
+  'GymConfiguration.js',
   'GymHours.js',
   'GymTimeSlots.js',
-  
-  // Modelos que dependen de los anteriores
-  'Membership.js',
-  'Payment.js',
+  'DailyIncome.js',
+  'GymBrandingConfig.js',     // Sin FK
+  'GymContactInfo.js',        // Sin F
+   'GymFormsConfig.js',        // Sin FK
+  'GymNavigation.js',         // Sin FK
+  'GymPromotionalContent.js', // Sin FK
+  'GymSectionsContent.js',    // Sin FK
+  'GymServices.js',           // Sin FK
+  'GymSocialMedia.js',        // Sin FK
+  'GymStatistics.js',         // Sin FK
+  'GymSystemMessages.js',     // Sin FK
+  'GymTestimonials.js',       // Sin FK
   'StoreProduct.js',
   'StoreProductImage.js',
+  'Membership.js',
+  'Payment.js',
+  
   
   // Modelos que dependen de StoreProduct
   'StoreCart.js',
@@ -46,7 +54,10 @@ const MODEL_ORDER = [
   // Otros modelos
   'FinancialMovements.js',
   'PromotionCodes.js',
-  'MembershipPromotions.js'
+  'MembershipPromotions.js',
+  'FinancialMovements.js',    // Depende de User
+  'Notification.js',          // Depende de User, Membership, Payment
+  'UserSchedulePreferences.js' // Depende de User
 ];
 
 // ✅ FUNCIÓN para cargar un modelo específico
