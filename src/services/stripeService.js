@@ -38,6 +38,60 @@ class StripeService {
     return process.env.STRIPE_ENABLED !== 'false';
   }
 
+  // ✅ REPARACIÓN CRÍTICA: Crear Payment Intent (método que faltaba)
+  async createPaymentIntent(paymentData) {
+    if (!this.isConfigured) {
+      throw new Error('Stripe no está configurado');
+    }
+
+    try {
+      const {
+        amount,
+        currency = process.env.STRIPE_CURRENCY || 'gtq',
+        metadata = {},
+        description,
+        receipt_email,
+        setup_future_usage
+      } = paymentData;
+
+      // Validar amount
+      if (!amount || amount <= 0) {
+        throw new Error('Amount debe ser un número positivo');
+      }
+
+      const paymentIntent = await this.stripe.paymentIntents.create({
+        amount: Math.round(amount), // Ya viene en centavos desde el controlador
+        currency,
+        metadata: {
+          gymSystem: 'elite-fitness-club',
+          ...metadata
+        },
+        description,
+        receipt_email,
+        setup_future_usage,
+        automatic_payment_methods: {
+          enabled: true
+        }
+      });
+
+      console.log(`✅ Payment Intent creado: ${paymentIntent.id} - ${amount/100} ${currency.toUpperCase()}`);
+
+      return {
+        success: true,
+        paymentIntent,
+        clientSecret: paymentIntent.client_secret,
+        amount: paymentIntent.amount, // Mantener en centavos como espera el controlador
+        currency: paymentIntent.currency
+      };
+    } catch (error) {
+      console.error('❌ Error al crear Payment Intent:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+  
   // ✅ Crear Payment Intent para membresías
   async createMembershipPaymentIntent(membershipData, userInfo) {
     if (!this.isConfigured) {

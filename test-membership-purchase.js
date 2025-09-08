@@ -362,7 +362,7 @@ class RealMembershipPurchaseTest {
     
     try {
       // ✅ CORREGIDO: URL sin doble /api/
-      const response = await this.makeAuthenticatedRequest('POST', '/stripe/confirm-membership-payment', {
+      const response = await this.makeAuthenticatedRequest('POST', '/api/stripe/confirm-membership-payment', {
         paymentIntentId: this.paymentIntentId
       });
 
