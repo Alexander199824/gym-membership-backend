@@ -993,10 +993,12 @@ async checkScheduleAvailability(req, res) {
   }
 }
 
-// REEMPLAZAR SOLO EL MÉTODO purchaseMembership EN src/controllers/membershipController.js
+
 
 // ✅ MÉTODO CORREGIDO: purchaseMembership
 async purchaseMembership(req, res) {
+  let transaction = null;
+  
   try {
     const {
       planId,
@@ -1062,8 +1064,10 @@ async purchaseMembership(req, res) {
     
     console.log(`📅 Duración: ${durationDays} días`);
     
-    // ✅ 5. VALIDAR HORARIOS SI EXISTEN
+    // ✅ 5. VALIDAR Y PREPARAR HORARIOS (ANTES DE LA TRANSACCIÓN)
     let processedSchedule = {};
+    let slotsToReserve = [];
+    
     if (Object.keys(selectedSchedule).length > 0) {
       console.log(`🕐 Validando horarios...`);
       
@@ -1096,6 +1100,12 @@ async purchaseMembership(req, res) {
               closeTime: slot.closeTime,
               label: slot.slotLabel
             });
+            
+            // Preparar para reservar
+            slotsToReserve.push({
+              slotId: parseInt(timeSlotId),
+              day: day
+            });
           }
         }
       }
@@ -1103,168 +1113,183 @@ async purchaseMembership(req, res) {
     }
     
     // ✅ 6. INICIAR TRANSACCIÓN
-    const transaction = await Membership.sequelize.transaction();
+    transaction = await Membership.sequelize.transaction();
+    console.log(`🔄 Transacción iniciada...`);
     
+    // ✅ 6.1. CREAR MEMBRESÍA
+    const membershipData = {
+      userId: targetUserId,
+      planId: planId,
+      type: plan.durationType,
+      price: parseFloat(plan.price),
+      startDate: startDate,
+      endDate: endDate,
+      notes: notes || `Membresía ${plan.planName}`,
+      registeredBy: req.user.id,
+      status: 'active',
+      totalDays: durationDays,
+      remainingDays: durationDays,
+      preferredSchedule: selectedSchedule,
+      reservedSchedule: processedSchedule
+    };
+    
+    const membership = await Membership.create(membershipData, { transaction });
+    console.log(`✅ Membresía creada: ${membership.id}`);
+    
+    // ✅ 6.2. RESERVAR HORARIOS (INCREMENTAR SLOTS)
+    if (slotsToReserve.length > 0) {
+      console.log(`📅 Reservando ${slotsToReserve.length} slots...`);
+      
+      const { GymTimeSlots } = require('../models');
+      
+      for (const { slotId, day } of slotsToReserve) {
+        await GymTimeSlots.increment('currentReservations', {
+          by: 1,
+          where: { id: slotId },
+          transaction
+        });
+        console.log(`   ✅ ${day}: slot ${slotId} reservado`);
+      }
+      console.log(`✅ Todos los slots reservados`);
+    }
+    
+    // ✅ 6.3. REGISTRAR PAGO
+    const { Payment } = require('../models');
+    const paymentData = {
+      userId: targetUserId,
+      membershipId: membership.id,
+      amount: parseFloat(plan.price),
+      paymentMethod: paymentMethod,
+      paymentType: 'membership',
+      description: `Membresía ${plan.planName}`,
+      registeredBy: req.user.id,
+      status: 'completed',
+      paymentDate: new Date()
+    };
+    
+    const payment = await Payment.create(paymentData, { transaction });
+    console.log(`💳 Pago registrado: ${payment.id} - Q${payment.amount}`);
+    
+    // ✅ 6.4. CREAR MOVIMIENTO FINANCIERO (USANDO EL MÉTODO EXISTENTE)
     try {
-      console.log(`🔄 Iniciando transacción...`);
+      const { FinancialMovements } = require('../models');
       
-      // ✅ 6.1. CREAR MEMBRESÍA
-      const membershipData = {
-        userId: targetUserId,
-        planId: planId,
-        type: plan.durationType,
-        price: parseFloat(plan.price),
-        startDate: startDate,
-        endDate: endDate,
-        notes: notes || `Membresía ${plan.planName}`,
-        registeredBy: req.user.id,
-        status: 'active',
-        totalDays: durationDays,
-        remainingDays: durationDays,
-        preferredSchedule: selectedSchedule,
-        reservedSchedule: processedSchedule
-      };
-      
-      const membership = await Membership.create(membershipData, { transaction });
-      console.log(`✅ Membresía creada: ${membership.id}`);
-      
-      // ✅ 6.2. RESERVAR HORARIOS (DECREMENTAR SLOTS)
-      if (Object.keys(processedSchedule).length > 0) {
-        console.log(`📅 Reservando slots...`);
-        
-        const { GymTimeSlots } = require('../models');
-        
-        for (const [day, slots] of Object.entries(processedSchedule)) {
-          for (const slotInfo of slots) {
-            await GymTimeSlots.increment('currentReservations', {
-              by: 1,
-              where: { id: slotInfo.slotId },
-              transaction
-            });
-            console.log(`   ✅ ${day} ${slotInfo.openTime}: slot reservado`);
-          }
-        }
-        console.log(`✅ Todos los slots reservados`);
+      if (FinancialMovements && typeof FinancialMovements.createFromAnyPayment === 'function') {
+        const financialMovement = await FinancialMovements.createFromAnyPayment(payment, { transaction });
+        console.log(`📊 Movimiento financiero: ${financialMovement?.id || 'creado'}`);
+      } else {
+        console.log('ℹ️ FinancialMovements.createFromAnyPayment no disponible');
       }
-      
-      // ✅ 6.3. REGISTRAR PAGO
-      const { Payment } = require('../models');
-      const paymentData = {
-        userId: targetUserId,
-        membershipId: membership.id,
-        amount: parseFloat(plan.price),
-        paymentMethod: paymentMethod,
-        paymentType: 'membership',
-        description: `Membresía ${plan.planName}`,
-        registeredBy: req.user.id,
-        status: 'completed',
-        paymentDate: new Date()
-      };
-      
-      const payment = await Payment.create(paymentData, { transaction });
-      console.log(`💳 Pago registrado: ${payment.id} - Q${payment.amount}`);
-      
-      // ✅ 6.4. CREAR MOVIMIENTO FINANCIERO
-      try {
-        const { FinancialMovements } = require('../models');
-        
-        if (FinancialMovements) {
-          const financialData = {
-            type: 'income',
-            category: 'membership_sale',
-            description: `Venta membresía ${plan.planName} - ${targetUser.firstName} ${targetUser.lastName}`,
-            amount: parseFloat(plan.price),
-            paymentMethod: paymentMethod,
-            referenceId: payment.id,
-            referenceType: 'payment',
-            registeredBy: req.user.id,
-            movementDate: new Date(),
-            isAutomatic: false
-          };
-          
-          const financialMovement = await FinancialMovements.create(financialData, { transaction });
-          console.log(`📊 Movimiento financiero: ${financialMovement.id}`);
-        }
-      } catch (financialError) {
-        console.warn('⚠️ Error movimiento financiero:', financialError.message);
-        // No fallar por esto
-      }
-      
-      // ✅ 6.5. CONFIRMAR TRANSACCIÓN
-      await transaction.commit();
-      console.log(`🎉 TRANSACCIÓN COMPLETADA`);
-      
-      // ✅ 7. PREPARAR RESPUESTA
-      const completeMembership = await Membership.findByPk(membership.id, {
+    } catch (financialError) {
+      console.warn('⚠️ Error movimiento financiero (dentro de transacción):', financialError.message);
+      // No es crítico, la membresía y pago ya están creados
+    }
+    
+    // ✅ 6.5. CONFIRMAR TRANSACCIÓN (TODO EXITOSO HASTA AQUÍ)
+    await transaction.commit();
+    transaction = null; // ✅ CRÍTICO: Marcar como null para evitar rollback posterior
+    console.log(`🎉 TRANSACCIÓN COMPLETADA EXITOSAMENTE`);
+    
+    // ✅ 7. OPERACIONES POST-COMMIT (NO CRÍTICAS)
+    // Estas operaciones pueden fallar sin afectar la membresía ya creada
+    
+    let membershipForResponse = null;
+    try {
+      // Obtener membresía completa para respuesta
+      membershipForResponse = await Membership.findByPk(membership.id, {
         include: [
           { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
           { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
         ]
       });
-      
-      const summary = {
-        daysTotal: durationDays,
-        daysRemaining: durationDays,
-        daysUsed: 0,
-        progress: 0,
-        status: 'active'
-      };
-      
-      let detailedSchedule = {};
-      for (const [day, slots] of Object.entries(processedSchedule)) {
-        detailedSchedule[day] = slots.map(slot => ({
-          id: slot.slotId,
-          openTime: slot.openTime,
-          closeTime: slot.closeTime,
-          label: slot.label
-        }));
-      }
-      
-      const planData = {
-        id: plan.id,
-        name: plan.planName,
-        durationType: plan.durationType,
-        originalPrice: parseFloat(plan.price),
-        finalPrice: parseFloat(plan.price),
-        totalDays: durationDays
-      };
-      
-      console.log(`🎊 COMPRA COMPLETADA: ${plan.planName} para ${targetUser.firstName}`);
-      
-      res.status(201).json({
-        success: true,
-        message: 'Membresía comprada exitosamente',
-        data: {
-          membership: {
-            ...completeMembership.toJSON(),
-            summary: summary,
-            schedule: detailedSchedule
-          },
-          payment: {
-            id: payment.id,
-            amount: payment.amount,
-            paymentMethod: payment.paymentMethod,
-            status: payment.status,
-            paymentDate: payment.paymentDate
-          },
-          plan: planData,
-          user: {
-            id: targetUser.id,
-            firstName: targetUser.firstName,
-            lastName: targetUser.lastName,
-            email: targetUser.email
-          }
-        }
-      });
-      
-    } catch (transactionError) {
-      await transaction.rollback();
-      console.error(`❌ Error en transacción:`, transactionError);
-      throw transactionError;
+    } catch (fetchError) {
+      console.warn('⚠️ Error obteniendo membresía para respuesta:', fetchError.message);
+      membershipForResponse = membership; // Usar la original
     }
+    
+    // Enviar email de confirmación (no crítico)
+    try {
+      const membershipController = require('../controllers/membershipController');
+      if (membershipController.sendMembershipConfirmationEmail) {
+        await membershipController.sendMembershipConfirmationEmail(
+          membershipForResponse || membership, 
+          plan, 
+          processedSchedule
+        );
+        console.log('✅ Email de confirmación enviado');
+      }
+    } catch (emailError) {
+      console.warn('⚠️ Error enviando email (no crítico):', emailError.message);
+    }
+    
+    // ✅ 8. PREPARAR RESPUESTA FINAL
+    const summary = {
+      daysTotal: durationDays,
+      daysRemaining: durationDays,
+      daysUsed: 0,
+      progress: 0,
+      status: 'active'
+    };
+    
+    let detailedSchedule = {};
+    for (const [day, slots] of Object.entries(processedSchedule)) {
+      detailedSchedule[day] = slots.map(slot => ({
+        id: slot.slotId,
+        openTime: slot.openTime,
+        closeTime: slot.closeTime,
+        label: slot.label
+      }));
+    }
+    
+    const planData = {
+      id: plan.id,
+      name: plan.planName,
+      durationType: plan.durationType,
+      originalPrice: parseFloat(plan.price),
+      finalPrice: parseFloat(plan.price),
+      totalDays: durationDays
+    };
+    
+    console.log(`🎊 COMPRA COMPLETADA: ${plan.planName} para ${targetUser.firstName}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'Membresía comprada exitosamente',
+      data: {
+        membership: {
+          ...(membershipForResponse || membership).toJSON(),
+          summary: summary,
+          schedule: detailedSchedule
+        },
+        payment: {
+          id: payment.id,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          status: payment.status,
+          paymentDate: payment.paymentDate
+        },
+        plan: planData,
+        user: {
+          id: targetUser.id,
+          firstName: targetUser.firstName,
+          lastName: targetUser.lastName,
+          email: targetUser.email
+        }
+      }
+    });
     
   } catch (error) {
     console.error('❌ Error en compra:', error);
+    
+    // ✅ SOLO HACER ROLLBACK SI LA TRANSACCIÓN AÚN ESTÁ ACTIVA
+    if (transaction) {
+      try {
+        await transaction.rollback();
+        console.log('🔄 Rollback exitoso');
+      } catch (rollbackError) {
+        console.error('❌ Error en rollback:', rollbackError.message);
+      }
+    }
     
     let errorMessage = 'Error procesando compra de membresía';
     let statusCode = 500;
