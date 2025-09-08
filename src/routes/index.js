@@ -1,4 +1,4 @@
-// src/routes/index.js - ACTUALIZADO con testimonios
+// src/routes/index.js - ACTUALIZADO con health check corregido para múltiples DB
 const express = require('express');
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
@@ -12,7 +12,6 @@ const scheduleRoutes = require('./scheduleRoutes');
 const adminRoutes = require('./adminRoutes');
 const stripeRoutes = require('./stripeRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
-//const promotionRoutes = require('./promotionsRoutes');
 
 // ✅ NUEVAS RUTAS para el frontend
 const contentRoutes = require('./contentRoutes');
@@ -27,8 +26,7 @@ const testimonialRoutes = require('./testimonialRoutes');
 
 const router = express.Router();
 
-// ✅ Health check mejorado
-
+// ✅ Health check mejorado y compatible con múltiples bases de datos
 router.get('/health', async (req, res) => {
   const stripeService = require('../services/stripeService');
   const stripeConfig = stripeService.getPublicConfig();
@@ -41,22 +39,99 @@ router.get('/health', async (req, res) => {
     const { sequelize } = require('../config/database');
     await sequelize.authenticate();
     
-    // Verificar si hay tablas
-    const [results] = await sequelize.query("SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = DATABASE()");
-    const tableCount = results[0]?.count || 0;
+    // ✅ CORREGIDO: Verificar tablas de forma compatible con diferentes DB
+    let tableCount = 0;
+    const dialect = sequelize.getDialect();
+    
+    console.log(`🔍 Detectando base de datos: ${dialect}`);
+    
+    try {
+      let countQuery;
+      
+      switch (dialect) {
+        case 'postgres':
+          // PostgreSQL usa current_database() en lugar de DATABASE()
+          countQuery = `
+            SELECT COUNT(*) as count 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_catalog = current_database()
+          `;
+          break;
+          
+        case 'mysql':
+        case 'mariadb':
+          // MySQL/MariaDB usan DATABASE()
+          countQuery = `
+            SELECT COUNT(*) as count 
+            FROM information_schema.tables 
+            WHERE table_schema = DATABASE()
+          `;
+          break;
+          
+        case 'sqlite':
+          // SQLite usa una consulta diferente
+          countQuery = `
+            SELECT COUNT(*) as count 
+            FROM sqlite_master 
+            WHERE type = 'table' 
+            AND name NOT LIKE 'sqlite_%'
+          `;
+          break;
+          
+        case 'mssql':
+          // SQL Server
+          countQuery = `
+            SELECT COUNT(*) as count 
+            FROM information_schema.tables 
+            WHERE table_schema = SCHEMA_NAME()
+          `;
+          break;
+          
+        default:
+          // Fallback genérico
+          countQuery = `
+            SELECT COUNT(*) as count 
+            FROM information_schema.tables
+          `;
+      }
+      
+      const [results] = await sequelize.query(countQuery);
+      tableCount = parseInt(results[0]?.count) || 0;
+      
+      console.log(`📊 Tablas encontradas: ${tableCount}`);
+      
+    } catch (tableError) {
+      console.warn('⚠️ No se pudo contar las tablas:', tableError.message);
+      // Intentar método alternativo más simple
+      try {
+        const models = Object.keys(sequelize.models);
+        tableCount = models.length;
+        console.log(`📊 Usando conteo de modelos Sequelize: ${tableCount} modelos`);
+      } catch (modelError) {
+        console.warn('⚠️ No se pudo contar modelos:', modelError.message);
+        tableCount = 'Desconocido';
+      }
+    }
     
     databaseStatus = 'Conectada';
     databaseDetails = {
       connected: true,
-      tables: parseInt(tableCount),
-      dialect: sequelize.getDialect(),
-      host: sequelize.config.host
+      tables: tableCount,
+      dialect: dialect,
+      host: sequelize.config.host || 'local',
+      database: sequelize.config.database || 'unknown',
+      version: 'connected'
     };
+    
+    console.log(`✅ Base de datos conectada: ${dialect} - ${tableCount} tablas`);
+    
   } catch (error) {
-    console.error('Health check - Error BD:', error.message);
+    console.error('❌ Health check - Error BD:', error.message);
     databaseDetails = {
       connected: false,
-      error: error.message
+      error: error.message,
+      dialect: 'unknown'
     };
   }
   
@@ -203,7 +278,6 @@ router.use('/dashboard', dashboardRoutes);
 router.use('/content', contentRoutes);       // /api/content/*
 router.use('/branding', brandingRoutes);     // /api/branding/*
 router.use('/promotions', promotionsRoutes); // /api/promotions/*
-router.use('/promotions', promotionsRoutes);
 
 // 🎬 Rutas multimedia
 router.use('/gym-media', gymMediaRoutes);    // /api/gym-media/*

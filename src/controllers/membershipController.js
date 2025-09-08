@@ -846,7 +846,6 @@ class MembershipController {
   }
 
 
-  // AGREGAR estos métodos al membershipController.js EXISTENTE
 
 // ✅ NUEVO: Obtener planes disponibles con disponibilidad de horarios
 async getPurchaseableePlans(req, res) {
@@ -1736,7 +1735,6 @@ Elite Fitness Club
   }
 }
 
-// AGREGAR estos métodos al final del membershipController.js existente:
 
 // Cambiar horarios de membresía (con validaciones del plan)
   async changeSchedule(req, res) {
@@ -1940,6 +1938,144 @@ if (membership.plan.changeHoursAdvance && membership.plan.changeHoursAdvance > 0
   }
 }
 
+
+async getAvailableScheduleOptions(req, res) {
+  try {
+    const { planId } = req.params;
+    const { MembershipPlans, GymHours, GymTimeSlots } = require('../models');
+
+    console.log(`🔍 Obteniendo horarios disponibles REALES para plan ID: ${planId}`);
+
+    // Verificar que el plan existe
+    const plan = await MembershipPlans.findByPk(planId);
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Plan de membresía no encontrado'
+      });
+    }
+
+    // Determinar días permitidos según tipo de plan
+    let allowedDays = [];
+    let maxSlotsPerDay = 1;
+    let maxReservationsPerWeek = 5;
+
+    switch (plan.durationType) {
+      case 'daily':
+        allowedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+        maxSlotsPerDay = 1;
+        maxReservationsPerWeek = 1;
+        break;
+      case 'monthly':
+      case 'annual':
+        allowedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+        maxSlotsPerDay = 2;
+        maxReservationsPerWeek = 5;
+        break;
+      default:
+        allowedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+        maxSlotsPerDay = 1;
+        maxReservationsPerWeek = 5;
+    }
+
+    // ✅ OBTENER HORARIOS REALES DE LA BASE DE DATOS
+    const availableOptions = {};
+    const dayNames = {
+      monday: 'Lunes',
+      tuesday: 'Martes', 
+      wednesday: 'Miércoles',
+      thursday: 'Jueves',
+      friday: 'Viernes',
+      saturday: 'Sábado',
+      sunday: 'Domingo'
+    };
+
+    // Consultar horarios reales para cada día permitido
+    for (const day of allowedDays) {
+      try {
+        // Buscar horarios del gimnasio para este día
+        const gymHour = await GymHours.findOne({
+          where: { dayOfWeek: day },
+          include: [{
+            model: GymTimeSlots,
+            as: 'timeSlots',
+            where: { isActive: true },
+            required: false,
+            order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
+          }]
+        });
+
+        if (gymHour && !gymHour.isClosed && gymHour.timeSlots && gymHour.timeSlots.length > 0) {
+          // Mapear slots disponibles REALES
+          const slots = gymHour.timeSlots.map(slot => {
+            const currentReservations = slot.currentReservations || 0;
+            const available = Math.max(0, slot.capacity - currentReservations);
+            
+            return {
+              id: slot.id,
+              label: slot.slotLabel || `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+              openTime: slot.openTime.slice(0, 5),
+              closeTime: slot.closeTime.slice(0, 5),
+              capacity: slot.capacity,
+              currentReservations: currentReservations,
+              available: available,
+              canReserve: available > 0
+            };
+          });
+
+          availableOptions[day] = {
+            dayName: dayNames[day],
+            isOpen: true,
+            slots: slots
+          };
+
+          console.log(`✅ ${dayNames[day]}: ${slots.length} slots reales obtenidos`);
+        } else {
+          console.log(`⚠️ ${dayNames[day]}: Cerrado o sin horarios configurados`);
+          availableOptions[day] = {
+            dayName: dayNames[day],
+            isOpen: false,
+            slots: []
+          };
+        }
+      } catch (dayError) {
+        console.error(`❌ Error obteniendo horarios para ${day}:`, dayError.message);
+        availableOptions[day] = {
+          dayName: dayNames[day],
+          isOpen: false,
+          slots: [],
+          error: dayError.message
+        };
+      }
+    }
+
+    console.log(`✅ Horarios REALES obtenidos para ${plan.planName} - ${Object.keys(availableOptions).length} días procesados`);
+
+    res.json({
+      success: true,
+      data: {
+        plan: {
+          id: plan.id,
+          name: plan.planName,
+          durationType: plan.durationType,
+          price: plan.price,
+          allowedDays,
+          maxSlotsPerDay,
+          maxReservationsPerWeek
+        },
+        availableOptions
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error al obtener opciones de horario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener opciones de horario',
+      error: error.message
+    });
+  }
+}
 // Obtener opciones de horario disponibles según plan
 async getAvailableScheduleOptions(req, res) {
   try {
