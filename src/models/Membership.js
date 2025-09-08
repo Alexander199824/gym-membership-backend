@@ -1,4 +1,4 @@
-// src/models/Membership.js - CORREGIDO: Referencias correctas a MembershipPlans (plural)
+// src/models/Membership.js - COMPLETO: Con todos los métodos necesarios
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -271,6 +271,86 @@ Membership.prototype.getSummary = function() {
   };
 };
 
+// ✅ NUEVO: Método para reservar una franja horaria específica
+Membership.prototype.reserveTimeSlot = async function(day, timeSlotId) {
+  try {
+    const { GymTimeSlots } = require('./index');
+    
+    const slot = await GymTimeSlots.findByPk(timeSlotId);
+    if (!slot) {
+      throw new Error(`Franja horaria ${timeSlotId} no encontrada`);
+    }
+    
+    if (slot.currentReservations >= slot.capacity) {
+      throw new Error(`Franja horaria ${day} ${slot.openTime} sin capacidad disponible`);
+    }
+    
+    // Incrementar reservas
+    await slot.increment('currentReservations');
+    
+    // Actualizar horario reservado de la membresía
+    const currentSchedule = this.reservedSchedule || {};
+    if (!currentSchedule[day]) {
+      currentSchedule[day] = [];
+    }
+    
+    if (!currentSchedule[day].includes(parseInt(timeSlotId))) {
+      currentSchedule[day].push(parseInt(timeSlotId));
+      this.reservedSchedule = currentSchedule;
+      await this.save();
+    }
+    
+    return slot;
+  } catch (error) {
+    console.error('Error reservando franja horaria:', error);
+    throw error;
+  }
+};
+
+// ✅ NUEVO: Método para cancelar una franja horaria específica
+Membership.prototype.cancelTimeSlot = async function(day, timeSlotId) {
+  try {
+    const { GymTimeSlots } = require('./index');
+    
+    const slot = await GymTimeSlots.findByPk(timeSlotId);
+    if (!slot) {
+      throw new Error(`Franja horaria ${timeSlotId} no encontrada`);
+    }
+    
+    // Decrementar reservas (mínimo 0)
+    if (slot.currentReservations > 0) {
+      await slot.decrement('currentReservations');
+    }
+    
+    // Actualizar horario reservado de la membresía
+    const currentSchedule = this.reservedSchedule || {};
+    if (currentSchedule[day]) {
+      currentSchedule[day] = currentSchedule[day].filter(id => id !== parseInt(timeSlotId));
+      
+      // Si no quedan horarios en el día, eliminar el día
+      if (currentSchedule[day].length === 0) {
+        delete currentSchedule[day];
+      }
+      
+      this.reservedSchedule = currentSchedule;
+      await this.save();
+    }
+    
+    return slot;
+  } catch (error) {
+    console.error('Error cancelando franja horaria:', error);
+    throw error;
+  }
+};
+
+// ✅ NUEVO: Verificar si necesita notificación de expiración
+Membership.prototype.needsExpirationNotification = function() {
+  const settings = this.notificationSettings || {};
+  const remindAt = settings.remindAt || [7, 3, 1];
+  
+  return remindAt.includes(this.remainingDays);
+};
+
 // ✅ MÉTODOS ESTÁTICOS MEJORADOS
 
 // ✅ CORREGIDO: Crear membresía con validación de plan (usando MembershipPlans)
@@ -332,6 +412,95 @@ Membership.createWithPlan = async function(membershipData, selectedSchedule = {}
       await transaction.rollback();
     }
     console.error('❌ Error creando membresía:', error.message);
+    throw error;
+  }
+};
+
+// ✅ NUEVO: MÉTODO PRINCIPAL QUE FALTABA - createWithSchedule
+Membership.createWithSchedule = async function(membershipData, selectedSchedule = {}, options = {}) {
+  const transaction = options.transaction || await sequelize.transaction();
+  const shouldCommit = !options.transaction;
+  
+  try {
+    console.log('🎫 Creando membresía con horarios:', {
+      userId: membershipData.userId,
+      planId: membershipData.planId,
+      type: membershipData.type,
+      hasSchedule: Object.keys(selectedSchedule).length > 0
+    });
+    
+    // 1. Crear la membresía básica
+    const membership = await this.create(membershipData, { transaction });
+    console.log(`✅ Membresía base creada: ${membership.id}`);
+    
+    // 2. Procesar horarios si existen
+    if (selectedSchedule && Object.keys(selectedSchedule).length > 0) {
+      const { GymTimeSlots } = require('./index');
+      
+      if (!GymTimeSlots) {
+        console.warn('⚠️ GymTimeSlots no disponible, saltando procesamiento de horarios');
+        if (shouldCommit) await transaction.commit();
+        return membership;
+      }
+      
+      console.log('🕐 Procesando horarios seleccionados:', selectedSchedule);
+      
+      const reservedSchedule = {};
+      
+      // Procesar cada día
+      for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
+        if (Array.isArray(timeSlotIds) && timeSlotIds.length > 0) {
+          reservedSchedule[day] = [];
+          
+          for (const timeSlotId of timeSlotIds) {
+            try {
+              const slot = await GymTimeSlots.findByPk(timeSlotId, { transaction });
+              
+              if (!slot) {
+                console.warn(`⚠️ Franja horaria ${timeSlotId} no encontrada`);
+                continue;
+              }
+              
+              if (slot.currentReservations >= slot.capacity) {
+                throw new Error(`Franja horaria ${day} ${slot.openTime} sin capacidad disponible`);
+              }
+              
+              // Incrementar reservas
+              await slot.increment('currentReservations', { transaction });
+              reservedSchedule[day].push(parseInt(timeSlotId));
+              
+              console.log(`✅ Reservado: ${day} ${slot.openTime}-${slot.closeTime}`);
+              
+            } catch (slotError) {
+              console.error(`❌ Error reservando slot ${timeSlotId}:`, slotError.message);
+              throw slotError;
+            }
+          }
+        }
+      }
+      
+      // 3. Guardar horarios en la membresía
+      if (Object.keys(reservedSchedule).length > 0) {
+        membership.reservedSchedule = reservedSchedule;
+        await membership.save({ transaction });
+        console.log('✅ Horarios guardados en membresía:', reservedSchedule);
+      }
+    } else {
+      console.log('ℹ️ No hay horarios seleccionados para esta membresía');
+    }
+    
+    if (shouldCommit) {
+      await transaction.commit();
+    }
+    
+    console.log(`✅ Membresía con horarios completada: ${membership.id}`);
+    return membership;
+    
+  } catch (error) {
+    if (shouldCommit) {
+      await transaction.rollback();
+    }
+    console.error('❌ Error creando membresía con horarios:', error.message);
     throw error;
   }
 };
