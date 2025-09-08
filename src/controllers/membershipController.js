@@ -992,59 +992,93 @@ async checkScheduleAvailability(req, res) {
   }
 }
 
-// ✅ MÉTODO purchaseMembership SIMPLIFICADO - Para clientes con tarjeta
-// REEMPLAZAR en membershipController.js
+// REEMPLAZAR SOLO EL MÉTODO purchaseMembership EN src/controllers/membershipController.js
 
+// ✅ MÉTODO CORREGIDO: purchaseMembership
 async purchaseMembership(req, res) {
   try {
     const {
       planId,
       selectedSchedule = {},
-      paymentMethod = 'card', // Por defecto tarjeta para clientes
+      paymentMethod = 'card',
+      userId, // Solo para staff
       notes
     } = req.body;
     
-    const { MembershipPlans, Membership, Payment, FinancialMovements, GymTimeSlots } = require('../models');
-    
-    console.log(`🛒 COMPRA DE CLIENTE:`);
-    console.log(`   👤 Cliente: ${req.user.email}`);
-    console.log(`   📋 Plan: ${planId}`);
-    console.log(`   📅 Horarios: ${Object.keys(selectedSchedule).length} días`);
+    console.log(`🛒 INICIANDO COMPRA DE MEMBRESÍA:`);
+    console.log(`   👤 Usuario: ${req.user.email} (${req.user.role})`);
+    console.log(`   📋 Plan ID: ${planId}`);
+    console.log(`   💳 Método: ${paymentMethod}`);
     
     // ✅ 1. VERIFICAR PLAN EXISTE
+    const { MembershipPlans } = require('../models');
     const plan = await MembershipPlans.findByPk(planId);
     if (!plan || !plan.isActive) {
       return res.status(404).json({
         success: false,
-        message: 'Plan no encontrado o inactivo'
+        message: 'Plan de membresía no encontrado o inactivo'
       });
     }
     
-    // ✅ 2. VERIFICAR NO TIENE MEMBRESÍA ACTIVA
+    console.log(`✅ Plan encontrado: ${plan.planName} - Q${plan.price}`);
+    
+    // ✅ 2. DETERMINAR USUARIO OBJETIVO
+    let targetUserId = req.user.id;
+    let targetUser = req.user;
+    
+    if (userId && req.user.role !== 'cliente') {
+      const { User } = require('../models');
+      targetUser = await User.findByPk(userId);
+      if (!targetUser) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuario objetivo no encontrado'
+        });
+      }
+      targetUserId = userId;
+    }
+    
+    // ✅ 3. VERIFICAR NO TIENE MEMBRESÍA ACTIVA
+    const { Membership } = require('../models');
     const existingMembership = await Membership.findOne({
-      where: { userId: req.user.id, status: 'active' }
+      where: { userId: targetUserId, status: 'active' }
     });
     
     if (existingMembership) {
       return res.status(400).json({
         success: false,
-        message: 'Ya tienes una membresía activa'
+        message: 'El usuario ya tiene una membresía activa'
       });
     }
     
-    // ✅ 3. VALIDAR HORARIOS BÁSICO (SIN CAMPOS QUE NO EXISTEN)
+    // ✅ 4. CALCULAR DURACIÓN
+    const durationDays = {
+      daily: 1, weekly: 7, monthly: 30, quarterly: 90, annual: 365
+    }[plan.durationType] || 30;
+    
+    const startDate = new Date();
+    const endDate = new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
+    
+    console.log(`📅 Duración: ${durationDays} días`);
+    
+    // ✅ 5. VALIDAR HORARIOS SI EXISTEN
+    let processedSchedule = {};
     if (Object.keys(selectedSchedule).length > 0) {
-      console.log(`🕐 Validando horarios seleccionados...`);
+      console.log(`🕐 Validando horarios...`);
+      
+      const { GymTimeSlots } = require('../models');
       
       for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
-        if (Array.isArray(timeSlotIds)) {
+        if (Array.isArray(timeSlotIds) && timeSlotIds.length > 0) {
+          processedSchedule[day] = [];
+          
           for (const timeSlotId of timeSlotIds) {
             const slot = await GymTimeSlots.findByPk(timeSlotId);
             
             if (!slot) {
               return res.status(400).json({
                 success: false,
-                message: `Horario ${timeSlotId} no encontrado`
+                message: `Franja horaria no encontrada: ${timeSlotId}`
               });
             }
             
@@ -1054,102 +1088,111 @@ async purchaseMembership(req, res) {
                 message: `Sin capacidad: ${day} ${slot.openTime}`
               });
             }
+            
+            processedSchedule[day].push({
+              slotId: parseInt(timeSlotId),
+              openTime: slot.openTime,
+              closeTime: slot.closeTime,
+              label: slot.slotLabel
+            });
           }
         }
       }
-      console.log(`✅ Horarios disponibles`);
+      console.log(`✅ Horarios validados`);
     }
     
-    // ✅ 4. CREAR TRANSACCIÓN PARA TODO EL PROCESO
+    // ✅ 6. INICIAR TRANSACCIÓN
     const transaction = await Membership.sequelize.transaction();
     
     try {
-      // ✅ 5. CALCULAR DATOS DE MEMBRESÍA
-      const durationDays = {
-        daily: 1, weekly: 7, monthly: 30, 
-        quarterly: 90, annual: 365
-      }[plan.durationType] || 30;
+      console.log(`🔄 Iniciando transacción...`);
       
-      const startDate = new Date();
-      const endDate = new Date(startDate.getTime() + durationDays * 24 * 60 * 60 * 1000);
-      
-      // ✅ 6. CREAR MEMBRESÍA
+      // ✅ 6.1. CREAR MEMBRESÍA
       const membershipData = {
-        userId: req.user.id,
-        planId: planId,
+        userId: targetUserId,
         type: plan.durationType,
-        price: plan.price,
-        startDate,
-        endDate,
-        notes: notes || `Membresía ${plan.planName} - Pago con tarjeta`,
+        price: parseFloat(plan.price),
+        startDate: startDate,
+        endDate: endDate,
+        notes: notes || `Membresía ${plan.planName}`,
         registeredBy: req.user.id,
-        status: 'active', // Activa porque el pago ya fue confirmado por Stripe
+        status: 'active',
         totalDays: durationDays,
         remainingDays: durationDays,
-        preferredSchedule: selectedSchedule
+        preferredSchedule: selectedSchedule,
+        reservedSchedule: processedSchedule
       };
       
       const membership = await Membership.create(membershipData, { transaction });
       console.log(`✅ Membresía creada: ${membership.id}`);
       
-      // ✅ 7. RESERVAR HORARIOS (DECREMENTAR SLOTS)
-      const reservedSchedule = {};
-      if (Object.keys(selectedSchedule).length > 0) {
-        console.log(`📅 Reservando horarios...`);
+      // ✅ 6.2. RESERVAR HORARIOS (DECREMENTAR SLOTS)
+      if (Object.keys(processedSchedule).length > 0) {
+        console.log(`📅 Reservando slots...`);
         
-        for (const [day, timeSlotIds] of Object.entries(selectedSchedule)) {
-          if (Array.isArray(timeSlotIds) && timeSlotIds.length > 0) {
-            reservedSchedule[day] = [];
-            
-            for (const timeSlotId of timeSlotIds) {
-              const slot = await GymTimeSlots.findByPk(timeSlotId, { transaction });
-              
-              if (slot && slot.currentReservations < slot.capacity) {
-                // 🎯 DECREMENTAR DISPONIBILIDAD
-                await slot.increment('currentReservations', { transaction });
-                reservedSchedule[day].push(parseInt(timeSlotId));
-                
-                console.log(`✅ Reservado: ${day} ${slot.openTime} (${slot.currentReservations + 1}/${slot.capacity})`);
-              }
-            }
+        const { GymTimeSlots } = require('../models');
+        
+        for (const [day, slots] of Object.entries(processedSchedule)) {
+          for (const slotInfo of slots) {
+            await GymTimeSlots.increment('currentReservations', {
+              by: 1,
+              where: { id: slotInfo.slotId },
+              transaction
+            });
+            console.log(`   ✅ ${day} ${slotInfo.openTime}: slot reservado`);
           }
         }
-        
-        // Guardar horarios en membresía
-        membership.reservedSchedule = reservedSchedule;
-        await membership.save({ transaction });
-        console.log(`✅ Horarios guardados en membresía`);
+        console.log(`✅ Todos los slots reservados`);
       }
       
-      // ✅ 8. REGISTRAR PAGO
-      const payment = await Payment.create({
-        userId: req.user.id,
+      // ✅ 6.3. REGISTRAR PAGO
+      const { Payment } = require('../models');
+      const paymentData = {
+        userId: targetUserId,
         membershipId: membership.id,
-        amount: plan.price,
-        paymentMethod: 'card',
+        amount: parseFloat(plan.price),
+        paymentMethod: paymentMethod,
         paymentType: 'membership',
-        description: `Membresía ${plan.planName} - Pago con tarjeta`,
+        description: `Membresía ${plan.planName}`,
         registeredBy: req.user.id,
-        status: 'completed', // Completado porque Stripe ya confirmó
+        status: 'completed',
         paymentDate: new Date()
-      }, { transaction });
+      };
       
+      const payment = await Payment.create(paymentData, { transaction });
       console.log(`💳 Pago registrado: ${payment.id} - Q${payment.amount}`);
       
-      // ✅ 9. CREAR MOVIMIENTO FINANCIERO
+      // ✅ 6.4. CREAR MOVIMIENTO FINANCIERO
       try {
-        await FinancialMovements.createFromAnyPayment(payment, { transaction });
-        console.log(`📊 Movimiento financiero creado`);
-      } catch (finError) {
-        console.warn(`⚠️ Error en movimiento financiero: ${finError.message}`);
+        const { FinancialMovements } = require('../models');
+        
+        if (FinancialMovements) {
+          const financialData = {
+            type: 'income',
+            category: 'membership_sale',
+            description: `Venta membresía ${plan.planName} - ${targetUser.firstName} ${targetUser.lastName}`,
+            amount: parseFloat(plan.price),
+            paymentMethod: paymentMethod,
+            referenceId: payment.id,
+            referenceType: 'payment',
+            registeredBy: req.user.id,
+            movementDate: new Date(),
+            isAutomatic: false
+          };
+          
+          const financialMovement = await FinancialMovements.create(financialData, { transaction });
+          console.log(`📊 Movimiento financiero: ${financialMovement.id}`);
+        }
+      } catch (financialError) {
+        console.warn('⚠️ Error movimiento financiero:', financialError.message);
         // No fallar por esto
       }
       
-      // ✅ 10. CONFIRMAR TRANSACCIÓN
+      // ✅ 6.5. CONFIRMAR TRANSACCIÓN
       await transaction.commit();
-      console.log(`🎉 COMPRA COMPLETADA EXITOSAMENTE`);
+      console.log(`🎉 TRANSACCIÓN COMPLETADA`);
       
-      // ✅ 11. OBTENER DATOS COMPLETOS PARA RESPUESTA
+      // ✅ 7. PREPARAR RESPUESTA
       const completeMembership = await Membership.findByPk(membership.id, {
         include: [
           { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
@@ -1157,26 +1200,6 @@ async purchaseMembership(req, res) {
         ]
       });
       
-      // ✅ 12. PREPARAR HORARIOS DETALLADOS
-      let detailedSchedule = {};
-      if (Object.keys(reservedSchedule).length > 0) {
-        for (const [day, slotIds] of Object.entries(reservedSchedule)) {
-          if (slotIds.length > 0) {
-            const slots = await GymTimeSlots.findAll({
-              where: { id: slotIds }
-            });
-            
-            detailedSchedule[day] = slots.map(slot => ({
-              id: slot.id,
-              openTime: slot.openTime,
-              closeTime: slot.closeTime,
-              label: slot.slotLabel
-            }));
-          }
-        }
-      }
-      
-      // ✅ 13. PREPARAR SUMMARY
       const summary = {
         daysTotal: durationDays,
         daysRemaining: durationDays,
@@ -1185,7 +1208,27 @@ async purchaseMembership(req, res) {
         status: 'active'
       };
       
-      // ✅ 14. ENVIAR RESPUESTA COMPLETA
+      let detailedSchedule = {};
+      for (const [day, slots] of Object.entries(processedSchedule)) {
+        detailedSchedule[day] = slots.map(slot => ({
+          id: slot.slotId,
+          openTime: slot.openTime,
+          closeTime: slot.closeTime,
+          label: slot.label
+        }));
+      }
+      
+      const planData = {
+        id: plan.id,
+        name: plan.planName,
+        durationType: plan.durationType,
+        originalPrice: parseFloat(plan.price),
+        finalPrice: parseFloat(plan.price),
+        totalDays: durationDays
+      };
+      
+      console.log(`🎊 COMPRA COMPLETADA: ${plan.planName} para ${targetUser.firstName}`);
+      
       res.status(201).json({
         success: true,
         message: 'Membresía comprada exitosamente',
@@ -1195,14 +1238,19 @@ async purchaseMembership(req, res) {
             summary: summary,
             schedule: detailedSchedule
           },
-          payment: payment.toJSON(),
-          plan: {
-            id: plan.id,
-            name: plan.planName,
-            originalPrice: plan.price,
-            finalPrice: plan.price,
-            durationType: plan.durationType,
-            totalDays: durationDays
+          payment: {
+            id: payment.id,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            status: payment.status,
+            paymentDate: payment.paymentDate
+          },
+          plan: planData,
+          user: {
+            id: targetUser.id,
+            firstName: targetUser.firstName,
+            lastName: targetUser.lastName,
+            email: targetUser.email
           }
         }
       });
@@ -1215,10 +1263,25 @@ async purchaseMembership(req, res) {
     
   } catch (error) {
     console.error('❌ Error en compra:', error);
-    res.status(500).json({
+    
+    let errorMessage = 'Error procesando compra de membresía';
+    let statusCode = 500;
+    
+    if (error.name === 'SequelizeValidationError') {
+      errorMessage = 'Error de validación: ' + error.errors?.map(e => e.message).join(', ');
+      statusCode = 400;
+    } else if (error.message.includes('ya tiene una membresía activa')) {
+      errorMessage = 'El usuario ya tiene una membresía activa';
+      statusCode = 400;
+    } else if (error.message.includes('Plan de membresía no encontrado')) {
+      errorMessage = 'Plan de membresía no válido';
+      statusCode = 404;
+    }
+    
+    res.status(statusCode).json({
       success: false,
-      message: 'Error procesando compra',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+      message: errorMessage,
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 }

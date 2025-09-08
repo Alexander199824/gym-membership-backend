@@ -406,172 +406,116 @@ async makeAuthenticatedRequest(method, url, data = null) {
     }
   }
 
-  // ✅ STEP 7: Confirmar pago y comprar membresía (PUEDE FALLAR Y CONTINUAR)
-// ✅ STEP 7 SIMPLIFICADO Y CORREGIDO - Solo va al endpoint que funciona
+// REEMPLAZAR el método confirmPaymentAndPurchase en test-membership-purchase.js
+
 async confirmPaymentAndPurchase() {
   console.log('\n✅ STEP 7: Confirmando pago y comprando membresía...');
-  console.log('🔍 DEBUG: Datos disponibles:');
-  console.log(`   🆔 Payment Intent ID: ${this.paymentIntentId}`);
-  console.log(`   📋 Plan seleccionado: ${this.selectedPlan?.id} - ${this.selectedPlan?.name}`);
-  console.log(`   👤 User ID: ${this.userId}`);
-  console.log(`   🔑 Auth Token: ${this.authToken ? 'Disponible' : 'NO DISPONIBLE'}`);
-  console.log(`   📅 Horarios: ${JSON.stringify(this.selectedSchedule, null, 2)}`);
-
+  
   try {
-    // 🎯 USAR DIRECTAMENTE EL ENDPOINT QUE FUNCIONA
-    console.log('\n🎯 CREANDO MEMBRESÍA DIRECTAMENTE (simulando éxito de Stripe)...');
-    
     const purchasePayload = {
       planId: this.selectedPlan.id,
       selectedSchedule: this.selectedSchedule,
-      paymentMethod: 'card', // Simular que Stripe procesó exitosamente
-      notes: `Test automatizado - Payment Intent: ${this.paymentIntentId} - Stripe simulado exitoso`
+      paymentMethod: 'card',
+      notes: `Test automatizado - Payment Intent: ${this.paymentIntentId}`
     };
     
-    console.log('📤 Enviando request a:', `${API_BASE_URL}/api/memberships/purchase`);
-    console.log('📦 Payload:', JSON.stringify(purchasePayload, null, 2));
+    console.log('📤 REQUEST:');
+    console.log(`   🎯 POST ${API_BASE_URL}/api/memberships/purchase`);
+    console.log(`   📦 Plan ID: ${purchasePayload.planId}`);
+    console.log(`   📅 Horarios: ${Object.keys(purchasePayload.selectedSchedule).length} días`);
+    console.log(`   🔑 Token: ${this.authToken ? 'OK' : 'MISSING'}`);
     
     const response = await this.makeAuthenticatedRequest('POST', '/api/memberships/purchase', purchasePayload);
     
-    console.log('📥 Response status:', response.status);
-    console.log('📥 Response data:', JSON.stringify(response.data, null, 2));
+    console.log('📥 RESPONSE:');
+    console.log(`   📊 Status: ${response.status}`);
+    console.log(`   ✅ Success: ${response.data.success}`);
 
     if (response.data.success) {
+      const { membership, payment, plan, user } = response.data.data;
+      
+      this.membershipId = membership.id;
+      this.paymentId = payment.id;
+      
       console.log('🎉 ¡MEMBRESÍA CREADA EXITOSAMENTE!');
+      console.log(`✅ Membresía ID: ${this.membershipId}`);
+      console.log(`✅ Pago ID: ${this.paymentId}`);
+      console.log(`📋 Plan: ${plan.name} - Q${plan.originalPrice}`);
+      console.log(`👤 Usuario: ${user.firstName} ${user.lastName}`);
+      console.log(`📊 Estado: ${membership.status}`);
       
-      this.membershipId = response.data.data.membership.id;
-      this.paymentId = response.data.data.payment?.id || `test_payment_${Date.now()}`;
+      if (membership.summary) {
+        console.log(`📊 Días totales: ${membership.summary.daysTotal}`);
+        console.log(`📊 Días restantes: ${membership.summary.daysRemaining}`);
+      }
       
-      const membership = response.data.data.membership;
-      const plan = response.data.data.plan;
-      const payment = response.data.data.payment;
-
-      console.log(`✅ Membresía creada: ${this.membershipId}`);
-      console.log(`✅ Pago registrado: ${this.paymentId}`);
-      console.log(`📋 Plan: ${plan.name}`);
-      console.log(`💰 Precio: Q${plan.finalPrice || plan.originalPrice}`);
-      console.log(`📅 Inicio: ${new Date(membership.startDate).toLocaleDateString('es-ES')}`);
-      console.log(`📅 Fin: ${new Date(membership.endDate).toLocaleDateString('es-ES')}`);
-      console.log(`📊 Días totales: ${membership.summary?.daysTotal || plan.totalDays}`);
-      console.log(`📊 Días restantes: ${membership.summary?.daysRemaining || plan.totalDays}`);
-
-      // Mostrar horarios si existen
       if (membership.schedule && Object.keys(membership.schedule).length > 0) {
         console.log('\n📅 Horarios reservados:');
         Object.entries(membership.schedule).forEach(([day, slots]) => {
           if (slots && slots.length > 0) {
-            console.log(`   📅 ${day}: ${slots.map(s => `${s.openTime || s.label}-${s.closeTime || ''}`).join(', ')}`);
+            const slotsText = slots.map(s => `${s.openTime}-${s.closeTime}`).join(', ');
+            console.log(`   📅 ${day}: ${slotsText}`);
           }
         });
-      } else {
-        console.log('\n📅 Sin horarios específicos reservados');
       }
 
-      // Guardar datos para pasos siguientes
       this.testResults.steps.push({
         step: 7,
         action: 'Confirmar pago y comprar membresía',
         success: true,
-        method: 'direct_purchase_success',
         membershipId: this.membershipId,
         paymentId: this.paymentId,
         planName: plan.name,
-        totalAmount: plan.finalPrice || plan.originalPrice,
-        daysTotal: membership.summary?.daysTotal || plan.totalDays,
-        note: 'Membresía creada directamente - Stripe simulado'
+        totalAmount: plan.originalPrice
       });
 
-      this.testResults.data = {
-        membership: {
-          id: this.membershipId,
-          startDate: membership.startDate,
-          endDate: membership.endDate,
-          status: membership.status,
-          schedule: membership.schedule || {},
-          summary: membership.summary
-        },
-        payment: {
-          id: this.paymentId,
-          amount: payment?.amount || plan.finalPrice || plan.originalPrice,
-          status: payment?.status || 'completed',
-          paymentMethod: 'card'
-        },
-        plan: {
-          id: plan.id,
-          name: plan.name,
-          price: plan.finalPrice || plan.originalPrice
-        }
-      };
-
-      return true; // ✅ ÉXITO TOTAL
+      return true;
 
     } else {
-      console.log('❌ Response no exitoso:', response.data);
       throw new Error(response.data.message || 'Respuesta no exitosa');
     }
 
   } catch (error) {
-    console.error('❌ ERROR EN CREACIÓN DE MEMBRESÍA:');
+    console.error('\n❌ ERROR EN STEP 7:');
     console.error(`   Status: ${error.response?.status || 'No status'}`);
-    console.error(`   Message: ${error.response?.data?.message || error.message}`);
-    console.error(`   Full error: ${JSON.stringify(error.response?.data || {message: error.message}, null, 2)}`);
+    console.error(`   Mensaje: ${error.response?.data?.message || error.message}`);
     
-    // 🔍 DIAGNÓSTICO ESPECÍFICO DEL ERROR
-    if (error.response?.status === 400) {
-      console.log('🔍 Error 400: Datos de entrada incorrectos');
-      if (error.response.data?.message?.includes('plan')) {
-        console.log('💡 Problema: Plan no válido o inactivo');
-      }
-      if (error.response.data?.message?.includes('schedule')) {
-        console.log('💡 Problema: Horarios seleccionados no válidos');
-      }
-      if (error.response.data?.message?.includes('membresía activa')) {
-        console.log('💡 Problema: Usuario ya tiene membresía activa');
-      }
-    } else if (error.response?.status === 401) {
-      console.log('🔍 Error 401: Token de autenticación inválido');
-    } else if (error.response?.status === 403) {
-      console.log('🔍 Error 403: Permisos insuficientes');
-    } else if (error.response?.status === 404) {
-      console.log('🔍 Error 404: Endpoint no encontrado');
-    } else if (error.response?.status === 500) {
-      console.log('🔍 Error 500: Error interno del servidor');
-      console.log('💡 Revisar: Configuración de base de datos o código backend');
+    if (error.response?.data) {
+      console.error(`   Datos: ${JSON.stringify(error.response.data, null, 2)}`);
     }
-
-    this.testResults.errors.push(`Compra membresía: ${error.message}`);
     
-    // ⭐ GENERAR IDs SIMULADOS PARA CONTINUAR EL TEST
-    console.log('\n⭐ GENERANDO DATOS SIMULADOS PARA CONTINUAR...');
+    // Diagnóstico específico
+    if (error.response?.status === 500) {
+      console.log('\n🔍 DIAGNÓSTICO ERROR 500:');
+      console.log('   💡 Posibles causas:');
+      console.log('     - Campos faltantes en tabla memberships');
+      console.log('     - Campo currentReservations faltante en gym_time_slots');
+      console.log('     - Modelo FinancialMovements no disponible');
+      console.log('     - Error en transacciones de base de datos');
+    }
     
-    this.membershipId = `sim_membership_${Date.now()}`;
-    this.paymentId = `sim_payment_${Date.now()}`;
-    
-    console.log(`🔄 Membresía ID simulada: ${this.membershipId}`);
-    console.log(`🔄 Pago ID simulado: ${this.paymentId}`);
-    console.log('⚠️ NOTA: Step 8 probablemente fallará porque no hay membresía real en BD');
-
+    this.testResults.errors.push(`Step 7: ${error.message}`);
     this.testResults.steps.push({
       step: 7,
       action: 'Confirmar pago y comprar membresía',
       success: false,
       error: error.message,
-      method: 'direct_purchase_failed',
-      simulatedIds: {
-        membershipId: this.membershipId,
-        paymentId: this.paymentId
-      },
-      statusCode: error.response?.status,
-      diagnosis: error.response?.status === 500 ? 'Server error - check backend logs' : 
-                error.response?.status === 400 ? 'Invalid data - check plan/schedule' :
-                error.response?.status === 401 ? 'Authentication issue' :
-                error.response?.status === 403 ? 'Permission denied' : 'Unknown error'
+      statusCode: error.response?.status
     });
 
-    // ✅ RETORNAR TRUE PARA CONTINUAR CON EL TEST Y VER QUÉ PASA
-    return true;
+    // Generar IDs simulados para continuar
+    this.membershipId = `sim_membership_${Date.now()}`;
+    this.paymentId = `sim_payment_${Date.now()}`;
+    
+    console.log(`\n🔄 IDs simulados para continuar:`);
+    console.log(`   Membresía: ${this.membershipId}`);
+    console.log(`   Pago: ${this.paymentId}`);
+
+    return true; // Continuar test para diagnóstico completo
   }
 }
+
+
  // ✅ STEP 8 CORREGIDO: Verificar la compra desde la perspectiva del CLIENTE
 async verifyClientPurchase() {
   console.log('\n🔍 STEP 8: Verificando compra desde perspectiva del cliente...');
