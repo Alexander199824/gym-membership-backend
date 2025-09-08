@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-09-08T04:39:39.071Z",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "fba1501e-d306-4d9b-937a-ac49ae6dde32",
+      "email": "echeverriaalexander884@gmail.com"
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Planes: Request failed with status code 404"
+  ]
+}

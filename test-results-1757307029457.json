@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-09-08T04:50:26.011Z",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "38c122cc-6047-448b-bdb8-1d5b9c1de7a9",
+      "email": "echeverriaalexander884@gmail.com"
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Planes: No hay planes con disponibilidad"
+  ]
+}

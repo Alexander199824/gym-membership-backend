@@ -1,0 +1,9 @@
+{
+  "timestamp": "2025-09-08T04:38:58.487Z",
+  "steps": [],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Autenticación: Request failed with status code 404"
+  ]
+}

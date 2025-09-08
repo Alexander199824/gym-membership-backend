@@ -1,0 +1,41 @@
+{
+  "timestamp": "2025-09-08T04:53:20.374Z",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "38c122cc-6047-448b-bdb8-1d5b9c1de7a9",
+      "email": "echeverriaalexander884@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes disponibles",
+      "success": true,
+      "plansCount": 3,
+      "selectedPlan": {
+        "id": 1,
+        "name": "Entrada Diaria",
+        "price": 25,
+        "durationType": "daily"
+      }
+    },
+    {
+      "step": 3,
+      "action": "Obtener horarios disponibles",
+      "success": true,
+      "planId": 1,
+      "selectedSchedule": {
+        "monday": [
+          1
+        ]
+      },
+      "scheduleCount": 1
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Verificación: Request failed with status code 404"
+  ]
+}

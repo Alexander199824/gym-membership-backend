@@ -1,9 +1,9 @@
-// test-membership-purchase-fixed.js - CORREGIDO: URLs y endpoints correctos
+// test-membership-purchase-CORREGIDO.js - URLs arregladas
 require('dotenv').config();
 const axios = require('axios');
 
 // ✅ CONFIGURACIÓN CORREGIDA
-const API_BASE_URL = process.env.API_URL || 'http://localhost:5000/api'; // Puerto 5000
+const API_BASE_URL = process.env.API_URL || 'http://localhost:5000/api'; // Ya incluye /api
 const TEST_EMAIL = 'echeverriaalexander884@gmail.com';
 const TEST_PASSWORD = 'TestPassword123!';
 
@@ -47,7 +47,7 @@ class RealMembershipPurchaseTest {
   async makeAuthenticatedRequest(method, url, data = null) {
     const config = {
       method,
-      url: `${API_BASE_URL}${url}`,
+      url: `${API_BASE_URL}${url}`, // API_BASE_URL ya tiene /api
       headers: {}
     };
 
@@ -60,6 +60,7 @@ class RealMembershipPurchaseTest {
       config.headers['Content-Type'] = 'application/json';
     }
 
+    console.log(`🔗 ${method} ${config.url}`); // Debug
     return await axios(config);
   }
 
@@ -71,8 +72,8 @@ class RealMembershipPurchaseTest {
       // Intentar login primero
       let response;
       try {
-        // ✅ CORREGIDO: URL completa correcta
-        response = await axios.post(`${API_BASE_URL}/auth/login`, {
+        // ✅ CORREGIDO: URL sin /api/ porque API_BASE_URL ya lo tiene
+        response = await this.makeAuthenticatedRequest('POST', '/api/auth/login', {
           email: TEST_USER_DATA.email,
           password: TEST_USER_DATA.password
         });
@@ -87,8 +88,8 @@ class RealMembershipPurchaseTest {
         // Si falla login, intentar registro
         console.log('ℹ️ Usuario no existe, creando nuevo usuario...');
         
-        // ✅ CORREGIDO: URL completa correcta
-        response = await axios.post(`${API_BASE_URL}/api/auth/register`, TEST_USER_DATA);
+        // ✅ CORREGIDO: URL sin /api/ porque API_BASE_URL ya lo tiene
+        response = await this.makeAuthenticatedRequest('POST', '/api/auth/register', TEST_USER_DATA);
         
         if (response.data.success) {
           this.authToken = response.data.data.token;
@@ -119,7 +120,7 @@ class RealMembershipPurchaseTest {
     console.log('\n📋 STEP 2: Obteniendo planes de membresía disponibles...');
     
     try {
-      // ✅ CORREGIDO: Ruta correcta según membershipRoutes.js línea 22
+      // ✅ CORREGIDO: URL sin doble /api/
       const response = await this.makeAuthenticatedRequest('GET', '/api/memberships/purchase/plans');
       
       if (response.data.success) {
@@ -167,8 +168,8 @@ class RealMembershipPurchaseTest {
     console.log('\n⏰ STEP 3: Obteniendo horarios disponibles...');
     
     try {
-      // ✅ CORREGIDO: Ruta correcta según membershipRoutes.js
-      const response = await this.makeAuthenticatedRequest('GET', `/memberships/plans/${this.selectedPlan.id}/schedule-options`);
+      // ✅ CORREGIDO: URL correcta sin doble /api/
+      const response = await this.makeAuthenticatedRequest('GET', `/api/memberships/plans/${this.selectedPlan.id}/schedule-options`);
       
       if (response.data.success) {
         const availableOptions = response.data.data.availableOptions;
@@ -245,8 +246,8 @@ class RealMembershipPurchaseTest {
     console.log('\n🔍 STEP 4: Verificando disponibilidad de horarios...');
     
     try {
-      // ✅ CORREGIDO: Ruta correcta según membershipRoutes.js
-      const response = await this.makeAuthenticatedRequest('POST', '/memberships/purchase/check-availability', {
+      // ✅ CORREGIDO: URL sin doble /api/
+      const response = await this.makeAuthenticatedRequest('POST', '/api/memberships/purchase/check-availability', {
         planId: this.selectedPlan.id,
         selectedSchedule: this.selectedSchedule
       });
@@ -290,8 +291,8 @@ class RealMembershipPurchaseTest {
     console.log('\n💳 STEP 5: Creando Payment Intent en Stripe...');
     
     try {
-      // ✅ CORREGIDO: Ruta correcta según stripeRoutes.js
-      const response = await this.makeAuthenticatedRequest('POST', '/stripe/create-membership-purchase-intent', {
+      // ✅ CORREGIDO: URL sin doble /api/
+      const response = await this.makeAuthenticatedRequest('POST', '/api/stripe/create-membership-purchase-intent', {
         planId: this.selectedPlan.id,
         selectedSchedule: this.selectedSchedule,
         userId: this.userId
@@ -360,7 +361,7 @@ class RealMembershipPurchaseTest {
     console.log('\n✅ STEP 7: Confirmando pago y comprando membresía...');
     
     try {
-      // ✅ CORREGIDO: Ruta correcta según stripeRoutes.js
+      // ✅ CORREGIDO: URL sin doble /api/
       const response = await this.makeAuthenticatedRequest('POST', '/stripe/confirm-membership-payment', {
         paymentIntentId: this.paymentIntentId
       });
@@ -438,7 +439,7 @@ class RealMembershipPurchaseTest {
     console.log('\n🔍 STEP 8: Verificando ocupación de slots...');
     
     try {
-      // Verificar capacidad actualizada
+      // ✅ CORREGIDO: URL sin doble /api/
       const response = await this.makeAuthenticatedRequest('GET', '/gym/capacity/metrics');
       
       if (response.data.success) {
@@ -449,7 +450,7 @@ class RealMembershipPurchaseTest {
         console.log(`👥 Reservaciones totales: ${metrics.totalReservations}`);
         console.log(`📈 Ocupación: ${metrics.occupancyPercentage}%`);
 
-        // Verificar horarios específicos
+        // ✅ CORREGIDO: URL sin doble /api/
         const scheduleResponse = await this.makeAuthenticatedRequest('GET', '/gym/config?flexible=true');
         
         if (scheduleResponse.data.success) {
@@ -526,7 +527,7 @@ class RealMembershipPurchaseTest {
     console.log('\n🗄️ STEP 10: Verificando estado final en BD...');
     
     try {
-      // Verificar membresía
+      // ✅ CORREGIDO: URL sin doble /api/
       const membershipResponse = await this.makeAuthenticatedRequest('GET', `/memberships/${this.membershipId}`);
       
       if (membershipResponse.data.success) {
@@ -539,7 +540,7 @@ class RealMembershipPurchaseTest {
         console.log(`   💰 Precio: Q${membership.price}`);
       }
 
-      // Verificar pago
+      // ✅ CORREGIDO: URL sin doble /api/
       const paymentResponse = await this.makeAuthenticatedRequest('GET', `/payments/${this.paymentId}`);
       
       if (paymentResponse.data.success) {
@@ -553,7 +554,7 @@ class RealMembershipPurchaseTest {
         console.log(`   📅 Fecha: ${new Date(payment.paymentDate).toLocaleDateString('es-ES')}`);
       }
 
-      // Verificar membresía actual del usuario
+      // ✅ CORREGIDO: URL sin doble /api/
       const currentMembershipResponse = await this.makeAuthenticatedRequest('GET', '/memberships/my-current');
       
       if (currentMembershipResponse.data.success && currentMembershipResponse.data.data.membership) {

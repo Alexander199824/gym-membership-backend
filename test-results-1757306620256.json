@@ -1,0 +1,29 @@
+{
+  "timestamp": "2025-09-08T04:43:36.385Z",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "fba1501e-d306-4d9b-937a-ac49ae6dde32",
+      "email": "echeverriaalexander884@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes disponibles",
+      "success": true,
+      "plansCount": 3,
+      "selectedPlan": {
+        "id": 1,
+        "name": "Entrada Diaria",
+        "price": 25,
+        "durationType": "daily"
+      }
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Horarios: Request failed with status code 500"
+  ]
+}

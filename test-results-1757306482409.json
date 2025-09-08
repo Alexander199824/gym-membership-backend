@@ -1,0 +1,9 @@
+{
+  "timestamp": "2025-09-08T04:41:21.325Z",
+  "steps": [],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Autenticación: Request failed with status code 400"
+  ]
+}
