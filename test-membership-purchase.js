@@ -473,64 +473,96 @@ class MembershipPurchaseTest {
     }
   }
 
-  // ✅ STEP 8: Verificar que los slots fueron marcados como ocupados
-  async verifySlotOccupancy() {
-    console.log('\n🔍 STEP 8: Verificando ocupación de slots...');
+ // ✅ STEP 8 CORREGIDO: Verificar la compra desde la perspectiva del CLIENTE
+async verifyClientPurchase() {
+  console.log('\n🔍 STEP 8: Verificando compra desde perspectiva del cliente...');
+  
+  try {
+    // 1. Verificar membresía actual del usuario
+    const membershipResponse = await this.makeAuthenticatedRequest('GET', '/api/memberships/my-current');
     
-    try {
-      const response = await this.makeAuthenticatedRequest('GET', '/api/gym/capacity/metrics');
+    if (membershipResponse.data.success && membershipResponse.data.data.membership) {
+      const membership = membershipResponse.data.data.membership;
       
-      if (response.data.success) {
-        const metrics = response.data.data;
-        
-        console.log('✅ Métricas de capacidad actualizadas:');
-        console.log(`📊 Capacidad total: ${metrics.totalCapacity}`);
-        console.log(`👥 Reservaciones totales: ${metrics.totalReservations}`);
-        console.log(`📈 Ocupación: ${metrics.occupancyPercentage}%`);
-
-        const scheduleResponse = await this.makeAuthenticatedRequest('GET', '/api/gym/config?flexible=true');
-        
-        if (scheduleResponse.data.success) {
-          const flexibleSchedule = scheduleResponse.data.data.hours;
-          
-          console.log('\n📅 Verificando slots reservados:');
-          Object.entries(this.selectedSchedule).forEach(([day, slotIds]) => {
-            if (flexibleSchedule[day] && flexibleSchedule[day].timeSlots) {
-              const daySlots = flexibleSchedule[day].timeSlots;
-              slotIds.forEach(slotId => {
-                const slot = daySlots.find(s => s.id === slotId);
-                if (slot) {
-                  console.log(`   📅 ${day} ${slot.open}-${slot.close}: ${slot.reservations}/${slot.capacity} ocupado`);
-                }
-              });
-            }
-          });
-        }
-
-        this.testResults.steps.push({
-          step: 8,
-          action: 'Verificar ocupación de slots',
-          success: true,
-          totalCapacity: metrics.totalCapacity,
-          totalReservations: metrics.totalReservations,
-          occupancyPercentage: metrics.occupancyPercentage
+      console.log('✅ Cliente tiene membresía activa:');
+      console.log(`   🆔 ID: ${membership.id}`);
+      console.log(`   📊 Estado: ${membership.status}`);
+      console.log(`   📅 Días restantes: ${membership.summary.daysRemaining}`);
+      console.log(`   📋 Plan: ${membership.plan ? membership.plan.name : 'N/A'}`);
+      console.log(`   💰 Precio pagado: Q${membership.price || 'N/A'}`);
+      
+      // Verificar horarios reservados
+      if (membership.schedule) {
+        console.log('\n📅 Horarios reservados por el cliente:');
+        let totalScheduledDays = 0;
+        Object.entries(membership.schedule).forEach(([day, slots]) => {
+          if (slots && slots.length > 0) {
+            totalScheduledDays++;
+            console.log(`   📅 ${day}: ${slots.length} slot(s)`);
+            slots.forEach(slot => {
+              console.log(`      ⏰ ${slot.openTime || slot.open || 'N/A'} - ${slot.closeTime || slot.close || 'N/A'}`);
+            });
+          }
         });
-
-        return true;
+        console.log(`📊 Total días programados: ${totalScheduledDays}`);
       }
-    } catch (error) {
-      console.error('❌ Error verificando slots:', error.response?.data || error.message);
-      this.testResults.errors.push(`Verificación slots: ${error.message}`);
+
       this.testResults.steps.push({
         step: 8,
-        action: 'Verificar ocupación de slots',
-        success: false,
-        error: error.message
+        action: 'Verificar compra desde perspectiva del cliente',
+        success: true,
+        membershipId: membership.id,
+        membershipStatus: membership.status,
+        daysRemaining: membership.summary.daysRemaining,
+        hasSchedule: !!membership.schedule,
+        scheduledDays: membership.schedule ? Object.keys(membership.schedule).filter(day => 
+          membership.schedule[day] && membership.schedule[day].length > 0
+        ).length : 0
       });
+
+      return true;
+    } else {
+      console.log('❌ Cliente no tiene membresía activa registrada');
+      
+      this.testResults.steps.push({
+        step: 8,
+        action: 'Verificar compra desde perspectiva del cliente',
+        success: false,
+        error: 'No se encontró membresía activa para el cliente'
+      });
+
       return false;
     }
-  }
 
+  } catch (error) {
+    console.error('❌ Error verificando compra del cliente:', error.response?.data || error.message);
+    
+    // Si es error 404, significa que no hay membresía (esperado si Step 7 falló)
+    if (error.response?.status === 404) {
+      console.log('ℹ️ No hay membresía registrada (esperado si Step 7 falló)');
+      
+      this.testResults.steps.push({
+        step: 8,
+        action: 'Verificar compra desde perspectiva del cliente',
+        success: false,
+        error: 'No hay membresía registrada (Step 7 falló)',
+        expected: true
+      });
+      
+      return false;
+    }
+
+    this.testResults.errors.push(`Verificación cliente: ${error.message}`);
+    this.testResults.steps.push({
+      step: 8,
+      action: 'Verificar compra desde perspectiva del cliente',
+      success: false,
+      error: error.message
+    });
+    
+    return false;
+  }
+}
   // ✅ STEP 9: Verificar email de confirmación
   async verifyEmailSent() {
     console.log('\n📧 STEP 9: Verificando envío de email...');
@@ -670,7 +702,7 @@ class MembershipPurchaseTest {
         { method: () => this.createStripePaymentIntent(), canFailAndContinue: false },
         { method: () => this.simulateStripePayment(), canFailAndContinue: false },
         { method: () => this.confirmPaymentAndPurchase(), canFailAndContinue: true }, // ⭐ SOLO ESTE PUEDE FALLAR Y CONTINUAR
-        { method: () => this.verifySlotOccupancy(), canFailAndContinue: false },
+        { method: () => this.verifyClientPurchase(), canFailAndContinue: false },
         { method: () => this.verifyEmailSent(), canFailAndContinue: false },
         { method: () => this.verifyDatabaseState(), canFailAndContinue: false }
       ];
