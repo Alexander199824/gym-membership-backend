@@ -66,6 +66,7 @@ class MembershipController {
 
       const membershipData = {
         userId,
+        planId, 
         type,
         price,
         startDate: startDate || new Date(),
@@ -1110,6 +1111,7 @@ async purchaseMembership(req, res) {
       // ✅ 6.1. CREAR MEMBRESÍA
       const membershipData = {
         userId: targetUserId,
+        planId: planId,
         type: plan.durationType,
         price: parseFloat(plan.price),
         startDate: startDate,
