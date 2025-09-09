@@ -1,0 +1,74 @@
+{
+  "timestamp": "2025-09-08T18:11:07.671Z",
+  "testType": "MONTHLY_MEMBERSHIP_PURCHASE",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "8606c592-4cc6-44c7-92b1-a6bcf5c1430b",
+      "email": "echeverriaalexander884@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes MENSUALES disponibles",
+      "success": true,
+      "totalPlans": 3,
+      "monthlyPlansAvailable": 1,
+      "selectedPlan": {
+        "id": 2,
+        "name": "Plan Mensual",
+        "price": 250,
+        "durationType": "monthly",
+        "isPopular": true,
+        "availableSpaces": 149
+      }
+    },
+    {
+      "step": 3,
+      "action": "Obtener horarios para plan MENSUAL",
+      "success": true,
+      "planId": 2,
+      "planType": "monthly",
+      "selectedSchedule": {
+        "monday": [
+          1
+        ],
+        "tuesday": [
+          2
+        ],
+        "wednesday": [
+          3
+        ],
+        "thursday": [
+          4
+        ],
+        "friday": [
+          5
+        ]
+      },
+      "scheduledDays": 5,
+      "totalSlotsSelected": 5,
+      "maxAllowed": 5
+    },
+    {
+      "step": 4,
+      "action": "Verificar disponibilidad plan MENSUAL",
+      "success": true,
+      "canPurchase": true,
+      "conflictsCount": 0,
+      "slotsVerified": 5
+    },
+    {
+      "step": 5,
+      "action": "Crear Payment Intent Stripe para plan MENSUAL",
+      "success": false,
+      "error": "Request failed with status code 400"
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Payment Intent plan mensual: Request failed with status code 400"
+  ]
+}

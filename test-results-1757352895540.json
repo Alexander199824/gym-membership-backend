@@ -1,0 +1,160 @@
+{
+  "timestamp": "2025-09-08T17:34:36.411Z",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "8606c592-4cc6-44c7-92b1-a6bcf5c1430b",
+      "email": "echeverriaalexander884@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes disponibles",
+      "success": true,
+      "plansCount": 3,
+      "selectedPlan": {
+        "id": 1,
+        "name": "Entrada Diaria",
+        "price": 25,
+        "durationType": "daily"
+      }
+    },
+    {
+      "step": 3,
+      "action": "Obtener horarios disponibles",
+      "success": true,
+      "planId": 1,
+      "selectedSchedule": {
+        "monday": [
+          1
+        ]
+      },
+      "scheduleCount": 1
+    },
+    {
+      "step": 4,
+      "action": "Verificar disponibilidad de horarios",
+      "success": true,
+      "canPurchase": true,
+      "conflictsCount": 0
+    },
+    {
+      "step": 5,
+      "action": "Crear Payment Intent Stripe",
+      "success": true,
+      "paymentIntentId": "pi_3S58xkQgvCpR97cT0YQs2cpB",
+      "amount": 25
+    },
+    {
+      "step": 6,
+      "action": "Simular pago Stripe",
+      "success": true,
+      "cardLast4": "4242",
+      "paymentIntentId": "pi_3S58xkQgvCpR97cT0YQs2cpB"
+    },
+    {
+      "step": 7,
+      "action": "Confirmar pago y comprar membresía",
+      "success": true,
+      "membershipId": "67870bca-c9eb-43d5-a942-8be554defb2a",
+      "paymentId": "6746f97a-a31d-47c4-8c81-4508d6b099d1",
+      "planName": "Entrada Diaria",
+      "totalAmount": 25
+    },
+    {
+      "step": 8,
+      "action": "Verificar compra desde perspectiva del cliente",
+      "success": true,
+      "membershipId": "67870bca-c9eb-43d5-a942-8be554defb2a",
+      "membershipStatus": "active",
+      "daysRemaining": 1,
+      "hasSchedule": true,
+      "scheduledDays": 0
+    },
+    {
+      "step": 9,
+      "action": "Verificar envío de email",
+      "success": true,
+      "recipient": "echeverriaalexander884@gmail.com",
+      "emailType": "membership_confirmation"
+    },
+    {
+      "step": 10,
+      "action": "Verificar estado en BD",
+      "success": true,
+      "membershipVerified": true,
+      "paymentVerified": true,
+      "userHasActiveMembership": {
+        "id": "67870bca-c9eb-43d5-a942-8be554defb2a",
+        "userId": "8606c592-4cc6-44c7-92b1-a6bcf5c1430b",
+        "planId": 1,
+        "type": "daily",
+        "status": "active",
+        "price": "25.00",
+        "startDate": "2025-09-08",
+        "endDate": "2025-09-09",
+        "totalDays": 1,
+        "remainingDays": 1,
+        "lastDayDeducted": null,
+        "autoDeductDays": true,
+        "reservedSchedule": {
+          "monday": [
+            {
+              "label": "mañana",
+              "slotId": 1,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ]
+        },
+        "preferredSchedule": {
+          "monday": [
+            1
+          ]
+        },
+        "notificationSettings": {
+          "remindAt": [
+            7,
+            3,
+            1
+          ],
+          "notifyDailyDeduction": false,
+          "notifyCapacityChanges": true
+        },
+        "notes": "Test automatizado - Payment Intent: pi_3S58xkQgvCpR97cT0YQs2cpB",
+        "autoRenew": false,
+        "registeredBy": "8606c592-4cc6-44c7-92b1-a6bcf5c1430b",
+        "createdAt": "2025-09-08T17:34:47.527Z",
+        "updatedAt": "2025-09-08T17:34:47.527Z",
+        "registeredByUser": {
+          "id": "8606c592-4cc6-44c7-92b1-a6bcf5c1430b",
+          "firstName": "Alexander",
+          "lastName": "Echeverría Test"
+        },
+        "schedule": {},
+        "summary": {
+          "id": "67870bca-c9eb-43d5-a942-8be554defb2a",
+          "planId": 1,
+          "type": "daily",
+          "status": "active",
+          "daysTotal": 1,
+          "daysRemaining": 1,
+          "daysUsed": 0,
+          "progressPercentage": 0,
+          "startDate": "2025-09-08",
+          "endDate": "2025-09-09",
+          "price": 25,
+          "isExpiring": true,
+          "isExpired": false,
+          "hasSchedule": true,
+          "lastDayDeducted": null,
+          "autoDeductDays": true
+        }
+      }
+    }
+  ],
+  "success": true,
+  "data": {},
+  "errors": []
+}
