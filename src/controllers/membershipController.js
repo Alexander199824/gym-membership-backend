@@ -1724,7 +1724,6 @@ Elite Fitness Club
 // 📅 VER MIS HORARIOS ACTUALES (solo clientes)
 async getMySchedule(req, res) {
   try {
-    // Solo clientes pueden usar esta función
     if (req.user.role !== 'cliente') {
       return res.status(403).json({
         success: false,
@@ -1734,7 +1733,6 @@ async getMySchedule(req, res) {
 
     const { Membership } = require('../models');
     
-    // Buscar la membresía activa del cliente
     const membership = await Membership.findOne({
       where: {
         userId: req.user.id,
@@ -1755,11 +1753,8 @@ async getMySchedule(req, res) {
       });
     }
 
-    // Obtener horarios detallados
-    const detailedSchedule = await membership.getDetailedSchedule();
-    const summary = membership.getSummary();
-
-    // Formatear para el frontend
+    // ✅ Procesar horarios en formato: objetos completos con slotId
+    const currentSchedule = membership.reservedSchedule || {};
     const formattedSchedule = {};
     const dayNames = {
       monday: 'Lunes',
@@ -1771,23 +1766,42 @@ async getMySchedule(req, res) {
       sunday: 'Domingo'
     };
 
-    Object.entries(detailedSchedule).forEach(([day, slots]) => {
-      formattedSchedule[day] = {
-        dayName: dayNames[day],
-        hasSlots: slots && slots.length > 0,
-        slots: slots.map(slot => ({
-          id: slot.id,
-          timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
-          openTime: slot.openTime.slice(0, 5),
-          closeTime: slot.closeTime.slice(0, 5),
-          label: slot.label || '',
-          capacity: slot.capacity,
-          currentReservations: slot.currentReservations,
-          availability: slot.availability,
-          canCancel: slot.availability < slot.capacity // Puede cancelar si hay otras reservas
-        }))
-      };
+    // Procesar cada día
+    Object.entries(currentSchedule).forEach(([day, slots]) => {
+      if (Array.isArray(slots) && slots.length > 0) {
+        formattedSchedule[day] = {
+          dayName: dayNames[day] || day,
+          hasSlots: true,
+          slots: slots.map(slotObj => ({
+            id: slotObj.slotId,
+            timeRange: `${slotObj.openTime.slice(0, 5)} - ${slotObj.closeTime.slice(0, 5)}`,
+            openTime: slotObj.openTime.slice(0, 5),
+            closeTime: slotObj.closeTime.slice(0, 5),
+            label: slotObj.label || '',
+            capacity: 0,
+            currentReservations: 0,
+            availability: 0,
+            canCancel: true
+          }))
+        };
+      }
     });
+
+    // Completar días faltantes
+    Object.keys(dayNames).forEach(day => {
+      if (!formattedSchedule[day]) {
+        formattedSchedule[day] = {
+          dayName: dayNames[day],
+          hasSlots: false,
+          slots: []
+        };
+      }
+    });
+
+    const summary = membership.getSummary();
+    const totalSlotsReserved = Object.values(formattedSchedule).reduce((total, day) => 
+      total + (day.hasSlots ? day.slots.length : 0), 0
+    );
 
     res.json({
       success: true,
@@ -1799,8 +1813,8 @@ async getMySchedule(req, res) {
           summary
         },
         currentSchedule: formattedSchedule,
-        totalSlotsReserved: Object.values(detailedSchedule).reduce((total, slots) => total + slots.length, 0),
-        canEditSchedule: summary.daysRemaining > 0 // Solo puede editar si quedan días
+        totalSlotsReserved,
+        canEditSchedule: summary.daysRemaining > 0
       }
     });
 
@@ -1824,10 +1838,9 @@ async getMyAvailableOptions(req, res) {
       });
     }
 
-    const { day } = req.query; // Opcional: filtrar por día específico
+    const { day } = req.query;
     const { Membership, GymHours, GymTimeSlots } = require('../models');
     
-    // Buscar membresía activa
     const membership = await Membership.findOne({
       where: {
         userId: req.user.id,
@@ -1843,10 +1856,9 @@ async getMyAvailableOptions(req, res) {
       });
     }
 
-    // Determinar días permitidos según el plan
     let allowedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     if (day && allowedDays.includes(day)) {
-      allowedDays = [day]; // Solo mostrar el día solicitado
+      allowedDays = [day];
     }
 
     const availableOptions = {};
@@ -1855,8 +1867,8 @@ async getMyAvailableOptions(req, res) {
       thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
     };
 
-    // Obtener horarios actuales del cliente
-    const currentSchedule = await membership.getDetailedSchedule();
+    // Obtener horarios actuales del cliente (formato objetos)
+    const currentSchedule = membership.reservedSchedule || {};
 
     for (const dayKey of allowedDays) {
       try {
@@ -1873,12 +1885,13 @@ async getMyAvailableOptions(req, res) {
 
         if (gymHour && !gymHour.isClosed && gymHour.timeSlots) {
           const currentDaySlots = currentSchedule[dayKey] || [];
-          const currentSlotIds = currentDaySlots.map(slot => slot.id);
+          const currentSlotIds = currentDaySlots.map(slotObj => {
+            return typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+          });
 
           const slots = gymHour.timeSlots.map(slot => {
             const isMySlot = currentSlotIds.includes(slot.id);
             const available = slot.capacity - slot.currentReservations;
-            // Si es mi slot, considerar que tengo disponibilidad (puedo mantenerlo)
             const availableForMe = isMySlot ? available + 1 : available;
 
             return {
@@ -1932,7 +1945,10 @@ async getMyAvailableOptions(req, res) {
         },
         availableOptions,
         currentSchedule: Object.keys(currentSchedule).reduce((acc, day) => {
-          acc[day] = currentSchedule[day].map(slot => slot.id);
+          const daySlots = currentSchedule[day] || [];
+          acc[day] = daySlots.map(slotObj => {
+            return typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+          });
           return acc;
         }, {}),
         summary: membership.getSummary()
@@ -1962,8 +1978,8 @@ async changeMySchedule(req, res) {
     }
 
     const { 
-      changeType, // 'single_day', 'multiple_days', 'full_week'
-      changes,    // { day: [slotIds] } o { day: [slotIds], day2: [slotIds] }
+      changeType,
+      changes,
       replaceAll = false 
     } = req.body;
 
@@ -1973,9 +1989,49 @@ async changeMySchedule(req, res) {
       replaceAll
     });
 
+    // Validaciones
+    if (!changes || typeof changes !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Debes especificar los cambios de horario'
+      });
+    }
+
+    if (Object.keys(changes).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Debes especificar al menos un cambio'
+      });
+    }
+
+    const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    for (const [day, slotIds] of Object.entries(changes)) {
+      if (!validDays.includes(day)) {
+        return res.status(400).json({
+          success: false,
+          message: `Día inválido: ${day}`
+        });
+      }
+      
+      if (!Array.isArray(slotIds)) {
+        return res.status(400).json({
+          success: false,
+          message: `Los slots para ${day} deben ser un array`
+        });
+      }
+      
+      for (const slotId of slotIds) {
+        if (!Number.isInteger(slotId) || slotId <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: `ID de slot inválido en ${day}: ${slotId}`
+          });
+        }
+      }
+    }
+
     const { Membership, GymTimeSlots } = require('../models');
     
-    // Buscar membresía activa
     const membership = await Membership.findOne({
       where: {
         userId: req.user.id,
@@ -1990,48 +2046,58 @@ async changeMySchedule(req, res) {
       });
     }
 
-    if (membership.getSummary().daysRemaining <= 0) {
+    const summary = membership.getSummary();
+    if (summary.daysRemaining <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Tu membresía ha expirado, no puedes cambiar horarios'
       });
     }
 
-    // Validar formato de cambios
-    if (!changes || typeof changes !== 'object') {
-      return res.status(400).json({
-        success: false,
-        message: 'Debes especificar los cambios de horario'
-      });
-    }
-
-    // Iniciar transacción
     transaction = await Membership.sequelize.transaction();
     console.log('🔄 Transacción iniciada para cambio de horarios');
 
-    // Obtener horarios actuales
-    const currentSchedule = await membership.getDetailedSchedule();
-    console.log('📅 Horarios actuales:', Object.keys(currentSchedule));
+    // Procesar horarios actuales (formato: objetos completos)
+    const currentReservedSchedule = membership.reservedSchedule || {};
+    console.log('📅 Horarios actuales en BD:', currentReservedSchedule);
 
-    // 1. VALIDAR DISPONIBILIDAD DE NUEVOS SLOTS
+    // Helper para extraer slotId de objetos
+    const extractSlotIdFromObject = (slotObj) => {
+      if (typeof slotObj === 'number') return slotObj;
+      if (typeof slotObj === 'object' && slotObj) {
+        return slotObj.slotId || slotObj.id;
+      }
+      return null;
+    };
+
+    // Determinar cambios
     const slotsToReserve = [];
     const slotsToRelease = [];
 
     for (const [day, newSlotIds] of Object.entries(changes)) {
       if (!Array.isArray(newSlotIds)) continue;
 
-      const currentDaySlots = currentSchedule[day] || [];
-      const currentSlotIds = currentDaySlots.map(slot => slot.id);
+      // Extraer IDs actuales del formato de objetos
+      const currentDaySlots = currentReservedSchedule[day] || [];
+      const currentSlotIds = [];
+      
+      if (Array.isArray(currentDaySlots)) {
+        currentDaySlots.forEach(slotObj => {
+          const id = extractSlotIdFromObject(slotObj);
+          if (id) currentSlotIds.push(id);
+        });
+      }
 
       console.log(`📅 ${day}: Actual [${currentSlotIds.join(',')}] -> Nuevo [${newSlotIds.join(',')}]`);
 
-      // Determinar qué slots liberar y cuáles reservar
+      // Determinar qué slots liberar
       for (const currentSlotId of currentSlotIds) {
         if (!newSlotIds.includes(currentSlotId)) {
           slotsToRelease.push({ day, slotId: currentSlotId });
         }
       }
 
+      // Determinar qué slots reservar
       for (const newSlotId of newSlotIds) {
         if (!currentSlotIds.includes(newSlotId)) {
           slotsToReserve.push({ day, slotId: newSlotId });
@@ -2041,7 +2107,7 @@ async changeMySchedule(req, res) {
 
     console.log(`🔄 A liberar: ${slotsToRelease.length}, A reservar: ${slotsToReserve.length}`);
 
-    // 2. VERIFICAR DISPONIBILIDAD DE NUEVOS SLOTS
+    // Verificar disponibilidad
     const unavailableSlots = [];
     for (const { day, slotId } of slotsToReserve) {
       const slot = await GymTimeSlots.findByPk(slotId, { transaction });
@@ -2070,25 +2136,28 @@ async changeMySchedule(req, res) {
       });
     }
 
-    // 3. EJECUTAR CAMBIOS (LIBERACIÓN Y RESERVA)
-    console.log('✅ Todos los slots están disponibles, ejecutando cambios...');
-
     // Liberar slots actuales
+    console.log('✅ Todos los slots están disponibles, ejecutando cambios...');
     for (const { day, slotId } of slotsToRelease) {
       try {
-        await membership.cancelTimeSlot(day, slotId);
-        console.log(`🔓 Liberado: ${day} slot ${slotId}`);
+        const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+        if (slot && slot.currentReservations > 0) {
+          await slot.decrement('currentReservations', { transaction });
+          console.log(`🔓 Liberado: ${day} slot ${slotId}`);
+        }
       } catch (releaseError) {
         console.error(`❌ Error liberando ${day} slot ${slotId}:`, releaseError.message);
-        // Continuar con otros slots
       }
     }
 
     // Reservar nuevos slots
     for (const { day, slotId } of slotsToReserve) {
       try {
-        await membership.reserveTimeSlot(day, slotId);
-        console.log(`🔒 Reservado: ${day} slot ${slotId}`);
+        const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+        if (slot) {
+          await slot.increment('currentReservations', { transaction });
+          console.log(`🔒 Reservado: ${day} slot ${slotId}`);
+        }
       } catch (reserveError) {
         console.error(`❌ Error reservando ${day} slot ${slotId}:`, reserveError.message);
         await transaction.rollback();
@@ -2099,31 +2168,69 @@ async changeMySchedule(req, res) {
       }
     }
 
-    // 4. CONFIRMAR TRANSACCIÓN
+    // Actualizar reservedSchedule manteniendo formato original
+    const updatedReservedSchedule = { ...currentReservedSchedule };
+    
+    for (const [day, newSlotIds] of Object.entries(changes)) {
+      if (Array.isArray(newSlotIds) && newSlotIds.length > 0) {
+        const completeSlots = [];
+        
+        for (const slotId of newSlotIds) {
+          try {
+            const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+            if (slot) {
+              completeSlots.push({
+                slotId: slot.id,
+                label: slot.slotLabel || '',
+                openTime: slot.openTime,
+                closeTime: slot.closeTime
+              });
+            }
+          } catch (error) {
+            console.error(`Error obteniendo detalles del slot ${slotId}:`, error.message);
+          }
+        }
+        
+        // Mantener el formato original: objetos completos
+        updatedReservedSchedule[day] = completeSlots;
+      } else {
+        delete updatedReservedSchedule[day];
+      }
+    }
+
+    // Guardar cambios
+    membership.reservedSchedule = updatedReservedSchedule;
+    await membership.save({ transaction });
+
     await transaction.commit();
     transaction = null;
     console.log('✅ Cambios de horario completados exitosamente');
 
-    // 5. OBTENER HORARIOS ACTUALIZADOS
-    const updatedSchedule = await membership.getDetailedSchedule();
-    const summary = membership.getSummary();
-
-    // Formatear respuesta
+    // Preparar respuesta
     const formattedSchedule = {};
     const dayNames = {
       monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
       thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
     };
 
-    Object.entries(updatedSchedule).forEach(([day, slots]) => {
+    Object.entries(updatedReservedSchedule).forEach(([day, slots]) => {
       formattedSchedule[day] = {
         dayName: dayNames[day],
         slots: slots.map(slot => ({
-          id: slot.id,
+          id: slot.slotId,
           timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
           label: slot.label || ''
         }))
       };
+    });
+
+    Object.keys(dayNames).forEach(day => {
+      if (!formattedSchedule[day]) {
+        formattedSchedule[day] = {
+          dayName: dayNames[day],
+          slots: []
+        };
+      }
     });
 
     res.json({
@@ -2132,7 +2239,7 @@ async changeMySchedule(req, res) {
       data: {
         membershipId: membership.id,
         updatedSchedule: formattedSchedule,
-        summary,
+        summary: membership.getSummary(),
         changes: {
           slotsReleased: slotsToRelease.length,
           slotsReserved: slotsToReserve.length,
@@ -2161,7 +2268,7 @@ async changeMySchedule(req, res) {
   }
 }
 
-// 🗑️ CANCELAR HORARIO ESPECÍFICO (solo clientes)
+// 🗑️ CANCELAR UN HORARIO ESPECÍFICO (solo clientes)
 async cancelMyTimeSlot(req, res) {
   try {
     if (req.user.role !== 'cliente') {
@@ -2172,7 +2279,7 @@ async cancelMyTimeSlot(req, res) {
     }
 
     const { day, slotId } = req.params;
-    const { Membership } = require('../models');
+    const { Membership, GymTimeSlots } = require('../models');
 
     const membership = await Membership.findOne({
       where: {
@@ -2189,9 +2296,14 @@ async cancelMyTimeSlot(req, res) {
     }
 
     // Verificar que el usuario tiene ese slot reservado
-    const currentSchedule = await membership.getDetailedSchedule();
+    const currentSchedule = membership.reservedSchedule || {};
     const daySlots = currentSchedule[day] || [];
-    const hasSlot = daySlots.some(slot => slot.id === parseInt(slotId));
+    const targetSlotId = parseInt(slotId);
+    
+    const hasSlot = daySlots.some(slotObj => {
+      const id = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+      return id === targetSlotId;
+    });
 
     if (!hasSlot) {
       return res.status(400).json({
@@ -2200,16 +2312,31 @@ async cancelMyTimeSlot(req, res) {
       });
     }
 
-    // Cancelar el slot
-    await membership.cancelTimeSlot(day, parseInt(slotId));
+    // Liberar el slot en la tabla GymTimeSlots
+    const slot = await GymTimeSlots.findByPk(targetSlotId);
+    if (slot && slot.currentReservations > 0) {
+      await slot.decrement('currentReservations');
+    }
 
-    const updatedSchedule = await membership.getDetailedSchedule();
-    
+    // Actualizar reservedSchedule
+    const updatedSchedule = { ...currentSchedule };
+    updatedSchedule[day] = daySlots.filter(slotObj => {
+      const id = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+      return id !== targetSlotId;
+    });
+
+    if (updatedSchedule[day].length === 0) {
+      delete updatedSchedule[day];
+    }
+
+    membership.reservedSchedule = updatedSchedule;
+    await membership.save();
+
     res.json({
       success: true,
       message: `Horario de ${day} cancelado exitosamente`,
       data: {
-        cancelledSlot: { day, slotId: parseInt(slotId) },
+        cancelledSlot: { day, slotId: targetSlotId },
         updatedSchedule: updatedSchedule[day] || []
       }
     });
