@@ -1,4 +1,4 @@
-// src/models/GymSocialMedia.js
+// src/models/GymSocialMedia.js - CORREGIDO: Sin unique en campo ENUM
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -8,11 +8,11 @@ const GymSocialMedia = sequelize.define('GymSocialMedia', {
     primaryKey: true,
     autoIncrement: true
   },
-  // ✅ Plataforma de red social
+  // ✅ CORREGIDO: Removido unique: true de la definición del campo
   platform: {
     type: DataTypes.ENUM('instagram', 'facebook', 'youtube', 'whatsapp', 'tiktok', 'twitter'),
-    allowNull: false,
-    unique: true
+    allowNull: false
+    // unique: true ← REMOVIDO - se maneja en índices
   },
   // ✅ URL de la red social
   url: {
@@ -47,7 +47,12 @@ const GymSocialMedia = sequelize.define('GymSocialMedia', {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
   indexes: [
-    { fields: ['platform'], unique: true },
+    // ✅ CORREGIDO: Unique constraint movida a índices
+    { 
+      fields: ['platform'], 
+      unique: true,
+      name: 'gym_social_media_platform_unique'
+    },
     { fields: ['is_active'] },
     { fields: ['display_order'] }
   ]
@@ -106,12 +111,26 @@ GymSocialMedia.seedDefaultSocialMedia = async function() {
     }
   ];
 
+  console.log('📱 Creando redes sociales por defecto...');
+  
   for (const social of defaultSocialMedia) {
-    await this.findOrCreate({
-      where: { platform: social.platform },
-      defaults: social
-    });
+    try {
+      const [created, wasCreated] = await this.findOrCreate({
+        where: { platform: social.platform },
+        defaults: social
+      });
+      
+      if (wasCreated) {
+        console.log(`   ✅ Red social creada: ${social.platform}`);
+      } else {
+        console.log(`   ℹ️ Red social ya existe: ${social.platform}`);
+      }
+    } catch (error) {
+      console.error(`   ❌ Error creando red social ${social.platform}:`, error.message);
+    }
   }
+  
+  console.log('✅ Redes sociales procesadas');
 };
 
 module.exports = GymSocialMedia;

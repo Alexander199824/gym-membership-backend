@@ -1,4 +1,4 @@
-// src/models/GymFormsConfig.js
+// src/models/GymFormsConfig.js - CORREGIDO: Sin unique en campo ENUM
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -8,12 +8,12 @@ const GymFormsConfig = sequelize.define('GymFormsConfig', {
     primaryKey: true,
     autoIncrement: true
   },
-  // ✅ Nombre del formulario
+  // ✅ CORREGIDO: Removido unique: true de la definición del campo
   formName: {
     type: DataTypes.ENUM('contact_form', 'newsletter', 'registration', 'consultation'),
     allowNull: false,
-    unique: true,
     field: 'form_name'
+    // unique: true ← REMOVIDO - se maneja en índices
   },
   // ✅ Configuración del formulario (JSON)
   config: {
@@ -34,7 +34,12 @@ const GymFormsConfig = sequelize.define('GymFormsConfig', {
   createdAt: 'created_at',
   updatedAt: 'updated_at',
   indexes: [
-    { fields: ['form_name'], unique: true },
+    // ✅ CORREGIDO: Unique constraint movida a índices
+    { 
+      fields: ['form_name'], 
+      unique: true,
+      name: 'gym_forms_config_form_name_unique'
+    },
     { fields: ['is_active'] }
   ]
 });
@@ -145,12 +150,26 @@ GymFormsConfig.seedDefaultFormsConfig = async function() {
     }
   ];
 
+  console.log('📝 Creando configuraciones de formularios...');
+  
   for (const form of defaultForms) {
-    await this.findOrCreate({
-      where: { formName: form.formName },
-      defaults: form
-    });
+    try {
+      const [created, wasCreated] = await this.findOrCreate({
+        where: { formName: form.formName },
+        defaults: form
+      });
+      
+      if (wasCreated) {
+        console.log(`   ✅ Formulario creado: ${form.formName}`);
+      } else {
+        console.log(`   ℹ️ Formulario ya existe: ${form.formName}`);
+      }
+    } catch (error) {
+      console.error(`   ❌ Error creando formulario ${form.formName}:`, error.message);
+    }
   }
+  
+  console.log('✅ Configuraciones de formularios procesadas');
 };
 
 module.exports = GymFormsConfig;

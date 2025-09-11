@@ -1829,6 +1829,7 @@ async getMySchedule(req, res) {
 }
 
 // 🔍 VER OPCIONES DISPONIBLES PARA CAMBIAR (solo clientes)
+// 🔍 VER OPCIONES DISPONIBLES PARA CAMBIAR (solo clientes) - SOLUCIÓN PRODUCCIÓN
 async getMyAvailableOptions(req, res) {
   try {
     if (req.user.role !== 'cliente') {
@@ -1867,63 +1868,88 @@ async getMyAvailableOptions(req, res) {
       thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
     };
 
-    // Obtener horarios actuales del cliente (formato objetos)
     const currentSchedule = membership.reservedSchedule || {};
 
     for (const dayKey of allowedDays) {
       try {
+        // Buscar configuración del día
         const gymHour = await GymHours.findOne({
-          where: { dayOfWeek: dayKey },
-          include: [{
-            model: GymTimeSlots,
-            as: 'timeSlots',
-            where: { isActive: true },
-            required: false,
-            order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
-          }]
+          where: { dayOfWeek: dayKey }
         });
-
-        if (gymHour && !gymHour.isClosed && gymHour.timeSlots) {
-          const currentDaySlots = currentSchedule[dayKey] || [];
-          const currentSlotIds = currentDaySlots.map(slotObj => {
-            return typeof slotObj === 'object' ? slotObj.slotId : slotObj;
-          });
-
-          const slots = gymHour.timeSlots.map(slot => {
-            const isMySlot = currentSlotIds.includes(slot.id);
-            const available = slot.capacity - slot.currentReservations;
-            const availableForMe = isMySlot ? available + 1 : available;
-
-            return {
-              id: slot.id,
-              timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
-              openTime: slot.openTime.slice(0, 5),
-              closeTime: slot.closeTime.slice(0, 5),
-              label: slot.slotLabel || '',
-              capacity: slot.capacity,
-              currentReservations: slot.currentReservations,
-              available: availableForMe,
-              canSelect: availableForMe > 0,
-              isCurrentlyMine: isMySlot,
-              status: isMySlot ? 'current' : (availableForMe > 0 ? 'available' : 'full')
-            };
-          });
-
-          availableOptions[dayKey] = {
-            dayName: dayNames[dayKey],
-            isOpen: true,
-            slots,
-            currentlyHas: currentDaySlots.length,
-            totalAvailable: slots.filter(s => s.canSelect).length
-          };
-        } else {
+        
+        if (!gymHour || gymHour.isClosed) {
           availableOptions[dayKey] = {
             dayName: dayNames[dayKey],
             isOpen: false,
             slots: [],
-            message: 'Gimnasio cerrado este día'
+            message: gymHour ? 'Gimnasio cerrado este día' : 'Día no configurado'
           };
+          continue;
         }
+        
+        // Obtener slots activos
+        const timeSlots = await GymTimeSlots.findAll({
+          where: { 
+            gymHoursId: gymHour.id,
+            isActive: true 
+          },
+          order: [['openTime', 'ASC']]
+        });
+        
+        if (!timeSlots || timeSlots.length === 0) {
+          availableOptions[dayKey] = {
+            dayName: dayNames[dayKey],
+            isOpen: false,
+            slots: [],
+            message: 'Sin horarios configurados'
+          };
+          continue;
+        }
+        
+        // Extraer slots actuales del cliente
+        const currentDayData = currentSchedule[dayKey] || [];
+        const myCurrentSlotIds = [];
+        
+        if (Array.isArray(currentDayData)) {
+          currentDayData.forEach(slotData => {
+            if (typeof slotData === 'number') {
+              myCurrentSlotIds.push(slotData);
+            } else if (typeof slotData === 'object' && slotData) {
+              const id = slotData.slotId || slotData.id;
+              if (id) myCurrentSlotIds.push(parseInt(id));
+            }
+          });
+        }
+        
+        // Procesar cada slot
+        const processedSlots = timeSlots.map(slot => {
+          const isMySlot = myCurrentSlotIds.includes(slot.id);
+          const baseAvailable = slot.capacity - slot.currentReservations;
+          const availableForMe = isMySlot ? baseAvailable + 1 : baseAvailable;
+          
+          return {
+            id: slot.id,
+            timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+            openTime: slot.openTime.slice(0, 5),
+            closeTime: slot.closeTime.slice(0, 5),
+            label: slot.slotLabel || '',
+            capacity: slot.capacity,
+            currentReservations: slot.currentReservations,
+            available: availableForMe,
+            canSelect: availableForMe > 0,
+            isCurrentlyMine: isMySlot,
+            status: isMySlot ? 'current' : (availableForMe > 0 ? 'available' : 'full')
+          };
+        });
+        
+        availableOptions[dayKey] = {
+          dayName: dayNames[dayKey],
+          isOpen: true,
+          slots: processedSlots,
+          currentlyHas: myCurrentSlotIds.length,
+          totalAvailable: processedSlots.filter(s => s.canSelect).length
+        };
+        
       } catch (dayError) {
         console.error(`Error procesando ${dayKey}:`, dayError.message);
         availableOptions[dayKey] = {
@@ -1940,8 +1966,8 @@ async getMyAvailableOptions(req, res) {
       data: {
         membershipId: membership.id,
         planInfo: {
-          name: membership.plan.planName,
-          type: membership.plan.durationType
+          name: membership.plan?.planName || 'Plan Activo',
+          type: membership.plan?.durationType || membership.type
         },
         availableOptions,
         currentSchedule: Object.keys(currentSchedule).reduce((acc, day) => {
