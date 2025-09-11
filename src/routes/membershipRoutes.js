@@ -1,4 +1,4 @@
-// src/routes/membershipRoutes.js - COMPLETO: Todas las rutas existentes + nuevas funciones
+// src/routes/membershipRoutes.js - CORREGIDO: Sin duplicaciones y orden optimizado
 
 const express = require('express');
 const membershipController = require('../controllers/membershipController');
@@ -14,15 +14,296 @@ const router = express.Router();
 
 // =============== RUTAS PÚBLICAS (sin autenticación) ===============
 
-// ✅ Ruta existente - Obtener planes de membresía
+// ✅ Obtener planes de membresía
 router.get('/plans', membershipController.getMembershipPlans);
 
-// ✅ NUEVA - Obtener planes disponibles para compra con disponibilidad
+// ✅ Obtener planes disponibles para compra con disponibilidad
 router.get('/purchase/plans', membershipController.getPurchaseableePlans);
 
-// =============== RUTAS QUE REQUIEREN AUTENTICACIÓN ===============
+// ✅ Obtener opciones de horario por plan
+router.get('/plans/:planId/schedule-options',
+  authenticateToken,
+  membershipController.getAvailableScheduleOptions
+);
 
-// ✅ RUTAS EXISTENTES MANTENIDAS
+// =============== RUTAS ESPECÍFICAS PARA CLIENTES (van PRIMERO para evitar conflictos) ===============
+
+// 📅 VER MIS HORARIOS ACTUALES (solo clientes)
+router.get('/my-schedule',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  membershipController.getMySchedule
+);
+
+// 📊 ESTADÍSTICAS DE MIS HORARIOS (solo clientes)
+router.get('/my-schedule/stats',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  membershipController.getMyScheduleStats
+);
+
+// 🔍 VER OPCIONES DISPONIBLES PARA CAMBIAR (solo clientes)
+router.get('/my-schedule/available-options',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  [
+    query('day').optional().isIn(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+      .withMessage('Día de la semana inválido')
+  ],
+  handleValidationErrors,
+  membershipController.getMyAvailableOptions
+);
+
+// 📜 HISTORIAL DE CAMBIOS (solo clientes)
+router.get('/my-schedule/change-history',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  async (req, res) => {
+    try {
+      res.json({
+        success: true,
+        data: {
+          message: 'Historial de cambios próximamente disponible',
+          currentDate: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener historial',
+        error: error.message
+      });
+    }
+  }
+);
+
+// 🔍 PREVISUALIZAR CAMBIO DE HORARIOS (sin confirmar - solo clientes)
+router.post('/my-schedule/preview-change',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  [
+    body('changes').isObject().withMessage('Cambios requeridos')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { changes } = req.body;
+      const { Membership, GymTimeSlots } = require('../models');
+      
+      const membership = await Membership.findOne({
+        where: {
+          userId: req.user.id,
+          status: 'active'
+        }
+      });
+
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'No tienes una membresía activa'
+        });
+      }
+
+      const currentSchedule = await membership.getDetailedSchedule();
+      const preview = {};
+      const conflicts = [];
+
+      for (const [day, newSlotIds] of Object.entries(changes)) {
+        if (!Array.isArray(newSlotIds)) continue;
+
+        const currentDaySlots = currentSchedule[day] || [];
+        const currentSlotIds = currentDaySlots.map(slot => slot.id);
+        
+        const newSlotDetails = [];
+        for (const slotId of newSlotIds) {
+          const slot = await GymTimeSlots.findByPk(slotId);
+          
+          if (!slot) {
+            conflicts.push({ day, slotId, reason: 'Slot no encontrado' });
+            continue;
+          }
+          
+          const isCurrentlyMine = currentSlotIds.includes(slotId);
+          const available = isCurrentlyMine ? 
+            slot.capacity - slot.currentReservations + 1 : 
+            slot.capacity - slot.currentReservations;
+          
+          if (available <= 0 && !isCurrentlyMine) {
+            conflicts.push({ 
+              day, 
+              slotId, 
+              reason: 'Sin capacidad disponible',
+              timeRange: `${slot.openTime.slice(0, 5)}-${slot.closeTime.slice(0, 5)}`
+            });
+          } else {
+            newSlotDetails.push({
+              id: slot.id,
+              timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+              available,
+              isCurrentlyMine
+            });
+          }
+        }
+
+        preview[day] = {
+          current: currentDaySlots.map(slot => ({
+            id: slot.id,
+            timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+            willKeep: newSlotIds.includes(slot.id)
+          })),
+          new: newSlotDetails,
+          willRelease: currentSlotIds.filter(id => !newSlotIds.includes(id)).length,
+          willReserve: newSlotIds.filter(id => !currentSlotIds.includes(id)).length
+        };
+      }
+
+      res.json({
+        success: true,
+        data: {
+          preview,
+          conflicts,
+          canProceed: conflicts.length === 0,
+          summary: {
+            totalConflicts: conflicts.length,
+            daysToChange: Object.keys(changes).length
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Error en preview de cambio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al previsualizar cambios',
+        error: error.message
+      });
+    }
+  }
+);
+
+// ✏️ CAMBIAR MIS HORARIOS (solo clientes)
+router.post('/my-schedule/change',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  [
+    body('changeType').isIn(['single_day', 'multiple_days', 'full_week'])
+      .withMessage('Tipo de cambio inválido'),
+    body('changes').isObject()
+      .withMessage('Debes especificar los cambios'),
+    body('replaceAll').optional().isBoolean()
+      .withMessage('replaceAll debe ser boolean'),
+    body('changes').custom((changes) => {
+      const validDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+      
+      for (const [day, slots] of Object.entries(changes)) {
+        if (!validDays.includes(day)) {
+          throw new Error(`Día inválido: ${day}`);
+        }
+        
+        if (!Array.isArray(slots)) {
+          throw new Error(`Los slots del ${day} deben ser un array`);
+        }
+        
+        for (const slotId of slots) {
+          if (!Number.isInteger(slotId) || slotId <= 0) {
+            throw new Error(`ID de slot inválido en ${day}: ${slotId}`);
+          }
+        }
+      }
+      
+      return true;
+    })
+  ],
+  handleValidationErrors,
+  membershipController.changeMySchedule
+);
+
+// 🗑️ CANCELAR UN HORARIO ESPECÍFICO (solo clientes)
+router.delete('/my-schedule/:day/:slotId',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+    next();
+  },
+  [
+    param('day').isIn(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+      .withMessage('Día de la semana inválido'),
+    param('slotId').isInt({ min: 1 })
+      .withMessage('ID de slot inválido')
+  ],
+  handleValidationErrors,
+  membershipController.cancelMyTimeSlot
+);
+
+// =============== RUTAS GENERALES QUE REQUIEREN AUTENTICACIÓN ===============
+
+// 👤 Obtener MI membresía actual con horarios (solo clientes)
+router.get('/my-current',
+  authenticateToken,
+  (req, res, next) => {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta ruta es solo para clientes'
+      });
+    }
+    next();
+  },
+  membershipController.getMyCurrentMembership
+);
 
 // ✅ Cliente puede ver SUS membresías, staff ve según permisos
 router.get('/',
@@ -30,30 +311,9 @@ router.get('/',
   membershipController.getMemberships
 );
 
-// ✅ Solo STAFF puede ver membresías vencidas - CLIENTES NO PUEDEN
-router.get('/expired',
-  authenticateToken,
-  requireStaff,
-  membershipController.getExpiredMemberships
-);
+// =============== RUTAS PARA COMPRAS ===============
 
-// ✅ Solo STAFF puede ver membresías próximas a vencer - CLIENTES NO PUEDEN
-router.get('/expiring-soon',
-  authenticateToken,
-  requireStaff,
-  membershipController.getExpiringSoon
-);
-
-// ✅ Solo STAFF puede ver estadísticas - CLIENTES NO PUEDEN
-router.get('/stats',
-  authenticateToken,
-  requireStaff,
-  membershipController.getMembershipStats
-);
-
-// =============== RUTAS NUEVAS PARA CLIENTES ===============
-
-// 🛒 NUEVA - Verificar disponibilidad de horarios antes de comprar
+// 🛒 Verificar disponibilidad de horarios antes de comprar
 router.post('/purchase/check-availability',
   authenticateToken,
   [
@@ -64,7 +324,7 @@ router.post('/purchase/check-availability',
   membershipController.checkScheduleAvailability
 );
 
-// 🛒 NUEVA - COMPRAR membresía (clientes) o crear con horarios (staff)
+// 🛒 COMPRAR membresía (clientes) o crear con horarios (staff)
 router.post('/purchase',
   authenticateToken,
   [
@@ -78,157 +338,23 @@ router.post('/purchase',
   membershipController.purchaseMembership
 );
 
-// 👤 NUEVA - Obtener MI membresía actual con horarios (solo clientes)
-router.get('/my-current',
-  authenticateToken,
-  (req, res, next) => {
-    // Solo clientes pueden acceder a esta ruta específica
-    if (req.user.role !== 'cliente') {
-      return res.status(403).json({
-        success: false,
-        message: 'Esta ruta es solo para clientes'
-      });
-    }
-    next();
-  },
-  membershipController.getMyCurrentMembership
-);
+// =============== RUTAS SOLO PARA STAFF ===============
 
-// =============== RUTAS EXISTENTES PARA STAFF ===============
-
-// ✅ Solo STAFF puede crear membresías
-router.post('/',
+// ✅ Solo STAFF puede ver membresías vencidas
+router.get('/expired',
   authenticateToken,
   requireStaff,
-  createMembershipValidator,
-  handleValidationErrors,
-  membershipController.createMembership
+  membershipController.getExpiredMemberships
 );
 
-//  Cliente puede ver SUS membresías por ID, staff ve según permisos
-router.get('/:id',
-  authenticateToken,
-  membershipController.getMembershipById
-);
-
-//  Solo STAFF puede actualizar membresías - CLIENTES NO PUEDEN
-router.patch('/:id',
+// ✅ Solo STAFF puede ver membresías próximas a vencer
+router.get('/expiring-soon',
   authenticateToken,
   requireStaff,
-  updateMembershipValidator,
-  handleValidationErrors,
-  membershipController.updateMembership
+  membershipController.getExpiringSoon
 );
 
-//  Solo STAFF puede renovar membresías - CLIENTES NO PUEDEN
-router.post('/:id/renew',
-  authenticateToken,
-  requireStaff,
-  membershipController.renewMembership
-);
-
-//  Solo STAFF puede cancelar membresías - CLIENTES NO PUEDEN
-router.post('/:id/cancel',
-  authenticateToken,
-  requireStaff,
-  membershipController.cancelMembership
-);
-
-// =============== RUTAS PARA GESTIÓN DE HORARIOS ===============
-
-//  Cliente puede actualizar horarios de SUS membresías, staff según permisos (EXISTENTE)
-router.patch('/:id/schedule',
-  authenticateToken,
-  [
-    param('id').isUUID().withMessage('ID de membresía inválido'),
-    body('selectedSchedule').isObject().withMessage('Horarios requeridos'),
-    body('replaceAll').optional().isBoolean().withMessage('replaceAll debe ser boolean')
-  ],
-  handleValidationErrors,
-  membershipController.updateMembershipSchedule || membershipController.updateSchedule
-);
-
-//  NUEVA - Obtener horarios detallados de una membresía
-router.get('/:id/schedule-details',
-  authenticateToken,
-  [
-    param('id').isUUID().withMessage('ID de membresía inválido')
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { Membership } = require('../models');
-
-      const membership = await Membership.findByPk(id, {
-        include: [{ association: 'user', attributes: ['id', 'role'] }]
-      });
-
-      if (!membership) {
-        return res.status(404).json({
-          success: false,
-          message: 'Membresía no encontrada'
-        });
-      }
-
-      // Validar permisos
-      if (req.user.role === 'cliente' && membership.userId !== req.user.id) {
-        return res.status(403).json({
-          success: false,
-          message: 'Solo puedes ver tus propios horarios'
-        });
-      } else if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
-        return res.status(403).json({
-          success: false,
-          message: 'Solo puedes ver horarios de usuarios clientes'
-        });
-      }
-
-      const detailedSchedule = await membership.getDetailedSchedule();
-      const summary = membership.getSummary();
-
-      res.json({
-        success: true,
-        data: {
-          membershipId: membership.id,
-          schedule: detailedSchedule,
-          summary,
-          hasSchedule: Object.keys(detailedSchedule).length > 0
-        }
-      });
-    } catch (error) {
-      console.error('Error al obtener horarios detallados:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al obtener horarios',
-        error: error.message
-      });
-    }
-  }
-);
-
-// Cambiar horarios de membresía
-router.patch('/:id/schedule',
-  authenticateToken,
-  membershipController.changeSchedule
-);
-
-// Obtener opciones de horario por plan
-router.get('/plans/:planId/schedule-options',
-  authenticateToken,
-  membershipController.getAvailableScheduleOptions
-);
-
-// =============== RUTAS ADMINISTRATIVAS NUEVAS ===============
-
-// 🔧 NUEVA - Procesar deducción diaria (solo admin - para cron jobs)
-router.post('/process-daily-deduction',
-  authenticateToken,
-  requireAdmin,
-  membershipController.processDailyDeduction
-);
-
-// 📊 NUEVA - Obtener membresías próximas a expirar con detalles (solo staff)
+// 📊 Obtener membresías próximas a expirar con detalles (solo staff)
 router.get('/expiring-detailed',
   authenticateToken,
   requireStaff,
@@ -243,12 +369,10 @@ router.get('/expiring-detailed',
 
       let expiringMemberships = await Membership.getExpiringMemberships(parseInt(days));
 
-      // Colaborador solo ve clientes
       if (req.user.role === 'colaborador') {
         expiringMemberships = expiringMemberships.filter(m => m.user.role === 'cliente');
       }
 
-      // Obtener horarios detallados para cada una
       const detailedMemberships = await Promise.all(
         expiringMemberships.map(async (membership) => {
           const schedule = await membership.getDetailedSchedule();
@@ -281,7 +405,14 @@ router.get('/expiring-detailed',
   }
 );
 
-// 📈 NUEVA - Estadísticas de membresías con días (solo staff)
+// ✅ Solo STAFF puede ver estadísticas
+router.get('/stats',
+  authenticateToken,
+  requireStaff,
+  membershipController.getMembershipStats
+);
+
+// 📈 Estadísticas de membresías con días (solo staff)
 router.get('/stats-with-days',
   authenticateToken,
   requireStaff,
@@ -292,7 +423,6 @@ router.get('/stats-with-days',
 
       let baseWhere = { status: 'active' };
 
-      // Colaborador solo ve clientes
       if (req.user.role === 'colaborador') {
         baseWhere['$user.role$'] = 'cliente';
       }
@@ -402,7 +532,111 @@ router.get('/stats-with-days',
   }
 );
 
-// 🔄 NUEVA - Renovar membresía manualmente con opción de cambiar horarios (solo staff)
+// ✅ Solo STAFF puede crear membresías
+router.post('/',
+  authenticateToken,
+  requireStaff,
+  createMembershipValidator,
+  handleValidationErrors,
+  membershipController.createMembership
+);
+
+// =============== RUTAS POR ID (van al final para evitar conflictos) ===============
+
+// Cliente puede ver SUS membresías por ID, staff ve según permisos
+router.get('/:id',
+  authenticateToken,
+  membershipController.getMembershipById
+);
+
+// Obtener horarios detallados de una membresía específica
+router.get('/:id/schedule-details',
+  authenticateToken,
+  [
+    param('id').isUUID().withMessage('ID de membresía inválido')
+  ],
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { Membership } = require('../models');
+
+      const membership = await Membership.findByPk(id, {
+        include: [{ association: 'user', attributes: ['id', 'role'] }]
+      });
+
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'Membresía no encontrada'
+        });
+      }
+
+      if (req.user.role === 'cliente' && membership.userId !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver tus propios horarios'
+        });
+      } else if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
+        return res.status(403).json({
+          success: false,
+          message: 'Solo puedes ver horarios de usuarios clientes'
+        });
+      }
+
+      const detailedSchedule = await membership.getDetailedSchedule();
+      const summary = membership.getSummary();
+
+      res.json({
+        success: true,
+        data: {
+          membershipId: membership.id,
+          schedule: detailedSchedule,
+          summary,
+          hasSchedule: Object.keys(detailedSchedule).length > 0
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener horarios detallados:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener horarios',
+        error: error.message
+      });
+    }
+  }
+);
+
+// Solo STAFF puede actualizar membresías
+router.patch('/:id',
+  authenticateToken,
+  requireStaff,
+  updateMembershipValidator,
+  handleValidationErrors,
+  membershipController.updateMembership
+);
+
+// ✅ ÚNICA RUTA PARA CAMBIO DE HORARIOS POR ID (método técnico para staff)
+router.patch('/:id/schedule',
+  authenticateToken,
+  [
+    param('id').isUUID().withMessage('ID de membresía inválido'),
+    body('selectedSchedule').optional().isObject().withMessage('Horarios debe ser un objeto'),
+    body('removeSlots').optional().isArray().withMessage('removeSlots debe ser un array'),
+    body('replaceAll').optional().isBoolean().withMessage('replaceAll debe ser boolean')
+  ],
+  handleValidationErrors,
+  membershipController.changeSchedule // Tu método técnico original
+);
+
+// Solo STAFF puede renovar membresías
+router.post('/:id/renew',
+  authenticateToken,
+  requireStaff,
+  membershipController.renewMembership
+);
+
+// Renovar membresía con opción de cambiar horarios (solo staff)
 router.post('/:id/renew-with-schedule',
   authenticateToken,
   requireStaff,
@@ -430,7 +664,6 @@ router.post('/:id/renew-with-schedule',
         });
       }
 
-      // Colaborador solo puede renovar membresías de clientes
       if (req.user.role === 'colaborador' && membership.user.role !== 'cliente') {
         return res.status(403).json({
           success: false,
@@ -441,25 +674,20 @@ router.post('/:id/renew-with-schedule',
       const transaction = await Membership.sequelize.transaction();
 
       try {
-        // Agregar días
         membership.remainingDays += parseInt(additionalDays);
         membership.totalDays += parseInt(additionalDays);
 
-        // Extender fecha de fin
         const newEndDate = new Date(membership.endDate);
         newEndDate.setDate(newEndDate.getDate() + parseInt(additionalDays));
         membership.endDate = newEndDate;
 
-        // Si estaba expirada, reactivar
         if (membership.status === 'expired') {
           membership.status = 'active';
         }
 
         await membership.save({ transaction });
 
-        // Actualizar horarios si se proporcionan
         if (newSchedule && Object.keys(newSchedule).length > 0) {
-          // Liberar horarios actuales
           if (membership.reservedSchedule) {
             for (const [day, timeSlotIds] of Object.entries(membership.reservedSchedule)) {
               if (Array.isArray(timeSlotIds)) {
@@ -470,7 +698,6 @@ router.post('/:id/renew-with-schedule',
             }
           }
 
-          // Reservar nuevos horarios
           for (const [day, timeSlotIds] of Object.entries(newSchedule)) {
             if (Array.isArray(timeSlotIds)) {
               for (const timeSlotId of timeSlotIds) {
@@ -480,20 +707,18 @@ router.post('/:id/renew-with-schedule',
           }
         }
 
-        // Crear registro de pago si se especifica precio
         if (price && parseFloat(price) > 0) {
           const payment = await Payment.create({
             userId: membership.userId,
             membershipId: membership.id,
             amount: parseFloat(price),
-            paymentMethod: 'cash', // Asumimos efectivo para renovaciones manuales
+            paymentMethod: 'cash',
             paymentType: 'membership',
             description: `Renovación de membresía - ${additionalDays} días adicionales`,
             registeredBy: req.user.id,
             status: 'completed'
           }, { transaction });
 
-          // Crear movimiento financiero
           await FinancialMovements.createFromAnyPayment(payment, { transaction });
         }
 
@@ -501,8 +726,6 @@ router.post('/:id/renew-with-schedule',
 
         const updatedSchedule = await membership.getDetailedSchedule();
         const summary = membership.getSummary();
-
-        console.log(`✅ ${req.user.role} renovó membresía ID: ${id} - ${additionalDays} días adicionales`);
 
         res.json({
           success: true,
@@ -538,22 +761,20 @@ router.post('/:id/renew-with-schedule',
   }
 );
 
-// =============== VALIDADORES ADICIONALES PARA NUEVAS FUNCIONES ===============
+// Solo STAFF puede cancelar membresías
+router.post('/:id/cancel',
+  authenticateToken,
+  requireStaff,
+  membershipController.cancelMembership
+);
 
-// Validador para compra de membresía
-const purchaseMembershipValidator = [
-  body('planId').isInt().withMessage('ID de plan requerido'),
-  body('selectedSchedule').optional().isObject().withMessage('Horarios debe ser un objeto'),
-  body('paymentMethod').optional().isIn(['cash', 'card', 'transfer', 'pending']).withMessage('Método de pago inválido'),
-  body('userId').optional().isUUID().withMessage('User ID debe ser UUID válido'),
-  body('notes').optional().isLength({ max: 500 }).withMessage('Notas muy largas')
-];
+// =============== RUTAS ADMINISTRATIVAS ===============
 
-// Validador para actualización de horarios
-const updateScheduleValidator = [
-  param('id').isUUID().withMessage('ID de membresía inválido'),
-  body('selectedSchedule').isObject().withMessage('Horarios requeridos'),
-  body('replaceAll').optional().isBoolean().withMessage('replaceAll debe ser boolean')
-];
+// Procesar deducción diaria (solo admin)
+router.post('/process-daily-deduction',
+  authenticateToken,
+  requireAdmin,
+  membershipController.processDailyDeduction
+);
 
 module.exports = router;

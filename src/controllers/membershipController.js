@@ -1716,6 +1716,590 @@ Elite Fitness Club
   }
 }
 
+// ============================================================================
+// NUEVOS MÉTODOS PARA GESTIÓN DE HORARIOS DE CLIENTES
+// Agregar estos métodos al membershipController.js existente
+// ============================================================================
+
+// 📅 VER MIS HORARIOS ACTUALES (solo clientes)
+async getMySchedule(req, res) {
+  try {
+    // Solo clientes pueden usar esta función
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+
+    const { Membership } = require('../models');
+    
+    // Buscar la membresía activa del cliente
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      },
+      include: [
+        { association: 'plan', attributes: ['id', 'planName', 'durationType'] }
+      ]
+    });
+
+    if (!membership) {
+      return res.json({
+        success: true,
+        data: {
+          hasMembership: false,
+          message: 'No tienes una membresía activa'
+        }
+      });
+    }
+
+    // Obtener horarios detallados
+    const detailedSchedule = await membership.getDetailedSchedule();
+    const summary = membership.getSummary();
+
+    // Formatear para el frontend
+    const formattedSchedule = {};
+    const dayNames = {
+      monday: 'Lunes',
+      tuesday: 'Martes', 
+      wednesday: 'Miércoles',
+      thursday: 'Jueves',
+      friday: 'Viernes',
+      saturday: 'Sábado',
+      sunday: 'Domingo'
+    };
+
+    Object.entries(detailedSchedule).forEach(([day, slots]) => {
+      formattedSchedule[day] = {
+        dayName: dayNames[day],
+        hasSlots: slots && slots.length > 0,
+        slots: slots.map(slot => ({
+          id: slot.id,
+          timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+          openTime: slot.openTime.slice(0, 5),
+          closeTime: slot.closeTime.slice(0, 5),
+          label: slot.label || '',
+          capacity: slot.capacity,
+          currentReservations: slot.currentReservations,
+          availability: slot.availability,
+          canCancel: slot.availability < slot.capacity // Puede cancelar si hay otras reservas
+        }))
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        hasMembership: true,
+        membership: {
+          id: membership.id,
+          plan: membership.plan,
+          summary
+        },
+        currentSchedule: formattedSchedule,
+        totalSlotsReserved: Object.values(detailedSchedule).reduce((total, slots) => total + slots.length, 0),
+        canEditSchedule: summary.daysRemaining > 0 // Solo puede editar si quedan días
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener mis horarios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener tus horarios',
+      error: error.message
+    });
+  }
+}
+
+// 🔍 VER OPCIONES DISPONIBLES PARA CAMBIAR (solo clientes)
+async getMyAvailableOptions(req, res) {
+  try {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+
+    const { day } = req.query; // Opcional: filtrar por día específico
+    const { Membership, GymHours, GymTimeSlots } = require('../models');
+    
+    // Buscar membresía activa
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      },
+      include: [{ association: 'plan' }]
+    });
+
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'No tienes una membresía activa'
+      });
+    }
+
+    // Determinar días permitidos según el plan
+    let allowedDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    if (day && allowedDays.includes(day)) {
+      allowedDays = [day]; // Solo mostrar el día solicitado
+    }
+
+    const availableOptions = {};
+    const dayNames = {
+      monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+      thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+    };
+
+    // Obtener horarios actuales del cliente
+    const currentSchedule = await membership.getDetailedSchedule();
+
+    for (const dayKey of allowedDays) {
+      try {
+        const gymHour = await GymHours.findOne({
+          where: { dayOfWeek: dayKey },
+          include: [{
+            model: GymTimeSlots,
+            as: 'timeSlots',
+            where: { isActive: true },
+            required: false,
+            order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
+          }]
+        });
+
+        if (gymHour && !gymHour.isClosed && gymHour.timeSlots) {
+          const currentDaySlots = currentSchedule[dayKey] || [];
+          const currentSlotIds = currentDaySlots.map(slot => slot.id);
+
+          const slots = gymHour.timeSlots.map(slot => {
+            const isMySlot = currentSlotIds.includes(slot.id);
+            const available = slot.capacity - slot.currentReservations;
+            // Si es mi slot, considerar que tengo disponibilidad (puedo mantenerlo)
+            const availableForMe = isMySlot ? available + 1 : available;
+
+            return {
+              id: slot.id,
+              timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+              openTime: slot.openTime.slice(0, 5),
+              closeTime: slot.closeTime.slice(0, 5),
+              label: slot.slotLabel || '',
+              capacity: slot.capacity,
+              currentReservations: slot.currentReservations,
+              available: availableForMe,
+              canSelect: availableForMe > 0,
+              isCurrentlyMine: isMySlot,
+              status: isMySlot ? 'current' : (availableForMe > 0 ? 'available' : 'full')
+            };
+          });
+
+          availableOptions[dayKey] = {
+            dayName: dayNames[dayKey],
+            isOpen: true,
+            slots,
+            currentlyHas: currentDaySlots.length,
+            totalAvailable: slots.filter(s => s.canSelect).length
+          };
+        } else {
+          availableOptions[dayKey] = {
+            dayName: dayNames[dayKey],
+            isOpen: false,
+            slots: [],
+            message: 'Gimnasio cerrado este día'
+          };
+        }
+      } catch (dayError) {
+        console.error(`Error procesando ${dayKey}:`, dayError.message);
+        availableOptions[dayKey] = {
+          dayName: dayNames[dayKey],
+          isOpen: false,
+          slots: [],
+          error: dayError.message
+        };
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        membershipId: membership.id,
+        planInfo: {
+          name: membership.plan.planName,
+          type: membership.plan.durationType
+        },
+        availableOptions,
+        currentSchedule: Object.keys(currentSchedule).reduce((acc, day) => {
+          acc[day] = currentSchedule[day].map(slot => slot.id);
+          return acc;
+        }, {}),
+        summary: membership.getSummary()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener opciones disponibles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener opciones disponibles',
+      error: error.message
+    });
+  }
+}
+
+// ✏️ CAMBIAR MIS HORARIOS (solo clientes)
+async changeMySchedule(req, res) {
+  let transaction = null;
+  
+  try {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+
+    const { 
+      changeType, // 'single_day', 'multiple_days', 'full_week'
+      changes,    // { day: [slotIds] } o { day: [slotIds], day2: [slotIds] }
+      replaceAll = false 
+    } = req.body;
+
+    console.log(`🔄 Cliente ${req.user.email} cambiando horarios:`, {
+      changeType,
+      changes,
+      replaceAll
+    });
+
+    const { Membership, GymTimeSlots } = require('../models');
+    
+    // Buscar membresía activa
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      }
+    });
+
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'No tienes una membresía activa'
+      });
+    }
+
+    if (membership.getSummary().daysRemaining <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tu membresía ha expirado, no puedes cambiar horarios'
+      });
+    }
+
+    // Validar formato de cambios
+    if (!changes || typeof changes !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Debes especificar los cambios de horario'
+      });
+    }
+
+    // Iniciar transacción
+    transaction = await Membership.sequelize.transaction();
+    console.log('🔄 Transacción iniciada para cambio de horarios');
+
+    // Obtener horarios actuales
+    const currentSchedule = await membership.getDetailedSchedule();
+    console.log('📅 Horarios actuales:', Object.keys(currentSchedule));
+
+    // 1. VALIDAR DISPONIBILIDAD DE NUEVOS SLOTS
+    const slotsToReserve = [];
+    const slotsToRelease = [];
+
+    for (const [day, newSlotIds] of Object.entries(changes)) {
+      if (!Array.isArray(newSlotIds)) continue;
+
+      const currentDaySlots = currentSchedule[day] || [];
+      const currentSlotIds = currentDaySlots.map(slot => slot.id);
+
+      console.log(`📅 ${day}: Actual [${currentSlotIds.join(',')}] -> Nuevo [${newSlotIds.join(',')}]`);
+
+      // Determinar qué slots liberar y cuáles reservar
+      for (const currentSlotId of currentSlotIds) {
+        if (!newSlotIds.includes(currentSlotId)) {
+          slotsToRelease.push({ day, slotId: currentSlotId });
+        }
+      }
+
+      for (const newSlotId of newSlotIds) {
+        if (!currentSlotIds.includes(newSlotId)) {
+          slotsToReserve.push({ day, slotId: newSlotId });
+        }
+      }
+    }
+
+    console.log(`🔄 A liberar: ${slotsToRelease.length}, A reservar: ${slotsToReserve.length}`);
+
+    // 2. VERIFICAR DISPONIBILIDAD DE NUEVOS SLOTS
+    const unavailableSlots = [];
+    for (const { day, slotId } of slotsToReserve) {
+      const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+      
+      if (!slot) {
+        unavailableSlots.push({ day, slotId, reason: 'Slot no encontrado' });
+        continue;
+      }
+
+      if (slot.currentReservations >= slot.capacity) {
+        unavailableSlots.push({ 
+          day, 
+          slotId, 
+          reason: `Sin capacidad (${slot.currentReservations}/${slot.capacity})`,
+          timeRange: `${slot.openTime.slice(0, 5)}-${slot.closeTime.slice(0, 5)}`
+        });
+      }
+    }
+
+    if (unavailableSlots.length > 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: 'Algunos horarios ya no están disponibles',
+        unavailableSlots
+      });
+    }
+
+    // 3. EJECUTAR CAMBIOS (LIBERACIÓN Y RESERVA)
+    console.log('✅ Todos los slots están disponibles, ejecutando cambios...');
+
+    // Liberar slots actuales
+    for (const { day, slotId } of slotsToRelease) {
+      try {
+        await membership.cancelTimeSlot(day, slotId);
+        console.log(`🔓 Liberado: ${day} slot ${slotId}`);
+      } catch (releaseError) {
+        console.error(`❌ Error liberando ${day} slot ${slotId}:`, releaseError.message);
+        // Continuar con otros slots
+      }
+    }
+
+    // Reservar nuevos slots
+    for (const { day, slotId } of slotsToReserve) {
+      try {
+        await membership.reserveTimeSlot(day, slotId);
+        console.log(`🔒 Reservado: ${day} slot ${slotId}`);
+      } catch (reserveError) {
+        console.error(`❌ Error reservando ${day} slot ${slotId}:`, reserveError.message);
+        await transaction.rollback();
+        return res.status(500).json({
+          success: false,
+          message: `Error reservando horario ${day}: ${reserveError.message}`
+        });
+      }
+    }
+
+    // 4. CONFIRMAR TRANSACCIÓN
+    await transaction.commit();
+    transaction = null;
+    console.log('✅ Cambios de horario completados exitosamente');
+
+    // 5. OBTENER HORARIOS ACTUALIZADOS
+    const updatedSchedule = await membership.getDetailedSchedule();
+    const summary = membership.getSummary();
+
+    // Formatear respuesta
+    const formattedSchedule = {};
+    const dayNames = {
+      monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+      thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+    };
+
+    Object.entries(updatedSchedule).forEach(([day, slots]) => {
+      formattedSchedule[day] = {
+        dayName: dayNames[day],
+        slots: slots.map(slot => ({
+          id: slot.id,
+          timeRange: `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+          label: slot.label || ''
+        }))
+      };
+    });
+
+    res.json({
+      success: true,
+      message: 'Horarios actualizados exitosamente',
+      data: {
+        membershipId: membership.id,
+        updatedSchedule: formattedSchedule,
+        summary,
+        changes: {
+          slotsReleased: slotsToRelease.length,
+          slotsReserved: slotsToReserve.length,
+          changeType
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error cambiando horarios:', error);
+    
+    if (transaction) {
+      try {
+        await transaction.rollback();
+        console.log('🔄 Rollback exitoso');
+      } catch (rollbackError) {
+        console.error('❌ Error en rollback:', rollbackError.message);
+      }
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Error al cambiar horarios',
+      error: error.message
+    });
+  }
+}
+
+// 🗑️ CANCELAR HORARIO ESPECÍFICO (solo clientes)
+async cancelMyTimeSlot(req, res) {
+  try {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+
+    const { day, slotId } = req.params;
+    const { Membership } = require('../models');
+
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      }
+    });
+
+    if (!membership) {
+      return res.status(404).json({
+        success: false,
+        message: 'No tienes una membresía activa'
+      });
+    }
+
+    // Verificar que el usuario tiene ese slot reservado
+    const currentSchedule = await membership.getDetailedSchedule();
+    const daySlots = currentSchedule[day] || [];
+    const hasSlot = daySlots.some(slot => slot.id === parseInt(slotId));
+
+    if (!hasSlot) {
+      return res.status(400).json({
+        success: false,
+        message: 'No tienes reservado ese horario'
+      });
+    }
+
+    // Cancelar el slot
+    await membership.cancelTimeSlot(day, parseInt(slotId));
+
+    const updatedSchedule = await membership.getDetailedSchedule();
+    
+    res.json({
+      success: true,
+      message: `Horario de ${day} cancelado exitosamente`,
+      data: {
+        cancelledSlot: { day, slotId: parseInt(slotId) },
+        updatedSchedule: updatedSchedule[day] || []
+      }
+    });
+
+  } catch (error) {
+    console.error('Error cancelando horario:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al cancelar horario',
+      error: error.message
+    });
+  }
+}
+
+// 📊 ESTADÍSTICAS DE MIS HORARIOS (solo clientes)
+async getMyScheduleStats(req, res) {
+  try {
+    if (req.user.role !== 'cliente') {
+      return res.status(403).json({
+        success: false,
+        message: 'Esta función es solo para clientes'
+      });
+    }
+
+    const { Membership } = require('../models');
+    
+    const membership = await Membership.findOne({
+      where: {
+        userId: req.user.id,
+        status: 'active'
+      }
+    });
+
+    if (!membership) {
+      return res.json({
+        success: true,
+        data: {
+          hasMembership: false,
+          message: 'No tienes una membresía activa'
+        }
+      });
+    }
+
+    const currentSchedule = await membership.getDetailedSchedule();
+    const summary = membership.getSummary();
+
+    // Calcular estadísticas
+    const totalSlotsReserved = Object.values(currentSchedule).reduce((total, slots) => total + slots.length, 0);
+    const daysWithSlots = Object.keys(currentSchedule).length;
+    
+    const dayNames = {
+      monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+      thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+    };
+
+    const scheduleByDay = Object.entries(currentSchedule).map(([day, slots]) => ({
+      day,
+      dayName: dayNames[day],
+      slotsCount: slots.length,
+      timeRanges: slots.map(slot => `${slot.openTime.slice(0, 5)}-${slot.closeTime.slice(0, 5)}`).join(', ')
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        hasMembership: true,
+        membership: {
+          id: membership.id,
+          summary
+        },
+        stats: {
+          totalSlotsReserved,
+          daysWithSlots,
+          averageSlotsPerDay: daysWithSlots > 0 ? (totalSlotsReserved / daysWithSlots).toFixed(1) : 0,
+          canEditSchedule: summary.daysRemaining > 0,
+          scheduleByDay
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo estadísticas de horarios:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener estadísticas',
+      error: error.message
+    });
+  }
+}
+
 
 // Cambiar horarios de membresía (con validaciones del plan)
   async changeSchedule(req, res) {

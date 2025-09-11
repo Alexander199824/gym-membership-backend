@@ -1,0 +1,234 @@
+{
+  "timestamp": "2025-09-10T20:40:22.493Z",
+  "testType": "MONTHLY_MEMBERSHIP_PURCHASE",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación de usuario",
+      "success": true,
+      "userId": "e4b2d825-21f2-4da2-a3fa-82bc9b329afb",
+      "email": "soloinges6@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes MENSUALES disponibles",
+      "success": true,
+      "totalPlans": 3,
+      "monthlyPlansAvailable": 1,
+      "selectedPlan": {
+        "id": 2,
+        "name": "Plan Mensual",
+        "price": 250,
+        "durationType": "monthly",
+        "isPopular": true,
+        "availableSpaces": 150
+      }
+    },
+    {
+      "step": 3,
+      "action": "Obtener horarios para plan MENSUAL",
+      "success": true,
+      "planId": 2,
+      "planType": "monthly",
+      "selectedSchedule": {
+        "monday": [
+          1
+        ],
+        "tuesday": [
+          2
+        ],
+        "wednesday": [
+          3
+        ],
+        "thursday": [
+          4
+        ],
+        "friday": [
+          5
+        ]
+      },
+      "scheduledDays": 5,
+      "totalSlotsSelected": 5,
+      "maxAllowed": 5
+    },
+    {
+      "step": 4,
+      "action": "Verificar disponibilidad plan MENSUAL",
+      "success": true,
+      "canPurchase": true,
+      "conflictsCount": 0,
+      "slotsVerified": 5
+    },
+    {
+      "step": 5,
+      "action": "Crear Payment Intent Stripe para plan MENSUAL",
+      "success": true,
+      "paymentIntentId": "pi_3S5uoeQgvCpR97cT13JRr1qg",
+      "amount": 250,
+      "planType": "monthly",
+      "planName": "Plan Mensual"
+    },
+    {
+      "step": 6,
+      "action": "Simular pago Stripe para plan MENSUAL",
+      "success": true,
+      "cardLast4": "4242",
+      "paymentIntentId": "pi_3S5uoeQgvCpR97cT13JRr1qg",
+      "planType": "monthly",
+      "amount": 250
+    },
+    {
+      "step": 7,
+      "action": "Confirmar compra de membresía MENSUAL",
+      "success": true,
+      "membershipId": "8b3c1375-1e61-4a7c-8f62-202bf9da877f",
+      "paymentId": "63675632-7b5b-49a0-9be0-a59d15f84c6b",
+      "planName": "Plan Mensual",
+      "planType": "monthly",
+      "totalAmount": 250,
+      "daysTotal": 30
+    },
+    {
+      "step": 8,
+      "action": "Verificar compra MENSUAL desde cliente",
+      "success": true,
+      "membershipId": "8b3c1375-1e61-4a7c-8f62-202bf9da877f",
+      "membershipStatus": "active",
+      "planType": "monthly",
+      "daysRemaining": 30,
+      "daysTotal": 30,
+      "hasSchedule": true,
+      "scheduledDays": 0
+    },
+    {
+      "step": 9,
+      "action": "Verificar envío de email plan MENSUAL",
+      "success": true,
+      "recipient": "soloinges6@gmail.com",
+      "emailType": "monthly_membership_confirmation",
+      "planType": "monthly"
+    },
+    {
+      "step": 10,
+      "action": "Verificar estado en BD plan MENSUAL",
+      "success": true,
+      "membershipVerified": true,
+      "paymentVerified": true,
+      "userHasActiveMembership": {
+        "id": "8b3c1375-1e61-4a7c-8f62-202bf9da877f",
+        "userId": "e4b2d825-21f2-4da2-a3fa-82bc9b329afb",
+        "planId": 2,
+        "type": "monthly",
+        "status": "active",
+        "price": "250.00",
+        "startDate": "2025-09-10",
+        "endDate": "2025-10-10",
+        "totalDays": 30,
+        "remainingDays": 30,
+        "lastDayDeducted": null,
+        "autoDeductDays": true,
+        "reservedSchedule": {
+          "friday": [
+            {
+              "label": "mañana",
+              "slotId": 5,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ],
+          "monday": [
+            {
+              "label": "mañana",
+              "slotId": 1,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ],
+          "tuesday": [
+            {
+              "label": "tarde",
+              "slotId": 2,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ],
+          "thursday": [
+            {
+              "label": "tarde",
+              "slotId": 4,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ],
+          "wednesday": [
+            {
+              "label": "mañana",
+              "slotId": 3,
+              "openTime": "09:00:00",
+              "closeTime": "18:00:00"
+            }
+          ]
+        },
+        "preferredSchedule": {
+          "friday": [
+            5
+          ],
+          "monday": [
+            1
+          ],
+          "tuesday": [
+            2
+          ],
+          "thursday": [
+            4
+          ],
+          "wednesday": [
+            3
+          ]
+        },
+        "notificationSettings": {
+          "remindAt": [
+            7,
+            3,
+            1
+          ],
+          "notifyDailyDeduction": false,
+          "notifyCapacityChanges": true
+        },
+        "notes": "Test automatizado MENSUAL - Payment Intent: pi_3S5uoeQgvCpR97cT13JRr1qg",
+        "autoRenew": false,
+        "registeredBy": "e4b2d825-21f2-4da2-a3fa-82bc9b329afb",
+        "createdAt": "2025-09-10T20:40:34.856Z",
+        "updatedAt": "2025-09-10T20:40:34.856Z",
+        "registeredByUser": {
+          "id": "e4b2d825-21f2-4da2-a3fa-82bc9b329afb",
+          "firstName": "Alexander",
+          "lastName": "Echeverría Test Monthly"
+        },
+        "schedule": {},
+        "summary": {
+          "id": "8b3c1375-1e61-4a7c-8f62-202bf9da877f",
+          "planId": 2,
+          "type": "monthly",
+          "status": "active",
+          "daysTotal": 30,
+          "daysRemaining": 30,
+          "daysUsed": 0,
+          "progressPercentage": 0,
+          "startDate": "2025-09-10",
+          "endDate": "2025-10-10",
+          "price": 250,
+          "isExpiring": false,
+          "isExpired": false,
+          "hasSchedule": true,
+          "lastDayDeducted": null,
+          "autoDeductDays": true
+        }
+      },
+      "planType": "monthly"
+    }
+  ],
+  "success": true,
+  "data": {},
+  "errors": []
+}
