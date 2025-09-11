@@ -1,4 +1,4 @@
-// src/models/index.js - CORREGIDO: Con MembershipPlans (plural) consistente
+// src/models/index.js - CORREGIDO: Con MembershipPlans (plural) consistente + REPARACIONES
 'use strict';
 
 const fs = require('fs');
@@ -30,8 +30,8 @@ const MODEL_ORDER = [
   'GymTimeSlots.js',
   'DailyIncome.js',
   'GymBrandingConfig.js',     // Sin FK
-  'GymContactInfo.js',        // Sin F
-   'GymFormsConfig.js',        // Sin FK
+  'GymContactInfo.js',        // Sin FK
+  'GymFormsConfig.js',        // Sin FK
   'GymNavigation.js',         // Sin FK
   'GymPromotionalContent.js', // Sin FK
   'GymSectionsContent.js',    // Sin FK
@@ -45,7 +45,6 @@ const MODEL_ORDER = [
   'Membership.js',
   'Payment.js',
   
-  
   // Modelos que dependen de StoreProduct
   'StoreCart.js',
   'StoreOrder.js',
@@ -55,10 +54,9 @@ const MODEL_ORDER = [
   'FinancialMovements.js',
   'PromotionCodes.js',
   'MembershipPromotions.js',
-  'FinancialMovements.js',    // Depende de User
   'Notification.js',          // Depende de User, Membership, Payment
-
-  
+  'UserPromotions.js',
+  'UserSchedulePreferences.js'
 ];
 
 // ✅ FUNCIÓN para cargar un modelo específico
@@ -362,6 +360,135 @@ db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
 // ============================================================================
+// FUNCIONES DE REPARACIÓN PARA TABLAS PROBLEMÁTICAS (NUEVO)
+// ============================================================================
+
+// ✅ FUNCIÓN DE REPARACIÓN ESPECÍFICA PARA LAS TABLAS PROBLEMÁTICAS
+const repairProblematicTables = async () => {
+  console.log('🔧 Reparando tablas con problemas de ENUM + UNIQUE...');
+  
+  try {
+    await sequelize.authenticate();
+    console.log('✅ Conexión verificada para reparación');
+    
+    // Lista de tablas problemáticas y sus configuraciones
+    const problematicTables = [
+      {
+        tableName: 'gym_forms_config',
+        enumName: 'enum_gym_forms_config_form_name',
+        enumValues: ['contact_form', 'newsletter', 'registration', 'consultation'],
+        uniqueColumn: 'form_name',
+        createTableSQL: `
+          CREATE TABLE "gym_forms_config" (
+            "id" SERIAL PRIMARY KEY,
+            "form_name" VARCHAR(50) NOT NULL,
+            "config" JSONB NOT NULL,
+            "is_active" BOOLEAN NOT NULL DEFAULT true,
+            "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+        `,
+        indexes: [
+          'CREATE INDEX "gym_forms_config_is_active" ON "gym_forms_config" ("is_active");'
+        ]
+      },
+      {
+        tableName: 'gym_social_media',
+        enumName: 'enum_gym_social_media_platform',
+        enumValues: ['instagram', 'facebook', 'youtube', 'whatsapp', 'tiktok', 'twitter'],
+        uniqueColumn: 'platform',
+        createTableSQL: `
+          CREATE TABLE "gym_social_media" (
+            "id" SERIAL PRIMARY KEY,
+            "platform" VARCHAR(50) NOT NULL,
+            "url" VARCHAR(500) NOT NULL,
+            "handle" VARCHAR(100),
+            "is_active" BOOLEAN NOT NULL DEFAULT true,
+            "display_order" INTEGER NOT NULL DEFAULT 0,
+            "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+          );
+        `,
+        indexes: [
+          'CREATE INDEX "gym_social_media_is_active" ON "gym_social_media" ("is_active");',
+          'CREATE INDEX "gym_social_media_display_order" ON "gym_social_media" ("display_order");'
+        ]
+      }
+    ];
+    
+    for (const table of problematicTables) {
+      console.log(`\n🔧 Reparando ${table.tableName}...`);
+      
+      try {
+        // 1. Eliminar tabla y tipo ENUM
+        await sequelize.query(`DROP TABLE IF EXISTS "${table.tableName}" CASCADE;`);
+        await sequelize.query(`DROP TYPE IF EXISTS "${table.enumName}" CASCADE;`);
+        console.log(`   🗑️ ${table.tableName} y tipos eliminados`);
+        
+        // 2. Recrear tabla básica
+        await sequelize.query(table.createTableSQL);
+        console.log(`   ✅ ${table.tableName} recreada`);
+        
+        // 3. Crear tipo ENUM
+        const enumValuesSQL = table.enumValues.map(v => `'${v}'`).join(', ');
+        await sequelize.query(`CREATE TYPE "${table.enumName}" AS ENUM(${enumValuesSQL});`);
+        console.log(`   ✅ Tipo ENUM ${table.enumName} creado`);
+        
+        // 4. Convertir columna a ENUM
+        await sequelize.query(`
+          ALTER TABLE "${table.tableName}" 
+          ALTER COLUMN "${table.uniqueColumn}" 
+          TYPE "${table.enumName}" 
+          USING "${table.uniqueColumn}"::text::"${table.enumName}";
+        `);
+        console.log(`   ✅ Columna ${table.uniqueColumn} convertida a ENUM`);
+        
+        // 5. Agregar constraint único
+        await sequelize.query(`
+          ALTER TABLE "${table.tableName}" 
+          ADD CONSTRAINT "${table.tableName}_${table.uniqueColumn}_unique" 
+          UNIQUE ("${table.uniqueColumn}");
+        `);
+        console.log(`   ✅ Constraint único agregado`);
+        
+        // 6. Crear índices adicionales
+        for (const indexSQL of table.indexes) {
+          await sequelize.query(indexSQL);
+        }
+        console.log(`   ✅ Índices creados`);
+        
+        console.log(`   🎉 ${table.tableName} reparada exitosamente`);
+        
+      } catch (tableError) {
+        console.error(`   ❌ Error reparando ${table.tableName}:`, tableError.message);
+        
+        // Como último recurso, intentar sincronización forzada del modelo
+        const modelName = table.tableName.split('_').map(word => 
+          word.charAt(0).toUpperCase() + word.slice(1)).join('');
+        
+        if (db[modelName]) {
+          console.log(`   🔄 Último recurso: sincronización forzada de ${modelName}`);
+          
+          try {
+            await db[modelName].sync({ force: true });
+            console.log(`   ⚠️ ${modelName} recreado por sync forzado`);
+          } catch (syncError) {
+            console.error(`   ❌ Error en sync forzado:`, syncError.message);
+          }
+        }
+      }
+    }
+    
+    console.log('\n🎉 REPARACIÓN DE TABLAS COMPLETADA');
+    return { success: true, repairedTables: problematicTables.length };
+    
+  } catch (error) {
+    console.error('❌ Error general en reparación de tablas:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+// ============================================================================
 // FUNCIONES DE SINCRONIZACIÓN AUTOMÁTICA DE BASE DE DATOS CON FIX DE PAYMENT
 // ============================================================================
 
@@ -403,7 +530,7 @@ const repairPaymentModel = async () => {
   }
 };
 
-// ✅ CORREGIDO: Función de sincronización controlada MEJORADA
+// ✅ CORREGIDO: Función de sincronización controlada MEJORADA CON REPARACIÓN
 const syncDatabase = async (options = {}) => {
   console.log('🔄 Iniciando sincronización controlada de base de datos...');
   
@@ -413,7 +540,7 @@ const syncDatabase = async (options = {}) => {
 
     // ✅ OBTENER TODOS LOS MODELOS CARGADOS
     const allLoadedModels = Object.keys(db).filter(key => 
-      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
     );
 
     console.log(`📊 TODOS los modelos cargados: ${allLoadedModels.length}`);
@@ -446,6 +573,7 @@ const syncDatabase = async (options = {}) => {
     let syncSuccess = 0;
     let syncErrors = 0;
     let alteredTables = [];
+    let repairedTables = [];
 
     for (const modelName of fullSyncOrder) {
       if (db[modelName]) {
@@ -465,6 +593,26 @@ const syncDatabase = async (options = {}) => {
           
         } catch (error) {
           console.error(`❌ Error en ${modelName}:`, error.message);
+          
+          // ✅ DETECCIÓN DE PROBLEMAS ESPECÍFICOS
+          const isEnumUniqueError = error.message.includes('syntax error at or near "UNIQUE"') ||
+                                   error.message.includes('ENUM') && error.message.includes('unique');
+          
+          if (isEnumUniqueError && (modelName === 'GymFormsConfig' || modelName === 'GymSocialMedia')) {
+            console.log(`🔧 ${modelName}: Detectado problema ENUM+UNIQUE, reparando...`);
+            
+            try {
+              const repairResult = await repairProblematicTables();
+              if (repairResult.success) {
+                console.log(`   ✅ ${modelName} reparado por función específica`);
+                repairedTables.push(modelName);
+                syncSuccess++;
+                continue;
+              }
+            } catch (repairError) {
+              console.error(`   ❌ Error en reparación específica:`, repairError.message);
+            }
+          }
           
           // ✅ INTENTO 2: Si falla y es error de columna, forzar ALTER
           if (error.message.includes('does not exist') || 
@@ -527,6 +675,10 @@ const syncDatabase = async (options = {}) => {
     if (alteredTables.length > 0) {
       console.log(`🔧 Tablas alteradas: ${alteredTables.join(', ')}`);
     }
+    
+    if (repairedTables.length > 0) {
+      console.log(`🛠️ Tablas reparadas: ${repairedTables.join(', ')}`);
+    }
 
     // ✅ VERIFICACIÓN ESPECÍFICA PARA GYMCONFIGURATION
     if (db.GymConfiguration) {
@@ -571,6 +723,7 @@ const syncDatabase = async (options = {}) => {
         syncErrors,
         modelsFound: allLoadedModels.length,
         alteredTables: alteredTables.length,
+        repairedTables: repairedTables.length,
         syncMode: isDevelopment ? 'development' : 'production'
       }
     };
@@ -581,13 +734,47 @@ const syncDatabase = async (options = {}) => {
   }
 };
 
+// ✅ FUNCIÓN DE SINCRONIZACIÓN CON REPARACIÓN AUTOMÁTICA
+const syncDatabaseWithRepair = async (options = {}) => {
+  console.log('🔄 Sincronización con reparación automática...');
+  
+  try {
+    // Intentar sincronización normal primero
+    const normalSync = await syncDatabase(options);
+    
+    if (normalSync.success && normalSync.stats.syncErrors === 0) {
+      console.log('✅ Sincronización normal exitosa - no se necesita reparación');
+      return normalSync;
+    }
+    
+    // Si hubo errores, intentar reparación
+    console.log('⚠️ Errores detectados en sincronización, iniciando reparación...');
+    
+    const repairResult = await repairProblematicTables();
+    
+    if (repairResult.success) {
+      console.log('✅ Reparación exitosa, reintentando sincronización...');
+      
+      // Reintentar sincronización después de reparación
+      return await syncDatabase(options);
+    } else {
+      console.error('❌ Fallo en reparación');
+      return repairResult;
+    }
+    
+  } catch (error) {
+    console.error('❌ Error en sincronización con reparación:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
 // Función de reset para desarrollo
 const resetDatabase = async () => {
   console.log('⚠️ RESET DE BASE DE DATOS...');
   
   // Obtener TODOS los modelos cargados
   const allLoadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
   );
 
   // Orden inverso inteligente (prioridad inversa + resto) - CORREGIDO
@@ -659,7 +846,7 @@ const createDefaultGymSchedule = async () => {
 // Verificar estado de la base de datos
 const checkDatabaseStatus = async () => {
   const models = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
   );
   const status = {};
   
@@ -675,7 +862,7 @@ const checkDatabaseStatus = async () => {
   return status;
 };
 
-// ✅ FUNCIÓN DE INICIALIZACIÓN MEJORADA CON FIX DE PAYMENT
+// ✅ FUNCIÓN DE INICIALIZACIÓN MEJORADA CON FIX DE PAYMENT Y REPARACIONES
 const initializeForDevelopment = async () => {
   console.log('🚀 Inicializando para desarrollo...');
   
@@ -699,13 +886,35 @@ const initializeForDevelopment = async () => {
       }
     }
 
+    // Verificar si hay problemas con tablas ENUM+UNIQUE
+    const problematicModels = ['GymFormsConfig', 'GymSocialMedia'];
+    let hasEnumProblems = false;
+
+    for (const modelName of problematicModels) {
+      if (db[modelName]) {
+        try {
+          await db[modelName].count();
+        } catch (error) {
+          if (error.message.includes('ENUM') || error.message.includes('does not exist')) {
+            console.log(`⚠️ Detectado problema con ${modelName}, necesita reparación...`);
+            hasEnumProblems = true;
+          }
+        }
+      }
+    }
+
+    if (hasEnumProblems) {
+      console.log('🔧 Aplicando reparaciones específicas...');
+      await repairProblematicTables();
+    }
+
     // Continuar con inicialización normal
     const status = await checkDatabaseStatus();
     const hasErrors = Object.values(status).some(info => !info.exists);
     
     if (hasErrors) {
-      console.log('⚠️ Errores detectados, reseteando...');
-      return await resetDatabase();
+      console.log('⚠️ Errores detectados, usando sincronización con reparación...');
+      return await syncDatabaseWithRepair({ alter: true, forceDevelopmentMode: true });
     } else {
       console.log('✅ Estado OK, sincronizando con ALTER...');
       return await syncDatabase({ alter: true, forceDevelopmentMode: true });
@@ -722,6 +931,8 @@ db.resetDatabase = resetDatabase;
 db.checkDatabaseStatus = checkDatabaseStatus;
 db.initializeForDevelopment = initializeForDevelopment;
 db.repairPaymentModel = repairPaymentModel;
+db.repairProblematicTables = repairProblematicTables;
+db.syncDatabaseWithRepair = syncDatabaseWithRepair;
 
 // ============================================================================
 // AUTO-INICIALIZACIÓN
@@ -778,7 +989,7 @@ const verifyFlexibleScheduleModels = () => {
 const verifyModels = () => {
   const allDiscovered = discoverAllModels();
   const loadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
   );
   
   console.log('\n📊 RESUMEN COMPLETO:');
@@ -868,7 +1079,7 @@ console.log('🎉 Carga simplificada completada\n');
 db.diagnose = () => {
   console.log('\n🔍 DIAGNÓSTICO COMPLETO DE MODELOS:');
   
-  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key));
+  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key));
   
   models.forEach(modelName => {
     const model = db[modelName];
@@ -906,7 +1117,7 @@ db.fullDiagnosis = () => {
   
   const allFiles = discoverAllModels();
   const loadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
   );
   
   console.log(`\n📈 ESTADÍSTICAS GENERALES:`);
