@@ -1,4 +1,4 @@
-// src/routes/membershipRoutes.js - CORREGIDO: Sin duplicaciones y orden optimizado
+// src/routes/membershipRoutes.js - REPARADO: Agregada ruta faltante para pending-cash-payment
 
 const express = require('express');
 const membershipController = require('../controllers/membershipController');
@@ -338,7 +338,14 @@ router.post('/purchase',
   membershipController.purchaseMembership
 );
 
-// =============== RUTAS SOLO PARA STAFF ===============
+// =============== RUTAS SOLO PARA STAFF (ESPECÍFICAS PRIMERO) ===============
+
+// 🔥 RUTA FALTANTE AGREGADA - Membresías pendientes de pago en efectivo (solo staff)
+router.get('/pending-cash-payment',
+  authenticateToken,
+  requireStaff,
+  membershipController.getPendingCashMemberships
+);
 
 // ✅ Solo STAFF puede ver membresías vencidas
 router.get('/expired',
