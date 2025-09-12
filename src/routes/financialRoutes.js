@@ -9,7 +9,7 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
 const { FinancialMovements } = require('../models');
-
+const { query } = require('express-validator');
 const router = express.Router();
 
 // ✅ Gestión de movimientos financieros
@@ -165,6 +165,23 @@ router.get('/movements/automatic-stats',
       });
     }
   }
+);
+
+// ✅ NUEVO: Obtener movimientos financieros combinados con pagos
+router.get('/movements-with-payments',
+  authenticateToken,
+  requireStaff,
+  [
+    query('page').optional().isInt({ min: 1 }).withMessage('Página debe ser un número entero positivo'),
+    query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Límite debe estar entre 1 y 100'),
+    query('startDate').optional().isISO8601().withMessage('Fecha de inicio debe ser válida'),
+    query('endDate').optional().isISO8601().withMessage('Fecha de fin debe ser válida'),
+    query('type').optional().isIn(['income', 'expense']).withMessage('Tipo debe ser income o expense'),
+    query('paymentMethod').optional().isIn(['cash', 'card', 'transfer', 'online']).withMessage('Método de pago inválido'),
+    query('status').optional().isIn(['pending', 'completed', 'failed', 'cancelled']).withMessage('Estado inválido')
+  ],
+  handleValidationErrors,
+  financialController.getMovementsWithPayments
 );
 
 // ✅ Reportes financieros (existentes)

@@ -380,6 +380,80 @@ Payment.createTestData = async function() {
   }
 };
 
+// Método para obtener transferencias con filtros avanzados
+Payment.getTransfersWithFilters = function(filters = {}) {
+  const { 
+    status = 'pending', 
+    hoursOlderThan = null, 
+    amountRange = null, 
+    registeredBy = null 
+  } = filters;
+
+  let where = {
+    paymentMethod: 'transfer',
+    status,
+    transferProof: { [this.sequelize.Op.not]: null }
+  };
+
+  if (hoursOlderThan) {
+    const hoursAgo = new Date(Date.now() - hoursOlderThan * 60 * 60 * 1000);
+    where.createdAt = { [this.sequelize.Op.lte]: hoursAgo };
+  }
+
+  if (amountRange && amountRange.min && amountRange.max) {
+    where.amount = { 
+      [this.sequelize.Op.between]: [amountRange.min, amountRange.max] 
+    };
+  }
+
+  if (registeredBy) {
+    where.registeredBy = registeredBy;
+  }
+
+  return this.findAll({
+    where,
+    include: [
+      { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email', 'phone'] },
+      { association: 'membership', attributes: ['id', 'type', 'endDate'] },
+      { association: 'registeredByUser', attributes: ['id', 'firstName', 'lastName'] }
+    ],
+    order: [['createdAt', 'ASC']]
+  });
+};
+
+// Método para obtener estadísticas de pagos por período
+Payment.getStatsForPeriod = async function(startDate, endDate, filters = {}) {
+  const { paymentMethod = null, paymentType = null, status = 'completed' } = filters;
+  
+  let where = {
+    status,
+    paymentDate: { [this.sequelize.Op.between]: [startDate, endDate] }
+  };
+
+  if (paymentMethod) where.paymentMethod = paymentMethod;
+  if (paymentType) where.paymentType = paymentType;
+
+  const stats = await this.findAll({
+    where,
+    attributes: [
+      [this.sequelize.fn('COUNT', this.sequelize.col('id')), 'totalCount'],
+      [this.sequelize.fn('SUM', this.sequelize.col('amount')), 'totalAmount'],
+      [this.sequelize.fn('AVG', this.sequelize.col('amount')), 'averageAmount'],
+      [this.sequelize.fn('MAX', this.sequelize.col('amount')), 'maxAmount'],
+      [this.sequelize.fn('MIN', this.sequelize.col('amount')), 'minAmount']
+    ],
+    raw: true
+  });
+
+  return {
+    totalCount: parseInt(stats[0].totalCount) || 0,
+    totalAmount: parseFloat(stats[0].totalAmount) || 0,
+    averageAmount: parseFloat(stats[0].averageAmount) || 0,
+    maxAmount: parseFloat(stats[0].maxAmount) || 0,
+    minAmount: parseFloat(stats[0].minAmount) || 0
+  };
+};
+
 // ✅ Asociaciones
 Payment.associate = function(models) {
   Payment.belongsTo(models.User, {

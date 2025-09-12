@@ -191,6 +191,41 @@ FinancialMovements.createAutomaticForGuest = async function(paymentData) {
   }
 };
 
+// Método para obtener movimientos sin asignar
+FinancialMovements.findUnassignedAutomatic = function(limit = 20) {
+  return this.findAll({
+    where: {
+      isAutomatic: true,
+      registeredBy: null
+    },
+    order: [['movementDate', 'DESC']],
+    limit
+  });
+};
+
+// Método para adoptar movimiento automático
+FinancialMovements.adoptAutomaticMovement = async function(movementId, userId) {
+  const movement = await this.findByPk(movementId);
+  
+  if (!movement) {
+    throw new Error('Movimiento financiero no encontrado');
+  }
+  
+  if (movement.registeredBy) {
+    throw new Error('Este movimiento ya tiene un usuario asignado');
+  }
+  
+  if (!movement.isAutomatic) {
+    throw new Error('Solo se pueden adoptar movimientos automáticos');
+  }
+  
+  movement.registeredBy = userId;
+  movement.isAutomatic = false; // Ya no es automático, ahora está asignado
+  await movement.save();
+  
+  return movement;
+};
+
 // Asociaciones
 FinancialMovements.associate = function(models) {
   FinancialMovements.belongsTo(models.User, {

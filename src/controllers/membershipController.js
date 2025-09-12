@@ -2795,6 +2795,114 @@ async getAvailableScheduleOptions(req, res) {
   }
 }
 
+// ✅ NUEVO: Obtener membresías pendientes de pago en efectivo
+async getPendingCashMemberships(req, res) {
+  try {
+    if (!['admin', 'colaborador'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el personal puede ver membresías pendientes'
+      });
+    }
+
+    const { Op } = require('sequelize');
+    const { Membership, MembershipPlans } = require('../models');
+    
+    let whereClause = {
+      status: 'pending'
+    };
+
+    const userInclude = {
+      association: 'user',
+      attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'role']
+    };
+
+    // Colaborador solo ve membresías de clientes
+    if (req.user.role === 'colaborador') {
+      userInclude.where = { role: 'cliente' };
+    }
+
+    const pendingMemberships = await Membership.findAll({
+      where: whereClause,
+      include: [
+        userInclude,
+        {
+          association: 'plan',
+          attributes: ['id', 'planName', 'price'],
+          required: false
+        },
+        {
+          association: 'registeredByUser',
+          attributes: ['id', 'firstName', 'lastName']
+        },
+        {
+          association: 'payments',
+          required: false,
+          attributes: ['id', 'status', 'paymentMethod']
+        }
+      ],
+      order: [['createdAt', 'ASC']]
+    });
+
+    // Filtrar membresías que NO tienen pago completado
+    const filteredMemberships = pendingMemberships.filter(membership => {
+      return !membership.payments || !membership.payments.some(p => p.status === 'completed');
+    });
+
+    // Formatear con horarios y tiempo de espera
+    const formattedMemberships = await Promise.all(
+      filteredMemberships.map(async (membership) => {
+        const schedule = await membership.getDetailedSchedule();
+        const hoursWaiting = (new Date() - membership.createdAt) / (1000 * 60 * 60);
+
+        return {
+          id: membership.id,
+          price: parseFloat(membership.price),
+          type: membership.type,
+          status: membership.status,
+          createdAt: membership.createdAt,
+          user: {
+            id: membership.user.id,
+            name: `${membership.user.firstName} ${membership.user.lastName}`,
+            email: membership.user.email,
+            phone: membership.user.phone
+          },
+          plan: {
+            id: membership.plan?.id,
+            name: membership.plan?.planName,
+            price: parseFloat(membership.plan?.price || membership.price)
+          },
+          schedule,
+          registeredBy: {
+            name: membership.registeredByUser ? 
+              `${membership.registeredByUser.firstName} ${membership.registeredByUser.lastName}` : 
+              'Sistema Online'
+          },
+          hoursWaiting: Math.round(hoursWaiting * 10) / 10,
+          canActivate: true
+        };
+      })
+    );
+
+    console.log(`✅ ${req.user.role} obtuvo ${formattedMemberships.length} membresías pendientes de pago en efectivo`);
+
+    res.json({
+      success: true,
+      data: {
+        memberships: formattedMemberships,
+        total: formattedMemberships.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener membresías pendientes de pago:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener membresías pendientes',
+      error: error.message
+    });
+  }
+}
 
 }
 

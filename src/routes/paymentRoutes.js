@@ -55,6 +55,134 @@ router.get('/my-daily-stats',
   paymentController.getMyDailyStats
 );
 
+// ✅ NUEVO: Dashboard de pagos pendientes (solo staff)
+router.get('/pending-dashboard',
+  authenticateToken,
+  requireStaff,
+  paymentController.getPendingDashboard
+);
+
+// ✅ NUEVO: Transferencias pendientes con detalles mejorados
+router.get('/transfers/pending-detailed',
+  authenticateToken,
+  requireStaff,
+  async (req, res) => {
+    try {
+      const { hoursFilter = 0 } = req.query; // 0=todos, 24=más de 24h, 48=más de 48h
+      const { Payment } = require('../models');
+      const { Op } = require('sequelize');
+
+      let where = {
+        paymentMethod: 'transfer',
+        status: 'pending',
+        transferProof: { [Op.not]: null }
+      };
+
+      // Colaborador solo ve sus transferencias
+      if (req.user.role === 'colaborador') {
+        where.registeredBy = req.user.id;
+      }
+
+      // Filtro por horas
+      if (parseInt(hoursFilter) > 0) {
+        const hoursAgo = new Date(Date.now() - parseInt(hoursFilter) * 60 * 60 * 1000);
+        where.createdAt = { [Op.lte]: hoursAgo };
+      }
+
+      const pendingTransfers = await Payment.findAll({
+        where,
+        include: [
+          {
+            association: 'user',
+            attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
+            required: false
+          },
+          {
+            association: 'membership',
+            attributes: ['id', 'type', 'endDate'],
+            required: false
+          },
+          {
+            association: 'registeredByUser',
+            attributes: ['id', 'firstName', 'lastName']
+          }
+        ],
+        order: [['createdAt', 'ASC']]
+      });
+
+      const formattedTransfers = pendingTransfers.map(payment => {
+        const hoursWaiting = (new Date() - payment.createdAt) / (1000 * 60 * 60);
+        
+        return {
+          id: payment.id,
+          amount: parseFloat(payment.amount),
+          paymentDate: payment.paymentDate,
+          createdAt: payment.createdAt,
+          description: payment.description,
+          transferProof: payment.transferProof,
+          
+          user: payment.user ? {
+            id: payment.user.id,
+            name: `${payment.user.firstName} ${payment.user.lastName}`,
+            email: payment.user.email,
+            phone: payment.user.phone
+          } : payment.getClientInfo(),
+          
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            type: payment.membership.type,
+            endDate: payment.membership.endDate
+          } : null,
+          
+          registeredBy: payment.registeredByUser ? {
+            name: `${payment.registeredByUser.firstName} ${payment.registeredByUser.lastName}`
+          } : { name: 'Sistema' },
+          
+          hoursWaiting: Math.round(hoursWaiting * 10) / 10,
+          priority: hoursWaiting > 48 ? 'critical' : 
+                   hoursWaiting > 24 ? 'high' : 
+                   hoursWaiting > 12 ? 'medium' : 'normal',
+          canValidate: true
+        };
+      });
+
+      // Agrupar por prioridad
+      const groupedByPriority = {
+        critical: formattedTransfers.filter(t => t.priority === 'critical'),
+        high: formattedTransfers.filter(t => t.priority === 'high'),
+        medium: formattedTransfers.filter(t => t.priority === 'medium'),
+        normal: formattedTransfers.filter(t => t.priority === 'normal')
+      };
+
+      res.json({
+        success: true,
+        data: {
+          transfers: formattedTransfers,
+          total: formattedTransfers.length,
+          groupedByPriority,
+          summary: {
+            totalAmount: formattedTransfers.reduce((sum, t) => sum + t.amount, 0),
+            averageWaitingHours: formattedTransfers.length > 0 ? 
+              formattedTransfers.reduce((sum, t) => sum + t.hoursWaiting, 0) / formattedTransfers.length : 0,
+            criticalCount: groupedByPriority.critical.length,
+            oldestHours: formattedTransfers.length > 0 ? 
+              Math.max(...formattedTransfers.map(t => t.hoursWaiting)) : 0
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Error al obtener transferencias pendientes detalladas:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener transferencias pendientes',
+        error: error.message
+      });
+    }
+  }
+);
+
+
 // 💰 NUEVO: Pagos anónimos solo para tipo 'daily' (solo staff)
 router.post('/daily-anonymous',
   authenticateToken,
