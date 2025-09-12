@@ -1512,6 +1512,134 @@ async getPendingDashboard(req, res) {
     });
   }
 }
+// AGREGAR ESTE MÉTODO al paymentController.js después del método getPendingDashboard
+
+// ✅ NUEVO: Obtener estadísticas de pagos
+async getPaymentStatistics(req, res) {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!['admin', 'colaborador'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el personal puede ver estadísticas de pagos'
+      });
+    }
+
+    const { Payment } = require('../models');
+    const { Op } = require('sequelize');
+
+    // Establecer rango de fechas
+    let dateRange = {};
+    if (startDate || endDate) {
+      dateRange.paymentDate = {};
+      if (startDate) dateRange.paymentDate[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        dateRange.paymentDate[Op.lte] = end;
+      }
+    } else {
+      // Por defecto, último mes
+      const monthAgo = new Date();
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      dateRange.paymentDate = { [Op.gte]: monthAgo };
+    }
+
+    // Base query para pagos completados
+    const baseWhere = {
+      status: 'completed',
+      ...dateRange
+    };
+
+    // Si es colaborador, solo sus pagos
+    if (req.user.role === 'colaborador') {
+      baseWhere.registeredBy = req.user.id;
+    }
+
+    try {
+      // Calcular estadísticas básicas
+      const [
+        totalIncome,
+        totalPayments,
+        averagePayment,
+        incomeByMethodData
+      ] = await Promise.all([
+        // Total de ingresos
+        Payment.sum('amount', { where: baseWhere }) || 0,
+        
+        // Total de pagos
+        Payment.count({ where: baseWhere }),
+        
+        // Promedio de pago
+        Payment.findOne({
+          attributes: [[Payment.sequelize.fn('AVG', Payment.sequelize.col('amount')), 'avg']],
+          where: baseWhere
+        }),
+        
+        // Ingresos por método
+        Payment.findAll({
+          attributes: [
+            'paymentMethod',
+            [Payment.sequelize.fn('SUM', Payment.sequelize.col('amount')), 'total'],
+            [Payment.sequelize.fn('COUNT', Payment.sequelize.col('id')), 'count']
+          ],
+          where: baseWhere,
+          group: ['paymentMethod']
+        })
+      ]);
+
+      // Formatear datos
+      const stats = {
+        totalIncome: parseFloat(totalIncome) || 0,
+        totalPayments: totalPayments || 0,
+        averagePayment: parseFloat(averagePayment?.dataValues?.avg) || 0,
+        incomeByMethod: incomeByMethodData.map(item => ({
+          method: item.paymentMethod,
+          total: parseFloat(item.dataValues.total),
+          count: parseInt(item.dataValues.count),
+          percentage: totalIncome > 0 ? ((parseFloat(item.dataValues.total) / totalIncome) * 100).toFixed(1) : '0'
+        }))
+      };
+
+      console.log(`✅ ${req.user.role} obtuvo estadísticas: $${stats.totalIncome} (${stats.totalPayments} pagos)`);
+
+      res.json({
+        success: true,
+        data: stats
+      });
+
+    } catch (statsError) {
+      console.error('Error al calcular estadísticas específicas:', statsError);
+      
+      // Devolver estadísticas vacías si hay error
+      res.json({
+        success: true,
+        data: {
+          totalIncome: 0,
+          totalPayments: 0,
+          averagePayment: 0,
+          incomeByMethod: []
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('Error al obtener estadísticas de pagos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener estadísticas de pagos',
+      error: error.message,
+      // Fallback data para evitar errores en frontend
+      data: {
+        totalIncome: 0,
+        totalPayments: 0,
+        averagePayment: 0,
+        incomeByMethod: []
+      }
+    });
+  }
+}
 
 
 }

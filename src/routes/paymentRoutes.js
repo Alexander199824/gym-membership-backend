@@ -1,4 +1,4 @@
-// src/routes/paymentRoutes.js - CORREGIDO: Clientes protegidos, colaboradores habilitados + RUTAS PARA INVITADOS
+// src/routes/paymentRoutes.js - COMPLETO: Todas las funciones + Rutas corregidas
 const express = require('express');
 const paymentController = require('../controllers/paymentController');
 const { 
@@ -9,10 +9,11 @@ const {
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff, requireAdmin } = require('../middleware/auth');
 const { uploadLimiter } = require('../middleware/rateLimiter');
+const { query } = require('express-validator');
 
 const router = express.Router();
 
-// Verificar si Cloudinary está configurado (sin cambios)
+// Verificar si Cloudinary está configurado
 const hasCloudinary = 
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -41,34 +42,29 @@ if (!uploadTransferProof) {
   };
 }
 
-// ✅ ========== NUEVAS RUTAS ESPECÍFICAS PARA COLABORADORES ==========
+// ✅ ========== RUTAS ESPECÍFICAS (DEBEN IR ANTES DE /:id) ==========
 
-// 📊 NUEVO: Reporte diario personal del colaborador (solo colaboradores)
-router.get('/my-daily-report', 
-  authenticateToken,
-  paymentController.getMyDailyReport
-);
-
-// 📈 NUEVO: Estadísticas diarias personales del colaborador (solo colaboradores)
-router.get('/my-daily-stats',
+// ✅ NUEVO: Estadísticas de pagos - CRÍTICO: DEBE IR ANTES DE /:id
+router.get('/statistics', 
   authenticateToken, 
-  paymentController.getMyDailyStats
+  requireStaff, 
+  paymentController.getPaymentStatistics
 );
 
-// ✅ NUEVO: Dashboard de pagos pendientes (solo staff)
+// ✅ Dashboard de pagos pendientes
 router.get('/pending-dashboard',
   authenticateToken,
   requireStaff,
   paymentController.getPendingDashboard
 );
 
-// ✅ NUEVO: Transferencias pendientes con detalles mejorados
+// ✅ Transferencias pendientes con detalles mejorados
 router.get('/transfers/pending-detailed',
   authenticateToken,
   requireStaff,
   async (req, res) => {
     try {
-      const { hoursFilter = 0 } = req.query; // 0=todos, 24=más de 24h, 48=más de 48h
+      const { hoursFilter = 0 } = req.query;
       const { Payment } = require('../models');
       const { Op } = require('sequelize');
 
@@ -182,11 +178,29 @@ router.get('/transfers/pending-detailed',
   }
 );
 
+// ✅ Transferencias pendientes básicas
+router.get('/transfers/pending', 
+  authenticateToken,
+  requireStaff,
+  paymentController.getPendingTransfers
+);
 
-// 💰 NUEVO: Pagos anónimos solo para tipo 'daily' (solo staff)
+// ✅ Reporte diario personal del colaborador
+router.get('/my-daily-report', 
+  authenticateToken,
+  paymentController.getMyDailyReport
+);
+
+// ✅ Estadísticas diarias personales del colaborador
+router.get('/my-daily-stats',
+  authenticateToken, 
+  paymentController.getMyDailyStats
+);
+
+// ✅ Pago anónimo solo para tipo 'daily' (solo staff)
 router.post('/daily-anonymous',
   authenticateToken,
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
+  requireStaff,
   async (req, res) => {
     try {
       const {
@@ -253,9 +267,9 @@ router.post('/daily-anonymous',
   }
 );
 
-// ✅ ========== NUEVAS RUTAS PARA ESTADÍSTICAS DE INVITADOS ==========
+// ✅ ========== ESTADÍSTICAS DE INVITADOS ==========
 
-// ✅ NUEVO: Estadísticas de pagos de invitados
+// ✅ Estadísticas de pagos de invitados
 router.get('/guest-stats', 
   authenticateToken, 
   requireStaff, 
@@ -323,7 +337,7 @@ router.get('/guest-stats',
         ]
       });
 
-      // Productos más comprados por invitados (si hay modelos de tienda disponibles)
+      // Productos más comprados por invitados
       let topGuestProducts = [];
       try {
         topGuestProducts = await StoreOrderItem.findAll({
@@ -363,7 +377,6 @@ router.get('/guest-stats',
       const registeredAmount = parseFloat(registeredData.totalAmount) || 0;
       const registeredAverage = parseFloat(registeredData.averageAmount) || 0;
 
-      // Calcular métricas adicionales
       const totalPayments = guestTotal + registeredTotal;
       const guestPercentage = totalPayments > 0 ? (guestTotal / totalPayments * 100).toFixed(1) : '0';
 
@@ -411,7 +424,7 @@ router.get('/guest-stats',
   }
 );
 
-// ✅ NUEVO: Pagos de invitados detallados
+// ✅ Pagos de invitados detallados
 router.get('/guest-payments', 
   authenticateToken, 
   requireStaff, 
@@ -490,7 +503,7 @@ router.get('/guest-payments',
   }
 );
 
-// ✅ NUEVO: Convertir pago de invitado en usuario registrado
+// ✅ Convertir pago de invitado en usuario registrado
 router.post('/convert-guest-to-user', 
   authenticateToken, 
   requireStaff, 
@@ -506,7 +519,6 @@ router.post('/convert-guest-to-user',
         });
       }
 
-      // Buscar el pago de invitado
       const payment = await Payment.findByPk(paymentId);
       
       if (!payment) {
@@ -523,7 +535,6 @@ router.post('/convert-guest-to-user',
         });
       }
 
-      // Buscar usuario por email
       const user = await User.findOne({ where: { email: userEmail } });
       
       if (!user) {
@@ -533,7 +544,6 @@ router.post('/convert-guest-to-user',
         });
       }
 
-      // Actualizar el pago
       payment.userId = user.id;
       payment.notes = payment.notes 
         ? `${payment.notes}\n\nConvertido de pago de invitado a usuario ${user.email} por ${req.user.getFullName()}`
@@ -565,103 +575,150 @@ router.post('/convert-guest-to-user',
   }
 );
 
-// ✅ ========== RUTAS DE REPORTES (Solo STAFF) ==========
+// ✅ ========== REPORTES (Solo STAFF) ==========
 
-// ✅ CORREGIDO: Solo STAFF puede ver reportes - CLIENTES NO PUEDEN
+// ✅ Reportes mejorados
 router.get('/reports/enhanced', 
   authenticateToken, 
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
+  requireStaff,
   paymentController.getEnhancedPaymentReports
 );
 
-// ✅ CORREGIDO: Solo STAFF puede ver reportes - CLIENTES NO PUEDEN
+// ✅ Reportes básicos
 router.get('/reports', 
   authenticateToken,
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
+  requireStaff,
   paymentController.getPaymentReports
 );
 
 // ✅ ========== RUTAS PRINCIPALES ==========
 
-// ✅ CORREGIDO: Cliente puede ver SUS pagos, staff ve según permisos
+// ✅ Lista de pagos (con paginación y filtros)
 router.get('/', 
   authenticateToken,
-  // ✅ Permitir a clientes acceso - el controlador filtra por userId para clientes
+  [
+    query('page').optional().isInt({ min: 1 }).withMessage('Página debe ser un número entero positivo'),
+    query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Límite debe estar entre 1 y 100'),
+    query('startDate').optional().isISO8601().withMessage('Fecha de inicio debe ser válida'),
+    query('endDate').optional().isISO8601().withMessage('Fecha de fin debe ser válida'),
+    query('paymentType').optional().isIn(['membership', 'daily', 'bulk_daily', 'product', 'service', 'other']).withMessage('Tipo de pago inválido'),
+    query('paymentMethod').optional().isIn(['cash', 'card', 'transfer', 'mobile']).withMessage('Método de pago inválido'),
+    query('status').optional().isIn(['pending', 'completed', 'failed', 'cancelled']).withMessage('Estado inválido')
+  ],
+  handleValidationErrors,
   paymentController.getPayments
 );
 
-// ✅ CORREGIDO: Solo STAFF puede ver transferencias pendientes - CLIENTES NO PUEDEN
-router.get('/transfers/pending', 
-  authenticateToken,
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES EXCLUIDOS
-  paymentController.getPendingTransfers
-);
-
-// ✅ Solo STAFF puede crear pagos (sin cambios)
+// ✅ Crear pago
 router.post('/', 
   authenticateToken,
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN CREAR PAGOS
+  requireStaff,
   createPaymentValidator,
   handleValidationErrors,
   paymentController.createPayment
 );
 
-// ✅ Solo STAFF puede registrar ingresos diarios (sin cambios)
+// ✅ Registrar ingresos diarios totales
 router.post('/daily-income', 
   authenticateToken,
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
+  requireStaff,
   dailyIncomeValidator,
   handleValidationErrors,
   paymentController.registerDailyIncome
 );
 
-// ✅ Solo STAFF puede crear pagos desde órdenes (sin cambios)
+// ✅ Crear pago desde orden de tienda
 router.post('/from-order', 
   authenticateToken, 
-  requireStaff, // ✅ Solo admin y colaborador - CLIENTES NO PUEDEN
+  requireStaff,
   paymentController.createPaymentFromOrder
 );
 
-// ✅ ========== RUTAS CON PARÁMETROS ==========
-
-// ✅ CORREGIDO: Cliente puede ver SUS pagos por ID, staff ve según permisos
-router.get('/:id', 
-  authenticateToken,
-  // ✅ Permitir a clientes acceso - validación específica en controlador
-  paymentController.getPaymentById
-);
-
-// ✅ CORREGIDO: Cliente puede subir comprobantes de SUS pagos, staff también
-router.post('/:id/transfer-proof', 
-  authenticateToken,
-  // ✅ Permitir a clientes acceso - validación específica en controlador
-  uploadLimiter,
-  uploadTransferProof.single('proof'),
-  paymentController.uploadTransferProof
-);
-
-// ✅ Solo ADMIN puede validar transferencias (sin cambios)
-router.post('/:id/validate-transfer', 
-  authenticateToken,
-  requireAdmin, // ✅ SOLO ADMIN
-  validateTransferValidator,
-  handleValidationErrors,
-  paymentController.validateTransfer
-);
-
-// Activar membresía pagada en efectivo
+// ✅ Activar membresía pagada en efectivo
 router.post('/activate-cash-membership',
   authenticateToken,
   requireStaff,
   paymentController.activateCashMembership
 );
 
-// Rechazar transferencia
+// ✅ ========== RUTAS CON PARÁMETROS (DEBEN IR AL FINAL) ==========
+
+// ✅ Obtener pago por ID - DEBE IR AL FINAL después de todas las rutas específicas
+router.get('/:id', 
+  authenticateToken,
+  paymentController.getPaymentById
+);
+
+// ✅ Subir comprobante de transferencia
+router.post('/:id/transfer-proof', 
+  authenticateToken,
+  uploadLimiter,
+  uploadTransferProof.single('proof'),
+  paymentController.uploadTransferProof
+);
+
+// ✅ Validar transferencia (solo admin)
+router.post('/:id/validate-transfer', 
+  authenticateToken,
+  requireAdmin,
+  validateTransferValidator,
+  handleValidationErrors,
+  paymentController.validateTransfer
+);
+
+// ✅ Rechazar transferencia (solo admin)
 router.post('/:id/reject-transfer',
   authenticateToken,
   requireAdmin,
   paymentController.rejectTransfer
 );
 
-
 module.exports = router;
+
+// ✅ RUTAS INCLUIDAS COMPLETAS:
+// 
+// 📊 ESTADÍSTICAS Y DASHBOARD:
+// - GET /statistics (NUEVO - CRÍTICO)
+// - GET /pending-dashboard  
+// - GET /transfers/pending-detailed
+// - GET /transfers/pending
+// - GET /my-daily-report
+// - GET /my-daily-stats
+// 
+// 👥 INVITADOS:
+// - GET /guest-stats
+// - GET /guest-payments
+// - POST /convert-guest-to-user
+// - POST /daily-anonymous
+// 
+// 📈 REPORTES:
+// - GET /reports/enhanced
+// - GET /reports
+// 
+// 💰 PAGOS PRINCIPALES:
+// - GET / (lista con filtros)
+// - POST / (crear)
+// - POST /daily-income
+// - POST /from-order
+// - POST /activate-cash-membership
+// 
+// 🔍 PAGOS ESPECÍFICOS:
+// - GET /:id
+// - POST /:id/transfer-proof
+// - POST /:id/validate-transfer
+// - POST /:id/reject-transfer
+// 
+// ✅ ORDEN CORRECTO:
+// 1. Rutas específicas PRIMERO
+// 2. Rutas con parámetros AL FINAL
+// 3. /statistics ANTES de /:id (CRÍTICO)
+// 
+// ✅ FUNCIONALIDADES MANTENIDAS:
+// - Todas las validaciones existentes
+// - Todos los middlewares de autenticación
+// - Todas las funcionalidades de colaboradores
+// - Todas las estadísticas de invitados
+// - Todos los reportes existentes
+// - Toda la funcionalidad de transferencias
+// - Cloudinary upload configurado
+// - Rate limiting mantenido
