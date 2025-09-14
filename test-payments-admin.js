@@ -1,4 +1,4 @@
-// detailed-payments-analyzer.js - Ver TODA la información de cada pago
+// test-payments-admin.js - ACTUALIZADO con todas las nuevas rutas y funcionalidades CORREGIDO
 const axios = require('axios');
 
 class DetailedPaymentsAnalyzer {
@@ -6,6 +6,10 @@ class DetailedPaymentsAnalyzer {
     this.baseURL = baseURL;
     this.adminToken = null;
     this.allPayments = [];
+    this.pendingDashboard = null;
+    this.pendingCashPayments = [];
+    this.pendingTransfers = [];
+    this.paymentStatistics = null;
   }
 
   async analyzeAllPayments() {
@@ -15,7 +19,12 @@ class DetailedPaymentsAnalyzer {
     
     try {
       await this.loginAdmin();
+      await this.getPaymentStatistics(); // ✅ NUEVO
+      await this.getPendingDashboard(); // ✅ NUEVO
+      await this.getPendingCashPayments(); // ✅ NUEVO
+      await this.getPendingTransfers(); // ✅ NUEVO
       await this.getAllPayments();
+      await this.showPendingPaymentsAnalysis(); // ✅ NUEVO
       await this.showDetailedPayments();
       await this.showPaymentsSummary();
       await this.showUserAnalysis();
@@ -49,16 +58,178 @@ class DetailedPaymentsAnalyzer {
     }
   }
 
-  async getAllPayments() {
-    console.log('\n2. 💰 Obteniendo TODOS los pagos con información completa...');
+  // ✅ NUEVO: Obtener estadísticas de pagos
+  async getPaymentStatistics() {
+    console.log('\n2. 📊 Obteniendo estadísticas generales del sistema...');
     
     try {
-      // Obtener todos los pagos sin límite
+      const response = await axios.get(`${this.baseURL}/api/payments/statistics`, {
+        headers: { 'Authorization': `Bearer ${this.adminToken}` }
+      });
+
+      if (response.data.success) {
+        this.paymentStatistics = response.data.data;
+        console.log('   ✅ Estadísticas obtenidas exitosamente');
+        console.log(`   💰 Total de ingresos: $${this.paymentStatistics.totalIncome || 0}`);
+        console.log(`   📊 Total de pagos: ${this.paymentStatistics.totalPayments || 0}`);
+        console.log(`   📈 Promedio por pago: $${(this.paymentStatistics.averagePayment || 0).toFixed(2)}`);
+        
+        if (this.paymentStatistics.incomeByMethod && this.paymentStatistics.incomeByMethod.length > 0) {
+          console.log('   💳 Métodos de pago:');
+          this.paymentStatistics.incomeByMethod.forEach(method => {
+            console.log(`      ${this.getMethodIcon(method.method)} ${method.method}: ${method.count} pagos ($${method.total})`);
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('   ⚠️ Error obteniendo estadísticas:', error.response?.data?.message || error.message);
+      this.paymentStatistics = null;
+    }
+  }
+
+  // ✅ NUEVO: Obtener dashboard de pagos pendientes
+  async getPendingDashboard() {
+    console.log('\n3. 🎯 Obteniendo dashboard de pagos pendientes...');
+    
+    try {
+      const response = await axios.get(`${this.baseURL}/api/payments/pending-dashboard`, {
+        headers: { 'Authorization': `Bearer ${this.adminToken}` }
+      });
+
+      if (response.data.success) {
+        this.pendingDashboard = response.data.data;
+        console.log('   ✅ Dashboard obtenido exitosamente');
+        
+        const { summary } = this.pendingDashboard;
+        
+        console.log('   📊 RESUMEN DEL DASHBOARD:');
+        console.log(`      🏦 Transferencias pendientes: ${summary.pendingTransfers.count} ($${summary.pendingTransfers.totalAmount})`);
+        console.log(`      💵 Pagos en efectivo pendientes: ${summary.pendingCashPayments.count} ($${summary.pendingCashPayments.totalAmount})`);
+        console.log(`      ⚡ Total acciones pendientes: ${summary.totalPendingActions}`);
+        
+        if (summary.pendingTransfers.oldestHours > 0) {
+          console.log(`      ⏰ Transferencia más antigua: ${summary.pendingTransfers.oldestHours} horas`);
+        }
+        
+        if (summary.pendingCashPayments.oldestHours > 0) {
+          console.log(`      ⏰ Pago en efectivo más antiguo: ${summary.pendingCashPayments.oldestHours} horas`);
+        }
+
+        // Items urgentes
+        if (this.pendingDashboard.urgentItems && this.pendingDashboard.urgentItems.length > 0) {
+          console.log(`   🚨 ITEMS URGENTES: ${this.pendingDashboard.urgentItems.length}`);
+          this.pendingDashboard.urgentItems.slice(0, 3).forEach((item, index) => {
+            console.log(`      ${index + 1}. ${item.clientName} - $${item.amount} (${item.hoursWaiting}h)`);
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('   ⚠️ Error obteniendo dashboard:', error.response?.data?.message || error.message);
+      this.pendingDashboard = null;
+    }
+  }
+
+  // ✅ NUEVO: Obtener pagos en efectivo pendientes
+  async getPendingCashPayments() {
+    console.log('\n4. 💵 Obteniendo pagos en EFECTIVO pendientes...');
+    
+    try {
+      const response = await axios.get(`${this.baseURL}/api/payments/cash/pending`, {
+        headers: { 'Authorization': `Bearer ${this.adminToken}` }
+      });
+
+      if (response.data.success) {
+        this.pendingCashPayments = response.data.data.payments || [];
+        console.log(`   ✅ Pagos en efectivo pendientes: ${this.pendingCashPayments.length}`);
+        
+        if (this.pendingCashPayments.length > 0) {
+          const totalAmount = response.data.data.summary?.totalAmount || 0;
+          console.log(`   💰 Total pendiente en efectivo: $${totalAmount}`);
+          
+          // Mostrar algunos detalles
+          console.log('   📋 DETALLES DE PAGOS EN EFECTIVO:');
+          this.pendingCashPayments.slice(0, 5).forEach((payment, index) => {
+            const clientName = payment.client?.name || 'Cliente anónimo';
+            const waitingHours = payment.hoursWaiting || 0;
+            const priority = payment.priority || 'normal';
+            const priorityIcon = priority === 'critical' ? '🔴' : priority === 'high' ? '🟡' : '🟢';
+            
+            console.log(`      ${index + 1}. ${priorityIcon} ${clientName} - $${payment.amount} (${waitingHours}h)`);
+            if (payment.membership) {
+              console.log(`         🏋️ Membresía: ${payment.membership.type} - Plan: ${payment.membership.plan?.name || 'N/A'}`);
+            }
+          });
+          
+          if (this.pendingCashPayments.length > 5) {
+            console.log(`      ... y ${this.pendingCashPayments.length - 5} más`);
+          }
+        } else {
+          console.log('   ✅ No hay pagos en efectivo pendientes');
+        }
+      }
+    } catch (error) {
+      console.warn('   ⚠️ Error obteniendo pagos en efectivo pendientes:', error.response?.data?.message || error.message);
+      this.pendingCashPayments = [];
+    }
+  }
+
+  // ✅ NUEVO: Obtener transferencias pendientes
+  async getPendingTransfers() {
+    console.log('\n5. 🏦 Obteniendo TRANSFERENCIAS pendientes...');
+    
+    try {
+      const response = await axios.get(`${this.baseURL}/api/payments/transfers/pending`, {
+        headers: { 'Authorization': `Bearer ${this.adminToken}` }
+      });
+
+      if (response.data.success) {
+        this.pendingTransfers = response.data.data.transfers || [];
+        console.log(`   ✅ Transferencias pendientes: ${this.pendingTransfers.length}`);
+        
+        if (this.pendingTransfers.length > 0) {
+          const totalAmount = this.pendingTransfers.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+          console.log(`   💰 Total pendiente en transferencias: $${totalAmount.toFixed(2)}`);
+          
+          // Mostrar algunos detalles
+          console.log('   📋 DETALLES DE TRANSFERENCIAS:');
+          this.pendingTransfers.slice(0, 5).forEach((transfer, index) => {
+            const clientName = transfer.user ? 
+              `${transfer.user.firstName} ${transfer.user.lastName}` : 
+              'Cliente anónimo';
+            const hasProof = transfer.transferProof ? '✅ Con comprobante' : '❌ Sin comprobante';
+            const registeredBy = transfer.registeredByUser ? 
+              `${transfer.registeredByUser.firstName} ${transfer.registeredByUser.lastName}` : 
+              'Sistema';
+            
+            console.log(`      ${index + 1}. ${clientName} - $${transfer.amount}`);
+            console.log(`         📄 ${hasProof} | 👤 Registrado por: ${registeredBy}`);
+            console.log(`         📅 Fecha: ${this.formatDate(transfer.paymentDate)}`);
+          });
+          
+          if (this.pendingTransfers.length > 5) {
+            console.log(`      ... y ${this.pendingTransfers.length - 5} más`);
+          }
+        } else {
+          console.log('   ✅ No hay transferencias pendientes');
+        }
+      }
+    } catch (error) {
+      console.warn('   ⚠️ Error obteniendo transferencias pendientes:', error.response?.data?.message || error.message);
+      this.pendingTransfers = [];
+    }
+  }
+
+  async getAllPayments() {
+    console.log('\n6. 💰 Obteniendo TODOS los pagos con información completa...');
+    
+    try {
+      // Obtener todos los pagos (incluyendo todos los estados)
       const response = await axios.get(`${this.baseURL}/api/payments`, {
         headers: { 'Authorization': `Bearer ${this.adminToken}` },
         params: {
-          limit: 100, // Aumentar límite para obtener todos
-          page: 1
+          limit: 100,
+          page: 1,
+          includeAll: 'true' // ✅ NUEVO: Para incluir todos los estados
         }
       });
 
@@ -76,7 +247,11 @@ class DetailedPaymentsAnalyzer {
           for (let page = 2; page <= pagination.pages; page++) {
             const pageResponse = await axios.get(`${this.baseURL}/api/payments`, {
               headers: { 'Authorization': `Bearer ${this.adminToken}` },
-              params: { limit: 100, page }
+              params: { 
+                limit: 100, 
+                page,
+                includeAll: 'true'
+              }
             });
             
             if (pageResponse.data.success) {
@@ -88,6 +263,10 @@ class DetailedPaymentsAnalyzer {
         
         console.log(`   🎯 TOTAL DE PAGOS OBTENIDOS: ${this.allPayments.length}`);
         
+        if (this.allPayments.length === 0) {
+          console.log('   📝 No hay pagos registrados en el sistema');
+        }
+        
       } else {
         throw new Error('Respuesta sin éxito al obtener pagos');
       }
@@ -96,8 +275,134 @@ class DetailedPaymentsAnalyzer {
     }
   }
 
+  // ✅ NUEVO: Análisis específico de pagos pendientes
+  async showPendingPaymentsAnalysis() {
+    console.log('\n7. 🎯 ANÁLISIS DETALLADO DE PAGOS PENDIENTES');
+    console.log('=' .repeat(70));
+    
+    // Dashboard general
+    if (this.pendingDashboard) {
+      console.log('📊 DASHBOARD DE PAGOS PENDIENTES:');
+      console.log(`   🎯 Total de acciones pendientes: ${this.pendingDashboard.summary.totalPendingActions}`);
+      
+      // Actividad de hoy
+      if (this.pendingDashboard.summary.todayActivity) {
+        const today = this.pendingDashboard.summary.todayActivity;
+        console.log(`   📅 Actividad de hoy:`);
+        
+        if (today.transferValidations) {
+          console.log(`      🏦 Validaciones de transferencia: ${today.transferValidations.approved} aprobadas, ${today.transferValidations.rejected} rechazadas`);
+        }
+        
+        if (today.completedPayments) {
+          console.log(`      ✅ Pagos completados: ${today.completedPayments}`);
+        }
+      }
+      
+      // Actividad reciente
+      if (this.pendingDashboard.recentActivity && this.pendingDashboard.recentActivity.length > 0) {
+        console.log(`\n   📋 ACTIVIDAD RECIENTE (últimas ${Math.min(5, this.pendingDashboard.recentActivity.length)} acciones):`);
+        this.pendingDashboard.recentActivity.slice(0, 5).forEach((activity, index) => {
+          const actionIcon = activity.action.includes('approved') ? '✅' : 
+                           activity.action.includes('rejected') ? '❌' : 
+                           activity.action.includes('confirmed') ? '💵' : '📋';
+          console.log(`      ${index + 1}. ${actionIcon} ${activity.clientName} - $${activity.amount}`);
+          console.log(`         ${activity.action} por ${activity.performedBy}`);
+          console.log(`         📅 ${this.formatDate(activity.timestamp)}`);
+        });
+      }
+    }
+    
+    console.log('\n💵 ANÁLISIS DE PAGOS EN EFECTIVO PENDIENTES:');
+    if (this.pendingCashPayments.length === 0) {
+      console.log('   ✅ No hay pagos en efectivo pendientes');
+    } else {
+      // Agrupar por prioridad
+      const byPriority = this.groupBy(this.pendingCashPayments, 'priority');
+      
+      Object.entries(byPriority).forEach(([priority, payments]) => {
+        const priorityIcon = priority === 'critical' ? '🔴' : 
+                           priority === 'high' ? '🟡' : 
+                           priority === 'medium' ? '🟠' : '🟢';
+        const totalAmount = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+        
+        console.log(`   ${priorityIcon} ${priority.toUpperCase()}: ${payments.length} pagos ($${totalAmount.toFixed(2)})`);
+        
+        payments.slice(0, 3).forEach((payment, index) => {
+          console.log(`      ${index + 1}. ${payment.client?.name || 'Cliente anónimo'} - $${payment.amount}`);
+          console.log(`         ⏰ Esperando: ${payment.hoursWaiting}h | Tipo: ${payment.paymentType}`);
+          
+          if (payment.membership) {
+            console.log(`         🏋️ Membresía: ${payment.membership.type}`);
+          }
+        });
+        
+        if (payments.length > 3) {
+          console.log(`      ... y ${payments.length - 3} más`);
+        }
+      });
+    }
+    
+    console.log('\n🏦 ANÁLISIS DE TRANSFERENCIAS PENDIENTES:');
+    
+    // ✅ FIX: Definir variables siempre, independientemente del número de transferencias
+    const withProof = this.pendingTransfers.filter(t => t.transferProof);
+    const withoutProof = this.pendingTransfers.filter(t => !t.transferProof);
+    
+    if (this.pendingTransfers.length === 0) {
+      console.log('   ✅ No hay transferencias pendientes');
+    } else {
+      console.log(`   📄 Con comprobante: ${withProof.length} transferencias`);
+      console.log(`   ❌ Sin comprobante: ${withoutProof.length} transferencias`);
+      
+      // Mostrar transferencias con comprobante (listas para validar)
+      if (withProof.length > 0) {
+        console.log('\n   🎯 LISTAS PARA VALIDAR (con comprobante):');
+        withProof.slice(0, 5).forEach((transfer, index) => {
+          const clientName = transfer.user ? 
+            `${transfer.user.firstName} ${transfer.user.lastName}` : 
+            'Cliente anónimo';
+          
+          console.log(`      ${index + 1}. ${clientName} - $${transfer.amount}`);
+          console.log(`         📅 ${this.formatDate(transfer.paymentDate)}`);
+          console.log(`         👤 Registrado por: ${transfer.registeredByUser?.firstName || 'Sistema'} ${transfer.registeredByUser?.lastName || ''}`);
+          
+          if (transfer.membership) {
+            console.log(`         🏋️ Membresía: ${transfer.membership.type}`);
+          }
+        });
+      }
+      
+      // Mostrar transferencias sin comprobante
+      if (withoutProof.length > 0) {
+        console.log('\n   ⏳ ESPERANDO COMPROBANTE:');
+        withoutProof.slice(0, 3).forEach((transfer, index) => {
+          const clientName = transfer.user ? 
+            `${transfer.user.firstName} ${transfer.user.lastName}` : 
+            'Cliente anónimo';
+          
+          console.log(`      ${index + 1}. ${clientName} - $${transfer.amount}`);
+          console.log(`         📅 ${this.formatDate(transfer.paymentDate)}`);
+        });
+      }
+    }
+    
+    // Resumen de acciones necesarias
+    console.log('\n🎯 ACCIONES REQUERIDAS:');
+    const totalActions = this.pendingCashPayments.length + withProof.length;
+    
+    if (totalActions === 0) {
+      console.log('   ✅ No hay acciones pendientes en este momento');
+    } else {
+      console.log(`   💵 Confirmar ${this.pendingCashPayments.length} pagos en efectivo en el gimnasio`);
+      console.log(`   🏦 Validar ${withProof.length} transferencias con comprobante`);
+      console.log(`   ⏳ Esperar comprobantes de ${withoutProof.length} transferencias`);
+      console.log(`   🎯 Total de acciones: ${totalActions}`);
+    }
+  }
+
   async showDetailedPayments() {
-    console.log('\n3. 📋 INFORMACIÓN DETALLADA DE CADA PAGO');
+    console.log('\n8. 📋 INFORMACIÓN DETALLADA DE CADA PAGO');
     console.log('=' .repeat(70));
     
     if (this.allPayments.length === 0) {
@@ -167,7 +472,7 @@ class DetailedPaymentsAnalyzer {
         console.log('\n🔄 INFORMACIÓN DE TRANSFERENCIA:');
         console.log(`   📄 Comprobante: ${payment.transferProof ? '✅ Subido' : '❌ No subido'}`);
         
-        if (payment.transferValidated !== null) {
+        if (payment.transferValidated !== null && payment.transferValidated !== undefined) {
           console.log(`   ✅ Validado: ${payment.transferValidated ? '✅ Aprobado' : '❌ Rechazado'}`);
           console.log(`   📅 Fecha de validación: ${this.formatDate(payment.transferValidatedAt)}`);
           
@@ -198,7 +503,7 @@ class DetailedPaymentsAnalyzer {
   }
 
   async showPaymentsSummary() {
-    console.log('\n4. 📊 RESUMEN GENERAL DE PAGOS');
+    console.log('\n9. 📊 RESUMEN GENERAL DE PAGOS');
     console.log('=' .repeat(50));
     
     if (this.allPayments.length === 0) {
@@ -250,12 +555,12 @@ class DetailedPaymentsAnalyzer {
       const clientName = payment.user 
         ? `${payment.user.firstName} ${payment.user.lastName}`
         : 'Cliente anónimo';
-      console.log(`   ${index + 1}. ${this.formatDate(payment.paymentDate)} - $${payment.amount} (${clientName})`);
+      console.log(`   ${index + 1}. ${this.formatDate(payment.paymentDate)} - $${payment.amount} (${clientName}) - ${payment.status}`);
     });
   }
 
   async showUserAnalysis() {
-    console.log('\n5. 👥 ANÁLISIS POR USUARIOS');
+    console.log('\n10. 👥 ANÁLISIS POR USUARIOS');
     console.log('=' .repeat(50));
     
     // Agrupar por usuario
@@ -281,10 +586,13 @@ class DetailedPaymentsAnalyzer {
     Object.entries(userPayments).forEach(([userId, data]) => {
       const totalAmount = data.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const paymentCount = data.payments.length;
+      const completedPayments = data.payments.filter(p => p.status === 'completed');
+      const pendingPayments = data.payments.filter(p => p.status === 'pending');
       
       console.log(`\n   👤 ${data.user.firstName} ${data.user.lastName}`);
       console.log(`      📧 Email: ${data.user.email}`);
       console.log(`      💰 Total pagado: $${totalAmount.toFixed(2)} en ${paymentCount} pagos`);
+      console.log(`      ✅ Completados: ${completedPayments.length} | ⏳ Pendientes: ${pendingPayments.length}`);
       console.log(`      📅 Último pago: ${this.formatDate(data.payments[0].paymentDate)}`);
       
       // Mostrar cada pago del usuario
@@ -292,7 +600,8 @@ class DetailedPaymentsAnalyzer {
       data.payments
         .sort((a, b) => new Date(b.paymentDate) - new Date(a.paymentDate))
         .forEach((payment, index) => {
-          console.log(`         ${index + 1}. $${payment.amount} - ${payment.paymentType} (${this.formatDate(payment.paymentDate)})`);
+          const statusIcon = this.getStatusIcon(payment.status);
+          console.log(`         ${index + 1}. ${statusIcon} $${payment.amount} - ${payment.paymentType} (${this.formatDate(payment.paymentDate)})`);
         });
     });
     
@@ -304,7 +613,8 @@ class DetailedPaymentsAnalyzer {
       console.log(`   💰 Monto total: $${anonymousTotal.toFixed(2)}`);
       
       anonymousPayments.forEach((payment, index) => {
-        console.log(`      ${index + 1}. $${payment.amount} - ${payment.paymentType} (${this.formatDate(payment.paymentDate)})`);
+        const statusIcon = this.getStatusIcon(payment.status);
+        console.log(`      ${index + 1}. ${statusIcon} $${payment.amount} - ${payment.paymentType} (${this.formatDate(payment.paymentDate)})`);
       });
     }
     
@@ -318,7 +628,12 @@ class DetailedPaymentsAnalyzer {
     Object.entries(staffPayments).forEach(([staffName, payments]) => {
       const totalAmount = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       const role = payments[0].registeredByUser.role;
-      console.log(`   👤 ${staffName} (${role}): ${payments.length} pagos ($${totalAmount.toFixed(2)})`);
+      const completed = payments.filter(p => p.status === 'completed').length;
+      const pending = payments.filter(p => p.status === 'pending').length;
+      
+      console.log(`   👤 ${staffName} (${role}):`);
+      console.log(`      📊 ${payments.length} pagos ($${totalAmount.toFixed(2)})`);
+      console.log(`      ✅ ${completed} completados | ⏳ ${pending} pendientes`);
     });
   }
 
@@ -427,24 +742,26 @@ class DetailedPaymentsAnalyzer {
 
 // Función para mostrar ayuda
 function showHelp() {
-  console.log('\n💳 Elite Fitness Club - Analizador Detallado de Pagos\n');
-  console.log('Este script muestra información COMPLETA de cada pago:');
-  console.log('  💰 Monto, método, tipo y estado de cada pago');
-  console.log('  👤 Información completa del cliente');
-  console.log('  🏋️ Detalles de membresía asociada');
-  console.log('  👔 Quién registró el pago y cuándo');
-  console.log('  🔄 Estado de transferencias y validaciones');
-  console.log('  📊 Resumen y análisis por usuario\n');
+  console.log('\n💳 Elite Fitness Club - Analizador Detallado de Pagos ACTUALIZADO\n');
+  console.log('Este script muestra información COMPLETA del sistema de pagos:');
+  console.log('  📊 Estadísticas generales del sistema');
+  console.log('  🎯 Dashboard de pagos pendientes en tiempo real');
+  console.log('  💵 Pagos en efectivo pendientes de confirmación');
+  console.log('  🏦 Transferencias pendientes de validación');
+  console.log('  💰 Información completa de cada pago');
+  console.log('  👤 Análisis por usuarios y personal');
+  console.log('  📈 Reportes y cronología\n');
+  
+  console.log('Nuevas funcionalidades incluidas:');
+  console.log('  ✅ Dashboard unificado de pagos pendientes');
+  console.log('  ✅ Separación clara de efectivo vs transferencias');
+  console.log('  ✅ Priorización por tiempo de espera');
+  console.log('  ✅ Actividad reciente del personal');
+  console.log('  ✅ Estadísticas en tiempo real\n');
   
   console.log('Uso:');
-  console.log('  node detailed-payments-analyzer.js        # Ejecutar análisis completo');
-  console.log('  node detailed-payments-analyzer.js --help # Mostrar ayuda\n');
-  
-  console.log('📋 El script mostrará:');
-  console.log('  1. Información detallada de cada pago individual');
-  console.log('  2. Resumen general con estadísticas');
-  console.log('  3. Análisis por usuarios y personal');
-  console.log('  4. Cronología de pagos');
+  console.log('  node test-payments-admin.js        # Ejecutar análisis completo');
+  console.log('  node test-payments-admin.js --help # Mostrar ayuda\n');
 }
 
 // Ejecutar script
@@ -464,10 +781,12 @@ async function main() {
   } catch (error) {
     console.error('\n💡 POSIBLES SOLUCIONES:');
     
-    if (error.message.includes('Servidor no responde')) {
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('Network Error')) {
       console.error('   1. Verifica que tu servidor esté ejecutándose: npm start');
+      console.error('   2. Verifica que el puerto sea el correcto (5000)');
     } else if (error.message.includes('Autenticación falló')) {
       console.error('   1. Verifica que el usuario admin existe: admin@gym.com');
+      console.error('   2. Verifica la contraseña: Admin123!');
     } else {
       console.error(`   1. Error: ${error.message}`);
     }
