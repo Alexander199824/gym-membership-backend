@@ -44,6 +44,12 @@ if (!uploadTransferProof) {
 
 // ✅ ========== RUTAS ESPECÍFICAS (DEBEN IR ANTES DE /:id) ==========
 
+router.get('/cash/pending', 
+  authenticateToken, 
+  requireStaff,
+  paymentController.getPendingCashPayments
+);
+
 // ✅ NUEVO: Estadísticas de pagos - CRÍTICO: DEBE IR ANTES DE /:id
 router.get('/statistics', 
   authenticateToken, 

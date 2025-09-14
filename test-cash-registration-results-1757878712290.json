@@ -1,0 +1,25 @@
+{
+  "timestamp": "2025-09-14T19:38:27.670Z",
+  "testType": "CASH_MEMBERSHIP_REGISTRATION_ONLY",
+  "purpose": "Registrar membresía mensual para pago en efectivo - SIN validación admin",
+  "steps": [
+    {
+      "step": 1,
+      "action": "Autenticación del cliente",
+      "success": true,
+      "userId": "ab7141c6-106a-4012-b4ee-effaa9514ec5",
+      "email": "echeverriam302@gmail.com"
+    },
+    {
+      "step": 2,
+      "action": "Obtener planes mensuales",
+      "success": false,
+      "error": "No hay planes MENSUALES con disponibilidad"
+    }
+  ],
+  "success": false,
+  "data": {},
+  "errors": [
+    "Planes: No hay planes MENSUALES con disponibilidad"
+  ]
+}

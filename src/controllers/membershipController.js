@@ -996,6 +996,9 @@ async checkScheduleAvailability(req, res) {
 
 
 // ✅ MÉTODO CORREGIDO: purchaseMembership - CON SOPORTE PARA PAGO EN EFECTIVO
+// src/controllers/membershipController.js - MÉTODO purchaseMembership() COMPLETO Y FUNCIONANDO
+
+// ✅ MÉTODO CORREGIDO: purchaseMembership - CON SOPORTE PARA PAGO EN EFECTIVO
 async purchaseMembership(req, res) {
   let transaction = null;
   
@@ -1155,14 +1158,29 @@ async purchaseMembership(req, res) {
       console.log(`💵 Horarios NO reservados - esperando pago en efectivo`);
     }
     
-    // ✅ 6.3. REGISTRAR PAGO - CAMBIO PRINCIPAL: CONDICIONAL PARA CASH Y TRANSFER
+    // ✅ 6.3. REGISTRAR PAGO - CAMBIO PRINCIPAL: SIEMPRE CREAR PAGO
     const { Payment } = require('../models');
     let payment = null;
     
     if (paymentMethod === 'cash') {
-      // ✅ Para pago en efectivo, NO crear pago aún
-      console.log(`💵 Membresía ${membership.id} creada PENDIENTE de pago en efectivo`);
+      // ✅ CORREGIDO: Para pago en efectivo, SÍ crear pago pendiente
+      const paymentData = {
+        userId: targetUserId,
+        membershipId: membership.id,
+        amount: parseFloat(plan.price),
+        paymentMethod: paymentMethod,
+        paymentType: 'membership',
+        description: `Membresía ${plan.planName}`,
+        registeredBy: req.user.id,
+        status: 'pending', // ✅ PENDIENTE hasta que se pague en gimnasio
+        paymentDate: new Date(),
+        notes: 'Pago en efectivo pendiente - Cliente debe ir al gimnasio'
+      };
+      
+      payment = await Payment.create(paymentData, { transaction });
+      console.log(`💵 Pago en efectivo PENDIENTE creado: ${payment.id} - Q${payment.amount}`);
       console.log(`🏪 Cliente debe ir al gimnasio para completar el pago`);
+      
     } else if (paymentMethod === 'transfer') {
       // ✅ Para transferencia, crear pago PENDIENTE (cliente subirá comprobante)
       const paymentData = {
@@ -1174,12 +1192,14 @@ async purchaseMembership(req, res) {
         description: `Membresía ${plan.planName}`,
         registeredBy: req.user.id,
         status: 'pending', // ✅ PENDIENTE hasta que se valide transferencia
-        paymentDate: new Date()
+        paymentDate: new Date(),
+        notes: 'Transferencia pendiente - Cliente debe subir comprobante'
       };
       
       payment = await Payment.create(paymentData, { transaction });
       console.log(`🏦 Pago por transferencia creado PENDIENTE: ${payment.id} - Q${payment.amount}`);
       console.log(`📄 Cliente debe subir comprobante para validación`);
+      
     } else {
       // ✅ Para otros métodos (tarjeta, etc.), crear pago completado
       const paymentData = {
@@ -1198,8 +1218,8 @@ async purchaseMembership(req, res) {
       console.log(`💳 Pago registrado: ${payment.id} - Q${payment.amount}`);
     }
     
-    // ✅ 6.4. CREAR MOVIMIENTO FINANCIERO - CAMBIO: SOLO SI HAY PAGO
-    if (payment) {
+    // ✅ 6.4. CREAR MOVIMIENTO FINANCIERO - CAMBIO: SOLO SI HAY PAGO COMPLETADO
+    if (payment && payment.status === 'completed') {
       try {
         const { FinancialMovements } = require('../models');
         
@@ -1210,11 +1230,11 @@ async purchaseMembership(req, res) {
           console.log('ℹ️ FinancialMovements.createFromAnyPayment no disponible');
         }
       } catch (financialError) {
-        console.warn('⚠️ Error movimiento financiero (dentro de transacción):', financialError.message);
+        console.warn('⚠️ Error movimiento financiero (no crítico):', financialError.message);
         // No es crítico, la membresía y pago ya están creados
       }
     } else {
-      console.log(`💵 Sin movimiento financiero - Pago en efectivo pendiente`);
+      console.log(`💵 Sin movimiento financiero - Pago pendiente de confirmación`);
     }
     
     // ✅ 6.5. CONFIRMAR TRANSACCIÓN (TODO EXITOSO HASTA AQUÍ)
@@ -1293,6 +1313,8 @@ async purchaseMembership(req, res) {
       success: true,
       message: paymentMethod === 'cash' 
         ? 'Membresía registrada - Debe pagar en efectivo en el gimnasio'
+        : paymentMethod === 'transfer'
+        ? 'Membresía registrada - Debe subir comprobante de transferencia'
         : 'Membresía comprada exitosamente',
       data: {
         membership: {
@@ -1306,14 +1328,7 @@ async purchaseMembership(req, res) {
           paymentMethod: payment.paymentMethod,
           status: payment.status,
           paymentDate: payment.paymentDate
-        } : {
-          // ✅ NUEVO: Información para pago en efectivo
-          pending: true,
-          method: 'cash',
-          amount: parseFloat(plan.price),
-          instruction: 'Cliente debe ir al gimnasio a pagar en efectivo',
-          status: 'awaiting_cash_payment'
-        },
+        } : null,
         plan: planData,
         user: {
           id: targetUser.id,
@@ -1323,7 +1338,9 @@ async purchaseMembership(req, res) {
         },
         // ✅ NUEVO: Indicadores adicionales
         requiresCashPayment: paymentMethod === 'cash',
-        membershipStatus: paymentMethod === 'cash' ? 'pending_cash_payment' : 'active'
+        requiresTransferProof: paymentMethod === 'transfer',
+        membershipStatus: paymentMethod === 'cash' ? 'pending_cash_payment' : 
+                         paymentMethod === 'transfer' ? 'pending_transfer_validation' : 'active'
       }
     });
     

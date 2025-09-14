@@ -106,122 +106,139 @@ class PaymentController {
     }
   }
 
-  // ✅ CORREGIDO: Funciona para colaborador (sus pagos del día) Y cliente (sus pagos)
-  async getPayments(req, res) {
-    try {
-      const {
-        userId,
-        paymentMethod,
-        paymentType,
-        status,
-        startDate,
-        endDate,
-        page = 1,
-        limit = 20
-      } = req.query;
 
-      const offset = (page - 1) * limit;
-      const where = {};
+// ✅ CORREGIDO: getPayments() ahora filtra completados por defecto para historial
+async getPayments(req, res) {
+  try {
+    const {
+      userId,
+      paymentMethod,
+      paymentType,
+      status, // Si no se especifica, será 'completed' por defecto
+      startDate,
+      endDate,
+      page = 1,
+      limit = 20,
+      includeAll = false // ✅ NUEVO: Para ver todos los estados
+    } = req.query;
 
-      // ✅ CORREGIDO: Lógica por rol específica
-      if (req.user.role === 'colaborador') {
-        // Colaborador solo ve SUS pagos del día actual
-        where.registeredBy = req.user.id;
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        
-        where.paymentDate = {
-          [Op.gte]: today,
-          [Op.lt]: tomorrow
-        };
-        
-        console.log(`🔍 Colaborador ${req.user.id} filtrando: solo SUS pagos de HOY`);
-      } else if (req.user.role === 'cliente') {
-        // ✅ CORREGIDO: Cliente solo ve SUS propios pagos (sin restricción de fecha)
-        where.userId = req.user.id;
-        
-        // Permitir filtros de fecha para clientes
-        if (startDate || endDate) {
-          where.paymentDate = {};
-          if (startDate) where.paymentDate[Op.gte] = new Date(startDate);
-          if (endDate) {
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
-            where.paymentDate[Op.lte] = end;
-          }
+    const offset = (page - 1) * limit;
+    const where = {};
+
+    // ✅ CORREGIDO: Lógica por rol específica
+    if (req.user.role === 'colaborador') {
+      // Colaborador solo ve SUS pagos del día actual
+      where.registeredBy = req.user.id;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      where.paymentDate = {
+        [Op.gte]: today,
+        [Op.lt]: tomorrow
+      };
+      
+      console.log(`🔍 Colaborador ${req.user.id} filtrando: solo SUS pagos de HOY`);
+    } else if (req.user.role === 'cliente') {
+      // ✅ CORREGIDO: Cliente solo ve SUS propios pagos
+      where.userId = req.user.id;
+      
+      // Permitir filtros de fecha para clientes
+      if (startDate || endDate) {
+        where.paymentDate = {};
+        if (startDate) where.paymentDate[Op.gte] = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          where.paymentDate[Op.lte] = end;
         }
-        
-        console.log(`🔍 Cliente ${req.user.id} filtrando: solo SUS propios pagos`);
-      } else {
-        // Admin puede ver todos los pagos con filtros normales
-        if (userId) where.userId = userId;
-        
-        // Filtro por rango de fechas para admin
-        if (startDate || endDate) {
-          where.paymentDate = {};
-          if (startDate) where.paymentDate[Op.gte] = new Date(startDate);
-          if (endDate) {
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
-            where.paymentDate[Op.lte] = end;
-          }
-        }
-        
-        console.log('🔍 Admin: acceso completo a pagos');
       }
-
-      // Aplicar otros filtros
-      if (paymentMethod) where.paymentMethod = paymentMethod;
-      if (paymentType) where.paymentType = paymentType;
-      if (status) where.status = status;
-
-      const { count, rows } = await Payment.findAndCountAll({
-        where,
-        include: [
-          { 
-            association: 'user', 
-            attributes: ['id', 'firstName', 'lastName', 'email']
-          },
-          { 
-            association: 'membership', 
-            attributes: ['id', 'type', 'endDate']
-          },
-          { 
-            association: 'registeredByUser', 
-            attributes: ['id', 'firstName', 'lastName', 'role']
-          }
-        ],
-        order: [['paymentDate', 'DESC']],
-        limit: parseInt(limit),
-        offset
-      });
-
-      console.log(`✅ ${req.user.role} obtuvo ${rows.length} pagos (total: ${count})`);
-
-      res.json({
-        success: true,
-        data: {
-          payments: rows,
-          pagination: {
-            total: count,
-            page: parseInt(page),
-            pages: Math.ceil(count / limit),
-            limit: parseInt(limit)
-          }
+      
+      console.log(`🔍 Cliente ${req.user.id} filtrando: solo SUS propios pagos`);
+    } else {
+      // Admin puede ver todos los pagos con filtros normales
+      if (userId) where.userId = userId;
+      
+      // Filtro por rango de fechas para admin
+      if (startDate || endDate) {
+        where.paymentDate = {};
+        if (startDate) where.paymentDate[Op.gte] = new Date(startDate);
+        if (endDate) {
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          where.paymentDate[Op.lte] = end;
         }
-      });
-    } catch (error) {
-      console.error('Error al obtener pagos:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al obtener pagos',
-        error: error.message
-      });
+      }
+      
+      console.log('🔍 Admin: acceso completo a pagos');
     }
+
+    // ✅ NUEVO: Filtro de status por defecto
+    if (includeAll === 'true') {
+      // Si se especifica includeAll=true, mostrar todos los estados
+      if (status) where.status = status;
+      console.log('📋 Mostrando todos los estados de pago');
+    } else {
+      // ✅ POR DEFECTO: Solo mostrar pagos completados en historial
+      where.status = status || 'completed';
+      console.log(`📋 Filtrando pagos con status: ${where.status}`);
+    }
+
+    // Aplicar otros filtros
+    if (paymentMethod) where.paymentMethod = paymentMethod;
+    if (paymentType) where.paymentType = paymentType;
+
+    const { count, rows } = await Payment.findAndCountAll({
+      where,
+      include: [
+        { 
+          association: 'user', 
+          attributes: ['id', 'firstName', 'lastName', 'email']
+        },
+        { 
+          association: 'membership', 
+          attributes: ['id', 'type', 'endDate']
+        },
+        { 
+          association: 'registeredByUser', 
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        }
+      ],
+      order: [['paymentDate', 'DESC']],
+      limit: parseInt(limit),
+      offset
+    });
+
+    console.log(`✅ ${req.user.role} obtuvo ${rows.length} pagos (total: ${count}) - Status: ${where.status}`);
+
+    res.json({
+      success: true,
+      data: {
+        payments: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          pages: Math.ceil(count / limit),
+          limit: parseInt(limit)
+        },
+        filters: {
+          status: where.status,
+          includeAll: includeAll === 'true',
+          userRole: req.user.role
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error al obtener pagos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener pagos',
+      error: error.message
+    });
   }
+}
 
   // ✅ CORREGIDO: Cliente puede ver su pago, colaborador el suyo, admin todo
   async getPaymentById(req, res) {
@@ -1164,12 +1181,169 @@ class PaymentController {
       console.error('⚠️ Error general al enviar notificaciones de pago:', error.message);
     }
   }
-// AGREGAR estos métodos al paymentController.js existente:
+// ✅ NUEVO: Obtener pagos en efectivo pendientes (solo staff)
+async getPendingCashPayments(req, res) {
+  try {
+    if (!['admin', 'colaborador'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo el personal puede ver pagos en efectivo pendientes'
+      });
+    }
+
+    const { Payment, Membership } = require('../models');
+    const { Op } = require('sequelize');
+    
+    let whereClause = {
+      paymentMethod: 'cash',
+      status: 'pending'
+    };
+
+    // Colaborador solo ve sus registros
+    if (req.user.role === 'colaborador') {
+      whereClause.registeredBy = req.user.id;
+    }
+
+    const pendingCashPayments = await Payment.findAll({
+      where: whereClause,
+      include: [
+        {
+          association: 'user',
+          attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
+          required: false
+        },
+        {
+          association: 'membership',
+          attributes: ['id', 'type', 'startDate', 'endDate', 'reservedSchedule'],
+          required: false,
+          include: [
+            {
+              association: 'plan',
+              attributes: ['id', 'planName'],
+              required: false
+            }
+          ]
+        },
+        {
+          association: 'registeredByUser',
+          attributes: ['id', 'firstName', 'lastName']
+        }
+      ],
+      order: [['createdAt', 'ASC']] // Los más antiguos primero
+    });
+
+    // Formatear con información adicional
+    const formattedPayments = await Promise.all(
+      pendingCashPayments.map(async (payment) => {
+        const hoursWaiting = (new Date() - payment.createdAt) / (1000 * 60 * 60);
+        
+        // Obtener horarios detallados si es membresía
+        let detailedSchedule = {};
+        if (payment.membership && payment.membership.reservedSchedule) {
+          try {
+            const membership = payment.membership;
+            detailedSchedule = await membership.getDetailedSchedule();
+          } catch (scheduleError) {
+            console.warn('⚠️ Error obteniendo horarios:', scheduleError.message);
+            detailedSchedule = {};
+          }
+        }
+
+        return {
+          id: payment.id,
+          amount: parseFloat(payment.amount),
+          paymentType: payment.paymentType,
+          description: payment.description,
+          notes: payment.notes,
+          createdAt: payment.createdAt,
+          paymentDate: payment.paymentDate,
+          
+          // Información del cliente
+          client: payment.user ? {
+            id: payment.user.id,
+            name: `${payment.user.firstName} ${payment.user.lastName}`,
+            email: payment.user.email,
+            phone: payment.user.phone,
+            type: 'registered'
+          } : payment.getClientInfo(),
+          
+          // Información de la membresía (si aplica)
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            type: payment.membership.type,
+            plan: payment.membership.plan ? {
+              id: payment.membership.plan.id,
+              name: payment.membership.plan.planName
+            } : null,
+            schedule: detailedSchedule,
+            hasSchedule: Object.keys(detailedSchedule).length > 0
+          } : null,
+          
+          // Información de quien registró
+          registeredBy: payment.registeredByUser ? {
+            name: `${payment.registeredByUser.firstName} ${payment.registeredByUser.lastName}`
+          } : { name: 'Sistema' },
+          
+          // Métricas de tiempo
+          hoursWaiting: Math.round(hoursWaiting * 10) / 10,
+          priority: hoursWaiting > 48 ? 'critical' : 
+                   hoursWaiting > 24 ? 'high' : 
+                   hoursWaiting > 12 ? 'medium' : 'normal',
+          
+          // Acciones disponibles
+          canActivate: true,
+          canCancel: true
+        };
+      })
+    );
+
+    // Calcular estadísticas
+    const totalAmount = formattedPayments.reduce((sum, p) => sum + p.amount, 0);
+    const oldestHours = formattedPayments.length > 0 ? 
+      Math.max(...formattedPayments.map(p => p.hoursWaiting)) : 0;
+    
+    // Agrupar por prioridad
+    const groupedByPriority = {
+      critical: formattedPayments.filter(p => p.priority === 'critical'),
+      high: formattedPayments.filter(p => p.priority === 'high'),
+      medium: formattedPayments.filter(p => p.priority === 'medium'),
+      normal: formattedPayments.filter(p => p.priority === 'normal')
+    };
+
+    console.log(`✅ ${req.user.role} obtuvo ${formattedPayments.length} pagos en efectivo pendientes`);
+
+    res.json({
+      success: true,
+      data: {
+        payments: formattedPayments,
+        total: formattedPayments.length,
+        summary: {
+          totalAmount,
+          oldestHours: Math.round(oldestHours * 10) / 10,
+          averageWaitingHours: formattedPayments.length > 0 ? 
+            formattedPayments.reduce((sum, p) => sum + p.hoursWaiting, 0) / formattedPayments.length : 0
+        },
+        groupedByPriority,
+        userRole: req.user.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Error al obtener pagos en efectivo pendientes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al obtener pagos en efectivo pendientes',
+      error: error.message
+    });
+  }
+}
+
 
 // Habilitar membresía pagada en efectivo (solo staff en gym)
+
 async activateCashMembership(req, res) {
   try {
-    const { membershipId } = req.body;
+    const { membershipId, paymentId } = req.body; // ✅ NUEVO: Aceptar paymentId también
     
     if (!['admin', 'colaborador'].includes(req.user.role)) {
       return res.status(403).json({
@@ -1180,51 +1354,146 @@ async activateCashMembership(req, res) {
     
     const { Membership, Payment, FinancialMovements } = require('../models');
     
-    const membership = await Membership.findByPk(membershipId, {
-      include: [
-        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
-        { association: 'plan', attributes: ['planName', 'price'] }
-      ]
-    });
+    // ✅ NUEVO: Buscar por membershipId o paymentId
+    let membership, payment;
     
-    if (!membership) {
-      return res.status(404).json({
+    if (membershipId) {
+      // Método original: buscar membresía y luego su pago pendiente
+      membership = await Membership.findByPk(membershipId, {
+        include: [
+          { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+          { association: 'plan', attributes: ['planName', 'price'] },
+          { 
+            association: 'payments', 
+            where: { status: 'pending', paymentMethod: 'cash' },
+            required: false 
+          }
+        ]
+      });
+      
+      if (!membership) {
+        return res.status(404).json({
+          success: false,
+          message: 'Membresía no encontrada'
+        });
+      }
+      
+      // Buscar pago pendiente de efectivo
+      payment = membership.payments && membership.payments.length > 0 
+        ? membership.payments[0] 
+        : null;
+        
+      if (!payment) {
+        return res.status(400).json({
+          success: false,
+          message: 'No se encontró pago pendiente en efectivo para esta membresía'
+        });
+      }
+      
+    } else if (paymentId) {
+      // ✅ NUEVO: Método directo por paymentId
+      payment = await Payment.findByPk(paymentId, {
+        include: [
+          {
+            association: 'membership',
+            include: [
+              { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+              { association: 'plan', attributes: ['planName', 'price'] }
+            ]
+          }
+        ]
+      });
+      
+      if (!payment) {
+        return res.status(404).json({
+          success: false,
+          message: 'Pago no encontrado'
+        });
+      }
+      
+      membership = payment.membership;
+      
+      if (!membership) {
+        return res.status(400).json({
+          success: false,
+          message: 'Pago no está asociado a una membresía'
+        });
+      }
+      
+    } else {
+      return res.status(400).json({
         success: false,
-        message: 'Membresía no encontrada'
+        message: 'Se requiere membershipId o paymentId'
       });
     }
     
-    if (membership.status !== 'pending') {
+    // ✅ VALIDACIONES
+    if (payment.paymentMethod !== 'cash') {
       return res.status(400).json({
         success: false,
-        message: `La membresía ya está ${membership.status}`
+        message: 'El pago no es en efectivo'
+      });
+    }
+    
+    if (payment.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `El pago ya está ${payment.status}`
+      });
+    }
+    
+    if (membership.status === 'active') {
+      return res.status(400).json({
+        success: false,
+        message: 'La membresía ya está activa'
       });
     }
     
     const transaction = await Membership.sequelize.transaction();
     
     try {
-      // Activar membresía
+      // ✅ 1. Activar membresía
       membership.status = 'active';
       await membership.save({ transaction });
       
-      // Crear registro de pago en efectivo
-      const payment = await Payment.create({
-        userId: membership.userId,
-        membershipId: membership.id,
-        amount: membership.price,
-        paymentMethod: 'cash',
-        paymentType: 'membership',
-        description: `Pago en efectivo - ${membership.plan.planName}`,
-        notes: `Activado por ${req.user.getFullName()} en gym`,
-        registeredBy: req.user.id,
-        status: 'completed'
-      }, { transaction });
+      // ✅ 2. Completar pago
+      payment.status = 'completed';
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\nPago en efectivo confirmado por ${req.user.getFullName()} en gimnasio`
+        : `Pago en efectivo confirmado por ${req.user.getFullName()} en gimnasio`;
+      await payment.save({ transaction });
       
-      // Crear movimiento financiero
+      // ✅ 3. Crear movimiento financiero
       await FinancialMovements.createFromAnyPayment(payment, { transaction });
       
+      // ✅ 4. Reservar horarios si los hay
+      if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+        const { GymTimeSlots } = require('../models');
+        
+        for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+          if (Array.isArray(slots) && slots.length > 0) {
+            for (const slotObj of slots) {
+              const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+              if (slotId) {
+                try {
+                  await GymTimeSlots.increment('currentReservations', {
+                    by: 1,
+                    where: { id: slotId },
+                    transaction
+                  });
+                  console.log(`✅ Horario reservado: ${day} slot ${slotId}`);
+                } catch (slotError) {
+                  console.warn(`⚠️ Error reservando slot ${slotId}:`, slotError.message);
+                }
+              }
+            }
+          }
+        }
+      }
+      
       await transaction.commit();
+      
+      console.log(`✅ Membresía activada: ${membership.id} - Pago: ${payment.id} - Q${payment.amount}`);
       
       res.json({
         success: true,
@@ -1239,7 +1508,13 @@ async activateCashMembership(req, res) {
           payment: {
             id: payment.id,
             amount: payment.amount,
-            paymentMethod: payment.paymentMethod
+            paymentMethod: payment.paymentMethod,
+            status: payment.status
+          },
+          confirmedBy: {
+            id: req.user.id,
+            name: req.user.getFullName(),
+            timestamp: new Date()
           }
         }
       });
@@ -1326,6 +1601,8 @@ async rejectTransfer(req, res) {
 }
 
 // ✅ NUEVO: Dashboard de pagos pendientes
+
+// ✅ ACTUALIZADO: Dashboard de pagos pendientes unificado
 async getPendingDashboard(req, res) {
   try {
     if (!['admin', 'colaborador'].includes(req.user.role)) {
@@ -1335,7 +1612,7 @@ async getPendingDashboard(req, res) {
       });
     }
 
-    const { Payment, Membership } = require('../models');
+    const { Payment } = require('../models');
     const { Op } = require('sequelize');
     
     const today = new Date();
@@ -1343,140 +1620,194 @@ async getPendingDashboard(req, res) {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Transferencias pendientes
-    const pendingTransfersQuery = {
-      paymentMethod: 'transfer',
-      status: 'pending',
-      transferProof: { [Op.not]: null }
-    };
-
+    // Base query filters por rol
+    let baseWhere = {};
     if (req.user.role === 'colaborador') {
-      pendingTransfersQuery.registeredBy = req.user.id;
+      baseWhere.registeredBy = req.user.id;
     }
 
     const [
       pendingTransfers,
-      pendingCashMemberships,
-      todayValidations
+      pendingCashPayments,
+      todayValidations,
+      todayCompletedPayments
     ] = await Promise.all([
-      // Transferencias pendientes
+      // ✅ 1. Transferencias pendientes CON comprobante
       Payment.findAll({
-        where: pendingTransfersQuery,
-        include: [
-          { association: 'user', attributes: ['firstName', 'lastName'] }
-        ],
-        order: [['createdAt', 'ASC']]
-      }),
-
-      // Membresías pendientes de pago en efectivo
-      Membership.findAll({
         where: {
+          ...baseWhere,
+          paymentMethod: 'transfer',
           status: 'pending',
-          ...(req.user.role === 'colaborador' && { '$user.role$': 'cliente' })
+          transferProof: { [Op.not]: null }
         },
         include: [
-          {
-            association: 'user',
-            attributes: ['id', 'firstName', 'lastName', 'role'],
-            ...(req.user.role === 'colaborador' && { where: { role: 'cliente' } })
-          },
-          {
-            association: 'payments',
-            required: false,
-            attributes: ['status']
+          { 
+            association: 'user', 
+            attributes: ['firstName', 'lastName'],
+            required: false 
           }
         ],
         order: [['createdAt', 'ASC']]
       }),
 
-      // Validaciones de hoy
+      // ✅ 2. Pagos en efectivo pendientes (NUEVO)
+      Payment.findAll({
+        where: {
+          ...baseWhere,
+          paymentMethod: 'cash',
+          status: 'pending'
+        },
+        include: [
+          { 
+            association: 'user', 
+            attributes: ['firstName', 'lastName'],
+            required: false 
+          },
+          {
+            association: 'membership',
+            attributes: ['id', 'type'],
+            required: false
+          }
+        ],
+        order: [['createdAt', 'ASC']]
+      }),
+
+      // ✅ 3. Validaciones de hoy
       Payment.findAll({
         where: {
           transferValidatedAt: { [Op.between]: [today, tomorrow] },
           ...(req.user.role === 'colaborador' && { transferValidatedBy: req.user.id })
         },
         attributes: ['transferValidated']
+      }),
+
+      // ✅ 4. Pagos completados hoy (NUEVO para métricas)
+      Payment.count({
+        where: {
+          ...baseWhere,
+          status: 'completed',
+          paymentDate: { [Op.between]: [today, tomorrow] }
+        }
       })
     ]);
 
-    // Filtrar membresías sin pago completado
-    const actualPendingCash = pendingCashMemberships.filter(membership => {
-      return !membership.payments || !membership.payments.some(p => p.status === 'completed');
-    });
-
-    // Calcular estadísticas
+    // Calcular estadísticas de transferencias
     const transfersAmount = pendingTransfers.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-    const cashAmount = actualPendingCash.reduce((sum, m) => sum + parseFloat(m.price), 0);
-    
     const oldestTransfer = pendingTransfers.length > 0 ? pendingTransfers[0] : null;
-    const oldestCash = actualPendingCash.length > 0 ? actualPendingCash[0] : null;
-
     const transferHours = oldestTransfer ? 
       (new Date() - oldestTransfer.createdAt) / (1000 * 60 * 60) : 0;
+
+    // Calcular estadísticas de efectivo
+    const cashAmount = pendingCashPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+    const oldestCash = pendingCashPayments.length > 0 ? pendingCashPayments[0] : null;
     const cashHours = oldestCash ? 
       (new Date() - oldestCash.createdAt) / (1000 * 60 * 60) : 0;
 
+    // Validaciones de hoy
     const approved = todayValidations.filter(v => v.transferValidated === true).length;
     const rejected = todayValidations.filter(v => v.transferValidated === false).length;
 
-    // Items urgentes (más de 24 horas)
+    // ✅ NUEVO: Items urgentes unificados (más de 24 horas)
     const urgentItems = [];
     
+    // Transferencias urgentes
     pendingTransfers.forEach(transfer => {
       const hours = (new Date() - transfer.createdAt) / (1000 * 60 * 60);
       if (hours > 24) {
         urgentItems.push({
           type: 'transfer',
+          paymentType: 'transfer_validation',
           id: transfer.id,
           clientName: transfer.user ? 
             `${transfer.user.firstName} ${transfer.user.lastName}` : 
-            'Cliente anónimo',
+            transfer.getClientInfo().name,
           amount: parseFloat(transfer.amount),
           hoursWaiting: Math.round(hours * 10) / 10,
-          priority: hours > 48 ? 'critical' : 'high'
+          priority: hours > 48 ? 'critical' : 'high',
+          action: 'validate_transfer',
+          hasProof: !!transfer.transferProof
         });
       }
     });
 
-    actualPendingCash.forEach(membership => {
-      const hours = (new Date() - membership.createdAt) / (1000 * 60 * 60);
+    // Pagos en efectivo urgentes
+    pendingCashPayments.forEach(payment => {
+      const hours = (new Date() - payment.createdAt) / (1000 * 60 * 60);
       if (hours > 24) {
         urgentItems.push({
-          type: 'cash_membership',
-          id: membership.id,
-          clientName: `${membership.user.firstName} ${membership.user.lastName}`,
-          amount: parseFloat(membership.price),
+          type: 'cash_payment',
+          paymentType: payment.paymentType,
+          id: payment.id,
+          clientName: payment.user ? 
+            `${payment.user.firstName} ${payment.user.lastName}` : 
+            payment.getClientInfo().name,
+          amount: parseFloat(payment.amount),
           hoursWaiting: Math.round(hours * 10) / 10,
-          priority: hours > 48 ? 'critical' : 'high'
+          priority: hours > 48 ? 'critical' : 'high',
+          action: 'confirm_cash_payment',
+          membershipId: payment.membership?.id || null
         });
       }
     });
 
-    // Actividad reciente (últimas 10)
+    // Ordenar por prioridad y tiempo
+    urgentItems.sort((a, b) => {
+      if (a.priority === 'critical' && b.priority !== 'critical') return -1;
+      if (b.priority === 'critical' && a.priority !== 'critical') return 1;
+      return b.hoursWaiting - a.hoursWaiting;
+    });
+
+    // ✅ NUEVO: Actividad reciente unificada
     const recentActivity = await Payment.findAll({
       where: {
-        transferValidatedAt: { [Op.not]: null },
-        ...(req.user.role === 'colaborador' && { transferValidatedBy: req.user.id })
+        [Op.or]: [
+          // Transferencias validadas
+          {
+            transferValidatedAt: { [Op.not]: null },
+            ...(req.user.role === 'colaborador' && { transferValidatedBy: req.user.id })
+          },
+          // Pagos en efectivo completados hoy
+          {
+            paymentMethod: 'cash',
+            status: 'completed',
+            updatedAt: { [Op.gte]: today },
+            ...baseWhere
+          }
+        ]
       },
       include: [
-        { association: 'user', attributes: ['firstName', 'lastName'] },
-        { association: 'transferValidator', attributes: ['firstName', 'lastName'] }
+        { association: 'user', attributes: ['firstName', 'lastName'], required: false },
+        { association: 'transferValidator', attributes: ['firstName', 'lastName'], required: false }
       ],
-      order: [['transferValidatedAt', 'DESC']],
+      order: [['updatedAt', 'DESC']],
       limit: 10
     });
 
-    const formattedActivity = recentActivity.map(payment => ({
-      action: payment.transferValidated ? 'transfer_approved' : 'transfer_rejected',
-      clientName: payment.user ? 
-        `${payment.user.firstName} ${payment.user.lastName}` : 
-        'Cliente anónimo',
-      amount: parseFloat(payment.amount),
-      timestamp: payment.transferValidatedAt,
-      performedBy: payment.transferValidator ? 
-        `${payment.transferValidator.firstName} ${payment.transferValidator.lastName}` :
-        'Sistema'
-    }));
+    const formattedActivity = recentActivity.map(payment => {
+      if (payment.transferValidatedAt) {
+        return {
+          action: payment.transferValidated ? 'transfer_approved' : 'transfer_rejected',
+          clientName: payment.user ? 
+            `${payment.user.firstName} ${payment.user.lastName}` : 
+            payment.getClientInfo().name,
+          amount: parseFloat(payment.amount),
+          timestamp: payment.transferValidatedAt,
+          performedBy: payment.transferValidator ? 
+            `${payment.transferValidator.firstName} ${payment.transferValidator.lastName}` :
+            'Sistema'
+        };
+      } else {
+        return {
+          action: 'cash_payment_confirmed',
+          clientName: payment.user ? 
+            `${payment.user.firstName} ${payment.user.lastName}` : 
+            payment.getClientInfo().name,
+          amount: parseFloat(payment.amount),
+          timestamp: payment.updatedAt,
+          performedBy: 'Staff en gimnasio'
+        };
+      }
+    });
 
     res.json({
       success: true,
@@ -1487,19 +1818,25 @@ async getPendingDashboard(req, res) {
             totalAmount: transfersAmount,
             oldestHours: Math.round(transferHours * 10) / 10
           },
-          pendingCashMemberships: {
-            count: actualPendingCash.length,
+          pendingCashPayments: { // ✅ NUEVO
+            count: pendingCashPayments.length,
             totalAmount: cashAmount,
             oldestHours: Math.round(cashHours * 10) / 10
           },
-          todayValidations: {
-            approved,
-            rejected,
-            totalProcessed: approved + rejected
-          }
+          todayActivity: { // ✅ ACTUALIZADO
+            transferValidations: {
+              approved,
+              rejected,
+              total: approved + rejected
+            },
+            completedPayments: todayCompletedPayments
+          },
+          totalPendingActions: pendingTransfers.length + pendingCashPayments.length // ✅ NUEVO
         },
-        urgentItems: urgentItems.sort((a, b) => b.hoursWaiting - a.hoursWaiting),
-        recentActivity: formattedActivity
+        urgentItems,
+        recentActivity: formattedActivity,
+        userRole: req.user.role,
+        lastUpdated: new Date().toISOString()
       }
     });
 
