@@ -226,6 +226,70 @@ FinancialMovements.adoptAutomaticMovement = async function(movementId, userId) {
   return movement;
 };
 
+// Agregar estos métodos al final de src/models/FinancialMovements.js
+// ANTES del module.exports
+
+// ✅ Método para obtener ingresos por período
+FinancialMovements.getIncomeByPeriod = async function(startDate, endDate) {
+  const { Op } = require('sequelize');
+  try {
+    const result = await this.sum('amount', {
+      where: {
+        type: 'income',
+        movementDate: { [Op.between]: [startDate, endDate] }
+      }
+    });
+    return parseFloat(result) || 0;
+  } catch (error) {
+    console.error('Error obteniendo ingresos por período:', error);
+    return 0;
+  }
+};
+
+// ✅ Método para obtener gastos por período
+FinancialMovements.getExpensesByPeriod = async function(startDate, endDate) {
+  const { Op } = require('sequelize');
+  try {
+    const result = await this.sum('amount', {
+      where: {
+        type: 'expense',
+        movementDate: { [Op.between]: [startDate, endDate] }
+      }
+    });
+    return parseFloat(result) || 0;
+  } catch (error) {
+    console.error('Error obteniendo gastos por período:', error);
+    return 0;
+  }
+};
+
+// ✅ Método para obtener resumen financiero (opcional pero útil)
+FinancialMovements.getFinancialSummary = async function(startDate, endDate) {
+  const { Op } = require('sequelize');
+  try {
+    const income = await this.getIncomeByPeriod(startDate, endDate);
+    const expenses = await this.getExpensesByPeriod(startDate, endDate);
+    
+    return {
+      income: parseFloat(income) || 0,
+      expenses: parseFloat(expenses) || 0,
+      net: (parseFloat(income) || 0) - (parseFloat(expenses) || 0),
+      period: {
+        start: startDate,
+        end: endDate
+      }
+    };
+  } catch (error) {
+    console.error('Error obteniendo resumen financiero:', error);
+    return {
+      income: 0,
+      expenses: 0,
+      net: 0,
+      period: { start: startDate, end: endDate }
+    };
+  }
+};
+
 // Asociaciones
 FinancialMovements.associate = function(models) {
   FinancialMovements.belongsTo(models.User, {
