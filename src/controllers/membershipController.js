@@ -1128,8 +1128,7 @@ async purchaseMembership(req, res) {
       startDate: startDate,
       endDate: endDate,
       notes: notes || `Membresía ${plan.planName}`,
-      registeredBy: req.user.id,
-      status: paymentMethod === 'cash' ? 'pending' : 'active', // ✅ CAMBIO PRINCIPAL
+      status: ['cash', 'transfer'].includes(paymentMethod) ? 'pending' : 'active',
       totalDays: durationDays,
       remainingDays: durationDays,
       preferredSchedule: selectedSchedule,
@@ -1140,24 +1139,24 @@ async purchaseMembership(req, res) {
     console.log(`✅ Membresía creada: ${membership.id} (estado: ${membership.status})`);
     
     // ✅ 6.2. RESERVAR HORARIOS (INCREMENTAR SLOTS) - Solo si no es cash
-    if (slotsToReserve.length > 0 && paymentMethod !== 'cash') {
-      console.log(`📅 Reservando ${slotsToReserve.length} slots...`);
-      
-      const { GymTimeSlots } = require('../models');
-      
-      for (const { slotId, day } of slotsToReserve) {
-        await GymTimeSlots.increment('currentReservations', {
-          by: 1,
-          where: { id: slotId },
-          transaction
-        });
-        console.log(`   ✅ ${day}: slot ${slotId} reservado`);
-      }
-      console.log(`✅ Todos los slots reservados`);
-    } else if (paymentMethod === 'cash') {
-      console.log(`💵 Horarios NO reservados - esperando pago en efectivo`);
-    }
+   if (slotsToReserve.length > 0 && !['cash', 'transfer'].includes(paymentMethod)) {
+    console.log(`📅 Reservando ${slotsToReserve.length} slots...`);
     
+    const { GymTimeSlots } = require('../models');
+    
+    for (const { slotId, day } of slotsToReserve) {
+      await GymTimeSlots.increment('currentReservations', {
+        by: 1,
+        where: { id: slotId },
+        transaction
+      });
+      console.log(`   ✅ ${day}: slot ${slotId} reservado`);
+    }
+    console.log(`✅ Todos los slots reservados`);
+  } else if (['cash', 'transfer'].includes(paymentMethod)) {
+    console.log(`💵 Horarios NO reservados - esperando ${paymentMethod === 'cash' ? 'pago en efectivo' : 'validación de transferencia'}`);
+  }
+      
     // ✅ 6.3. REGISTRAR PAGO - CAMBIO PRINCIPAL: SIEMPRE CREAR PAGO
     const { Payment } = require('../models');
     let payment = null;
@@ -1280,12 +1279,14 @@ async purchaseMembership(req, res) {
     
     // ✅ 8. PREPARAR RESPUESTA FINAL - CAMBIO: CONDICIONAL PARA CASH
     const summary = {
-      daysTotal: durationDays,
-      daysRemaining: paymentMethod === 'cash' ? 0 : durationDays, // ✅ Si es cash, no hay días activos aún
-      daysUsed: 0,
-      progress: 0,
-      status: paymentMethod === 'cash' ? 'pending' : 'active'
-    };
+    daysTotal: durationDays,
+    // ✅ CORREGIDO: Si es cash o transfer, no hay días activos aún
+    daysRemaining: ['cash', 'transfer'].includes(paymentMethod) ? 0 : durationDays,
+    daysUsed: 0,
+    progress: 0,
+    // ✅ CORREGIDO: Estado correcto según método de pago
+    status: ['cash', 'transfer'].includes(paymentMethod) ? 'pending' : 'active'
+  };
     
     let detailedSchedule = {};
     for (const [day, slots] of Object.entries(processedSchedule)) {
@@ -1310,39 +1311,39 @@ async purchaseMembership(req, res) {
     
     // ✅ RESPUESTA FINAL - CAMBIO PRINCIPAL: CONDICIONAL PARA CASH
     res.status(201).json({
-      success: true,
-      message: paymentMethod === 'cash' 
-        ? 'Membresía registrada - Debe pagar en efectivo en el gimnasio'
-        : paymentMethod === 'transfer'
-        ? 'Membresía registrada - Debe subir comprobante de transferencia'
-        : 'Membresía comprada exitosamente',
-      data: {
-        membership: {
-          ...(membershipForResponse || membership).toJSON(),
-          summary: summary,
-          schedule: detailedSchedule
-        },
-        payment: payment ? {
-          id: payment.id,
-          amount: payment.amount,
-          paymentMethod: payment.paymentMethod,
-          status: payment.status,
-          paymentDate: payment.paymentDate
-        } : null,
-        plan: planData,
-        user: {
-          id: targetUser.id,
-          firstName: targetUser.firstName,
-          lastName: targetUser.lastName,
-          email: targetUser.email
-        },
-        // ✅ NUEVO: Indicadores adicionales
-        requiresCashPayment: paymentMethod === 'cash',
-        requiresTransferProof: paymentMethod === 'transfer',
-        membershipStatus: paymentMethod === 'cash' ? 'pending_cash_payment' : 
-                         paymentMethod === 'transfer' ? 'pending_transfer_validation' : 'active'
-      }
-    });
+  success: true,
+  message: paymentMethod === 'cash' 
+    ? 'Membresía registrada - Debe pagar en efectivo en el gimnasio'
+    : paymentMethod === 'transfer'
+    ? 'Membresía registrada - Debe subir comprobante de transferencia'
+    : 'Membresía comprada exitosamente',
+  data: {
+    membership: {
+      ...(membershipForResponse || membership).toJSON(),
+      summary: summary,
+      schedule: detailedSchedule
+    },
+    payment: payment ? {
+      id: payment.id,
+      amount: payment.amount,
+      paymentMethod: payment.paymentMethod,
+      status: payment.status,
+      paymentDate: payment.paymentDate
+    } : null,
+    plan: planData,
+    user: {
+      id: targetUser.id,
+      firstName: targetUser.firstName,
+      lastName: targetUser.lastName,
+      email: targetUser.email
+    },
+    // ✅ CORREGIDO: Indicadores para ambos métodos
+    requiresCashPayment: paymentMethod === 'cash',
+    requiresTransferProof: paymentMethod === 'transfer',
+    membershipStatus: paymentMethod === 'cash' ? 'pending_cash_payment' : 
+                     paymentMethod === 'transfer' ? 'pending_transfer_validation' : 'active'
+  }
+});
     
   } catch (error) {
     console.error('❌ Error en compra:', error);
