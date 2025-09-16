@@ -1978,6 +1978,254 @@ async getPaymentStatistics(req, res) {
   }
 }
 
+// ✅ NUEVO: Anular pago en efectivo (agregar después del método rejectTransfer)
+async cancelCashPayment(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo los administradores pueden anular pagos en efectivo'
+      });
+    }
+    
+    const { Payment, Membership, GymTimeSlots } = require('../models');
+    
+    const payment = await Payment.findByPk(id, {
+      include: [
+        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { 
+          association: 'membership',
+          include: [
+            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          ]
+        }
+      ]
+    });
+    
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
+    
+    if (payment.paymentMethod !== 'cash') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este método solo funciona para pagos en efectivo'
+      });
+    }
+    
+    if (payment.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede anular un pago con estado: ${payment.status}`
+      });
+    }
+    
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
+      // 1. Anular el pago
+      payment.status = 'cancelled';
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\nPago anulado por administrador: ${reason}`
+        : `Pago anulado por administrador: ${reason}`;
+      await payment.save({ transaction });
+      
+      // 2. Cancelar membresía asociada si existe
+      if (payment.membership) {
+        const membership = payment.membership;
+        
+        // 2.1. Liberar horarios reservados antes de cancelar
+        if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+          console.log('🔄 Liberando horarios reservados...');
+          
+          for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+            if (Array.isArray(slots) && slots.length > 0) {
+              for (const slotObj of slots) {
+                try {
+                  const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                  if (slotId) {
+                    const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+                    if (slot && slot.currentReservations > 0) {
+                      await slot.decrement('currentReservations', { transaction });
+                      console.log(`   ✅ Liberado: ${day} slot ${slotId}`);
+                    }
+                  }
+                } catch (slotError) {
+                  console.warn(`⚠️ Error liberando slot ${slotObj}:`, slotError.message);
+                }
+              }
+            }
+          }
+        }
+        
+        // 2.2. Cancelar la membresía
+        membership.status = 'cancelled';
+        membership.notes = membership.notes 
+          ? `${membership.notes}\n\nMembresía cancelada - Pago en efectivo anulado: ${reason}`
+          : `Membresía cancelada - Pago en efectivo anulado: ${reason}`;
+        await membership.save({ transaction });
+        
+        console.log(`✅ Membresía ${membership.id} cancelada por pago anulado`);
+      }
+      
+      await transaction.commit();
+      
+      // 3. Enviar notificación al usuario (no crítico)
+      if (payment.user || payment.membership?.user) {
+        try {
+          const targetUser = payment.user || payment.membership.user;
+          await this.sendCancellationNotification(targetUser, payment, reason);
+          console.log('✅ Notificación de anulación enviada al usuario');
+        } catch (notificationError) {
+          console.warn('⚠️ Error enviando notificación de anulación (no crítico):', notificationError.message);
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: 'Pago en efectivo anulado exitosamente',
+        data: {
+          payment: {
+            id: payment.id,
+            status: payment.status,
+            amount: payment.amount,
+            reason: reason
+          },
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            status: payment.membership.status
+          } : null,
+          effects: {
+            paymentCancelled: true,
+            membershipCancelled: !!payment.membership,
+            scheduleReleased: !!(payment.membership?.reservedSchedule && Object.keys(payment.membership.reservedSchedule).length > 0),
+            userNotified: !!(payment.user || payment.membership?.user)
+          }
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al anular pago en efectivo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al anular pago en efectivo',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVO: Método auxiliar para enviar notificación de anulación
+async sendCancellationNotification(user, payment, reason) {
+  try {
+    if (!this.emailService) {
+      console.log('ℹ️ Servicio de email no disponible para notificación de anulación');
+      return;
+    }
+    
+    if (!this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para notificación de anulación');
+      return;
+    }
+    
+    const emailTemplate = {
+      subject: '❌ Membresía Anulada - Elite Fitness Club',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px; text-align: center; color: white;">
+            <h1>❌ Membresía Anulada</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Lamentamos informarte que tu membresía ha sido <strong>anulada</strong> porque no se completó el pago en efectivo en nuestras instalaciones.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ef4444;">
+              <h3 style="color: #dc2626; margin-top: 0;">📋 Detalles de la Anulación</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Monto:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${payment.amount}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de pago:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Efectivo en gimnasio</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de registro:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date(payment.createdAt).toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Razón:</strong></td><td style="padding: 8px;">${reason}</td></tr>
+              </table>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🔄 Próximos Pasos</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>Nuevas reservas:</strong> Puedes crear una nueva membresía cuando gustes</li>
+                <li><strong>Horarios liberados:</strong> Los horarios que tenías reservados están ahora disponibles</li>
+                <li><strong>Sin cargos:</strong> No se realizó ningún cargo a tu cuenta</li>
+                <li><strong>Soporte:</strong> Contáctanos si tienes alguna pregunta</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Quieres crear una nueva membresía?</p>
+              <a href="#" style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px;">
+                🏋️ Crear Nueva Membresía
+              </a>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Membresía Anulada - Elite Fitness Club
+
+Hola ${user.firstName},
+
+Tu membresía ha sido anulada porque no se completó el pago en efectivo.
+
+Detalles:
+- Monto: Q${payment.amount}
+- Fecha: ${new Date(payment.createdAt).toLocaleDateString('es-ES')}
+- Razón: ${reason}
+
+Puedes crear una nueva membresía cuando gustes.
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de anulación enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de anulación:', error);
+    throw error;
+  }
+}
 
 }
 

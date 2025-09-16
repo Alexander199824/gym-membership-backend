@@ -50,6 +50,17 @@ router.get('/cash/pending',
   paymentController.getPendingCashPayments
 );
 
+// ✅ NUEVO: Anular pago en efectivo 
+router.post('/:id/cancel-cash-payment',
+  authenticateToken,
+  requireAdmin, // Solo admin puede anular pagos
+  [
+    body('reason').notEmpty().withMessage('La razón de anulación es requerida')
+  ],
+  handleValidationErrors,
+  paymentController.cancelCashPayment
+);
+
 // ✅ NUEVO: Estadísticas de pagos - CRÍTICO: DEBE IR ANTES DE /:id
 router.get('/statistics', 
   authenticateToken, 
