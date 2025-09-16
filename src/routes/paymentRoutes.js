@@ -1,5 +1,6 @@
 // src/routes/paymentRoutes.js - COMPLETO: Todas las funciones + Rutas corregidas
 const express = require('express');
+const { body } = require('express-validator');
 const paymentController = require('../controllers/paymentController');
 const { 
   createPaymentValidator, 

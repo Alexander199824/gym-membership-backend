@@ -1340,10 +1340,11 @@ async getPendingCashPayments(req, res) {
 
 
 // Habilitar membresía pagada en efectivo (solo staff en gym)
+// src/controllers/paymentController.js - MÉTODOS UNIFICADOS para confirmación y anulación
 
 async activateCashMembership(req, res) {
   try {
-    const { membershipId, paymentId } = req.body; // ✅ NUEVO: Aceptar paymentId también
+    const { membershipId, paymentId } = req.body;
     
     if (!['admin', 'colaborador'].includes(req.user.role)) {
       return res.status(403).json({
@@ -1354,11 +1355,9 @@ async activateCashMembership(req, res) {
     
     const { Membership, Payment, FinancialMovements } = require('../models');
     
-    // ✅ NUEVO: Buscar por membershipId o paymentId
     let membership, payment;
     
     if (membershipId) {
-      // Método original: buscar membresía y luego su pago pendiente
       membership = await Membership.findByPk(membershipId, {
         include: [
           { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
@@ -1378,7 +1377,6 @@ async activateCashMembership(req, res) {
         });
       }
       
-      // Buscar pago pendiente de efectivo
       payment = membership.payments && membership.payments.length > 0 
         ? membership.payments[0] 
         : null;
@@ -1391,7 +1389,6 @@ async activateCashMembership(req, res) {
       }
       
     } else if (paymentId) {
-      // ✅ NUEVO: Método directo por paymentId
       payment = await Payment.findByPk(paymentId, {
         include: [
           {
@@ -1427,7 +1424,7 @@ async activateCashMembership(req, res) {
       });
     }
     
-    // ✅ VALIDACIONES
+    // Validaciones
     if (payment.paymentMethod !== 'cash') {
       return res.status(400).json({
         success: false,
@@ -1438,7 +1435,7 @@ async activateCashMembership(req, res) {
     if (payment.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: `El pago ya está ${payment.status}`
+        message: `El pago ya está ${payment.status === 'cancelled' ? 'anulado' : payment.status}`
       });
     }
     
@@ -1452,21 +1449,24 @@ async activateCashMembership(req, res) {
     const transaction = await Membership.sequelize.transaction();
     
     try {
-      // ✅ 1. Activar membresía
+      // 1. Activar membresía
       membership.status = 'active';
       await membership.save({ transaction });
       
-      // ✅ 2. Completar pago
+      // 2. Completar pago con nota automática
       payment.status = 'completed';
+      const staffName = req.user.getFullName();
+      const confirmationNote = `✅ Pago en efectivo CONFIRMADO por ${staffName} en gimnasio el ${new Date().toLocaleString('es-ES')}`;
+      
       payment.notes = payment.notes 
-        ? `${payment.notes}\n\nPago en efectivo confirmado por ${req.user.getFullName()} en gimnasio`
-        : `Pago en efectivo confirmado por ${req.user.getFullName()} en gimnasio`;
+        ? `${payment.notes}\n\n${confirmationNote}`
+        : confirmationNote;
       await payment.save({ transaction });
       
-      // ✅ 3. Crear movimiento financiero
+      // 3. Crear movimiento financiero
       await FinancialMovements.createFromAnyPayment(payment, { transaction });
       
-      // ✅ 4. Reservar horarios si los hay
+      // 4. Reservar horarios si los hay
       if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
         const { GymTimeSlots } = require('../models');
         
@@ -1492,6 +1492,16 @@ async activateCashMembership(req, res) {
       }
       
       await transaction.commit();
+      
+      // 5. ✅ NUEVO: Enviar email de confirmación
+      if (membership.user) {
+        try {
+          await this.sendCashPaymentConfirmationEmail(membership.user, payment, membership, staffName);
+          console.log('✅ Email de confirmación de efectivo enviado');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de confirmación (no crítico):', emailError.message);
+        }
+      }
       
       console.log(`✅ Membresía activada: ${membership.id} - Pago: ${payment.id} - Q${payment.amount}`);
       
@@ -1531,6 +1541,703 @@ async activateCashMembership(req, res) {
       message: 'Error al activar membresía',
       error: error.message
     });
+  }
+}
+
+// ✅ CORREGIDO: Anular pago en efectivo CON EMAIL
+async cancelCashPayment(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo los administradores pueden anular pagos en efectivo'
+      });
+    }
+    
+    const { Payment, Membership, GymTimeSlots } = require('../models');
+    
+    const payment = await Payment.findByPk(id, {
+      include: [
+        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { 
+          association: 'membership',
+          include: [
+            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }
+          ]
+        }
+      ]
+    });
+    
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
+    
+    if (payment.paymentMethod !== 'cash') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este método solo funciona para pagos en efectivo'
+      });
+    }
+    
+    if (payment.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `No se puede anular un pago con estado: ${payment.status === 'cancelled' ? 'anulado' : payment.status}`
+      });
+    }
+    
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
+      // 1. Anular el pago
+      payment.status = 'cancelled';
+      const adminName = req.user.getFullName();
+      const cancellationNote = `❌ Pago ANULADO por administrador ${adminName} el ${new Date().toLocaleString('es-ES')} - Motivo: ${reason}`;
+      
+      payment.notes = payment.notes 
+        ? `${payment.notes}\n\n${cancellationNote}`
+        : cancellationNote;
+      await payment.save({ transaction });
+      
+      // 2. Cancelar membresía asociada si existe
+      if (payment.membership) {
+        const membership = payment.membership;
+        
+        // 2.1. Liberar horarios reservados antes de cancelar
+        if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+          console.log('🔄 Liberando horarios reservados...');
+          
+          for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+            if (Array.isArray(slots) && slots.length > 0) {
+              for (const slotObj of slots) {
+                try {
+                  const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                  if (slotId) {
+                    const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+                    if (slot && slot.currentReservations > 0) {
+                      await slot.decrement('currentReservations', { transaction });
+                      console.log(`   ✅ Liberado: ${day} slot ${slotId}`);
+                    }
+                  }
+                } catch (slotError) {
+                  console.warn(`⚠️ Error liberando slot ${slotObj}:`, slotError.message);
+                }
+              }
+            }
+          }
+        }
+        
+        // 2.2. Cancelar la membresía
+        membership.status = 'cancelled';
+        membership.notes = membership.notes 
+          ? `${membership.notes}\n\nMembresía cancelada - Pago en efectivo anulado: ${reason}`
+          : `Membresía cancelada - Pago en efectivo anulado: ${reason}`;
+        await membership.save({ transaction });
+        
+        console.log(`✅ Membresía ${membership.id} cancelada por pago anulado`);
+      }
+      
+      await transaction.commit();
+      
+      // 3. ✅ NUEVO: Enviar email de anulación
+      const targetUser = payment.user || payment.membership?.user;
+      if (targetUser) {
+        try {
+          await this.sendCashPaymentCancellationEmail(targetUser, payment, reason, adminName);
+          console.log('✅ Email de anulación enviado al usuario');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de anulación (no crítico):', emailError.message);
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: 'Pago en efectivo anulado exitosamente',
+        data: {
+          payment: {
+            id: payment.id,
+            status: payment.status,
+            amount: payment.amount,
+            reason: reason
+          },
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            status: payment.membership.status
+          } : null,
+          effects: {
+            paymentCancelled: true,
+            membershipCancelled: !!payment.membership,
+            scheduleReleased: !!(payment.membership?.reservedSchedule && Object.keys(payment.membership.reservedSchedule).length > 0),
+            userNotified: !!targetUser
+          }
+        }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+    
+  } catch (error) {
+    console.error('Error al anular pago en efectivo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al anular pago en efectivo',
+      error: error.message
+    });
+  }
+}
+
+// ✅ CORREGIDO: Validar transferencia CON EMAIL
+async validateTransfer(req, res) {
+  try {
+    const { id } = req.params;
+    const { approved, notes } = req.body;
+
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo los administradores pueden validar transferencias'
+      });
+    }
+
+    const payment = await Payment.findByPk(id, {
+      include: ['user', 'membership']
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
+
+    if (payment.paymentMethod !== 'transfer') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago no es por transferencia'
+      });
+    }
+
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
+      payment.transferValidated = true;
+      payment.transferValidatedBy = req.user.id;
+      payment.transferValidatedAt = new Date();
+      const adminName = req.user.getFullName();
+      
+      if (approved) {
+        payment.status = 'completed';
+        const validationNote = `✅ Transferencia APROBADA por ${adminName} el ${new Date().toLocaleString('es-ES')}${notes ? ` - ${notes}` : ' - Comprobante válido'}`;
+        
+        payment.notes = payment.notes 
+          ? `${payment.notes}\n\n${validationNote}`
+          : validationNote;
+      } else {
+        payment.status = 'cancelled'; // ✅ CAMBIO: cancelled en lugar de failed
+        const rejectionNote = `❌ Transferencia RECHAZADA por ${adminName} el ${new Date().toLocaleString('es-ES')} - Motivo: ${notes || 'Comprobante inválido'}`;
+        
+        payment.notes = payment.notes 
+          ? `${payment.notes}\n\n${rejectionNote}`
+          : rejectionNote;
+      }
+
+      await payment.save({ transaction });
+
+      if (approved) {
+        try {
+          await FinancialMovements.createFromAnyPayment(payment, { transaction });
+        } catch (financialError) {
+          console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+        }
+        
+        if (payment.paymentType === 'membership' && payment.membership) {
+          const membership = payment.membership;
+          membership.status = 'active';
+          
+          if (new Date(membership.endDate) < new Date()) {
+            const newEndDate = new Date();
+            newEndDate.setMonth(newEndDate.getMonth() + 1);
+            membership.endDate = newEndDate;
+          }
+          
+          await membership.save({ transaction });
+        }
+      } else {
+        // Si se rechaza, cancelar membresía asociada
+        if (payment.paymentType === 'membership' && payment.membership) {
+          const membership = payment.membership;
+          membership.status = 'cancelled';
+          membership.notes = membership.notes 
+            ? `${membership.notes}\n\nMembresía cancelada - Transferencia rechazada: ${notes || 'Comprobante inválido'}`
+            : `Membresía cancelada - Transferencia rechazada: ${notes || 'Comprobante inválido'}`;
+          await membership.save({ transaction });
+        }
+      }
+
+      await transaction.commit();
+
+      // ✅ NUEVO: Enviar email según el resultado
+      if (payment.user) {
+        try {
+          if (approved) {
+            await this.sendTransferApprovalEmail(payment.user, payment, adminName, notes);
+            console.log('✅ Email de aprobación de transferencia enviado');
+          } else {
+            await this.sendTransferRejectionEmail(payment.user, payment, adminName, notes);
+            console.log('✅ Email de rechazo de transferencia enviado');
+          }
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de validación (no crítico):', emailError.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        message: `Transferencia ${approved ? 'aprobada' : 'rechazada'} exitosamente`,
+        data: { payment }
+      });
+      
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error al validar transferencia:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al validar transferencia',
+      error: error.message
+    });
+  }
+}
+
+// ✅ CORREGIDO: Rechazar transferencia (método simplificado - usa validateTransfer)
+async rejectTransfer(req, res) {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo administradores pueden rechazar transferencias'
+      });
+    }
+    
+    // Usar el método validateTransfer con approved=false
+    req.body = {
+      approved: false,
+      notes: reason || 'Transferencia rechazada por administrador'
+    };
+    
+    return await this.validateTransfer(req, res);
+    
+  } catch (error) {
+    console.error('Error al rechazar transferencia:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al rechazar transferencia',
+      error: error.message
+    });
+  }
+}
+
+// ✅ NUEVOS MÉTODOS: Emails para pagos en efectivo
+
+async sendCashPaymentConfirmationEmail(user, payment, membership, staffName) {
+  try {
+    if (!this.emailService || !this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para confirmación de efectivo');
+      return;
+    }
+    
+    const emailTemplate = {
+      subject: '✅ Pago en Efectivo Confirmado - Elite Fitness Club',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: center; color: white;">
+            <h1>✅ ¡Pago Confirmado!</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>¡Excelente! Tu pago en efectivo ha sido <strong>confirmado exitosamente</strong> por nuestro personal en el gimnasio.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
+              <h3 style="color: #059669; margin-top: 0;">💰 Detalles del Pago Confirmado</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Monto:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${payment.amount}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Efectivo en gimnasio</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Confirmado por:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${staffName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date().toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px;">Confirmado</span></td></tr>
+              </table>
+            </div>
+            
+            ${membership ? `
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🏋️ Tu Membresía Está Activa</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>✅ Membresía activada:</strong> Puedes usar el gimnasio inmediatamente</li>
+                <li><strong>📅 Horarios reservados:</strong> Tus horarios están confirmados</li>
+                <li><strong>🎯 Acceso completo:</strong> Todos los servicios incluidos disponibles</li>
+                <li><strong>📱 Gestión:</strong> Usa nuestra app para ver tu progreso</li>
+              </ul>
+            </div>
+            ` : ''}
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Pago en Efectivo Confirmado - Elite Fitness Club
+
+Hola ${user.firstName},
+
+¡Tu pago en efectivo ha sido confirmado exitosamente!
+
+Detalles:
+- Monto: Q${payment.amount}
+- Método: Efectivo en gimnasio
+- Confirmado por: ${staffName}
+- Fecha: ${new Date().toLocaleDateString('es-ES')}
+- Estado: Confirmado
+
+${membership ? 'Tu membresía está activa y puedes usar el gimnasio inmediatamente.' : ''}
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de confirmación de efectivo enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de confirmación de efectivo:', error);
+    throw error;
+  }
+}
+
+async sendCashPaymentCancellationEmail(user, payment, reason, adminName) {
+  try {
+    if (!this.emailService || !this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para anulación de efectivo');
+      return;
+    }
+    
+    const emailTemplate = {
+      subject: '❌ Pago en Efectivo Anulado - Elite Fitness Club',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px; text-align: center; color: white;">
+            <h1>❌ Pago Anulado</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Te informamos que tu pago en efectivo ha sido <strong>anulado</strong> por nuestro personal administrativo.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ef4444;">
+              <h3 style="color: #dc2626; margin-top: 0;">📋 Detalles de la Anulación</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Monto:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${payment.amount}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Efectivo en gimnasio</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Anulado por:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${adminName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de anulación:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date().toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Motivo:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${reason}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px;">Anulado</span></td></tr>
+              </table>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🔄 Próximos Pasos</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>Sin cargos:</strong> No se realizó ningún cargo a tu cuenta</li>
+                <li><strong>Horarios liberados:</strong> Los horarios reservados están disponibles nuevamente</li>
+                <li><strong>Nueva reserva:</strong> Puedes crear una nueva membresía cuando gustes</li>
+                <li><strong>Soporte:</strong> Contáctanos si tienes dudas sobre la anulación</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Quieres crear una nueva membresía?</p>
+              <a href="#" style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px;">
+                🏋️ Crear Nueva Membresía
+              </a>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Pago en Efectivo Anulado - Elite Fitness Club
+
+Hola ${user.firstName},
+
+Te informamos que tu pago en efectivo ha sido anulado.
+
+Detalles:
+- Monto: Q${payment.amount}
+- Anulado por: ${adminName}
+- Fecha: ${new Date().toLocaleDateString('es-ES')}
+- Motivo: ${reason}
+
+No se realizó ningún cargo. Puedes crear una nueva membresía cuando gustes.
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de anulación de efectivo enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de anulación de efectivo:', error);
+    throw error;
+  }
+}
+
+// ✅ NUEVOS MÉTODOS: Emails para transferencias
+
+async sendTransferApprovalEmail(user, payment, adminName, notes) {
+  try {
+    if (!this.emailService || !this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para aprobación de transferencia');
+      return;
+    }
+    
+    const emailTemplate = {
+      subject: '✅ Transferencia Aprobada - Elite Fitness Club',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: center; color: white;">
+            <h1>✅ ¡Transferencia Aprobada!</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>¡Excelente! Tu transferencia bancaria ha sido <strong>validada y aprobada</strong> por nuestro equipo administrativo.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #10b981;">
+              <h3 style="color: #059669; margin-top: 0;">🏦 Detalles de la Transferencia Aprobada</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Monto:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${payment.amount}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Transferencia bancaria</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Validado por:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${adminName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de validación:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date().toLocaleDateString('es-ES')}</td></tr>
+                ${notes ? `<tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Comentarios:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${notes}</td></tr>` : ''}
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px;">Aprobada</span></td></tr>
+              </table>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🏋️ Tu Membresía Está Activa</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>✅ Pago procesado:</strong> Tu transferencia fue validada exitosamente</li>
+                <li><strong>🏋️ Membresía activada:</strong> Puedes usar el gimnasio inmediatamente</li>
+                <li><strong>📅 Horarios confirmados:</strong> Tus horarios reservados están activos</li>
+                <li><strong>🎯 Acceso completo:</strong> Todos los servicios incluidos disponibles</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Transferencia Aprobada - Elite Fitness Club
+
+Hola ${user.firstName},
+
+¡Tu transferencia bancaria ha sido validada y aprobada!
+
+Detalles:
+- Monto: Q${payment.amount}
+- Método: Transferencia bancaria
+- Validado por: ${adminName}
+- Fecha: ${new Date().toLocaleDateString('es-ES')}
+${notes ? `- Comentarios: ${notes}` : ''}
+- Estado: Aprobada
+
+Tu membresía está activa y puedes usar el gimnasio inmediatamente.
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de aprobación de transferencia enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de aprobación de transferencia:', error);
+    throw error;
+  }
+}
+
+async sendTransferRejectionEmail(user, payment, adminName, reason) {
+  try {
+    if (!this.emailService || !this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para rechazo de transferencia');
+      return;
+    }
+    
+    const emailTemplate = {
+      subject: '❌ Transferencia Rechazada - Elite Fitness Club',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 30px; text-align: center; color: white;">
+            <h1>❌ Transferencia Rechazada</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Lamentamos informarte que tu transferencia bancaria ha sido <strong>rechazada</strong> por nuestro equipo administrativo.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #ef4444;">
+              <h3 style="color: #dc2626; margin-top: 0;">🏦 Detalles del Rechazo</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Monto:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${payment.amount}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Transferencia bancaria</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Revisado por:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${adminName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de revisión:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date().toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Motivo del rechazo:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${reason || 'Comprobante inválido'}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px;">Rechazada</span></td></tr>
+              </table>
+            </div>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">🔄 Próximos Pasos</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                <li><strong>Verifica el comprobante:</strong> Asegúrate de que sea legible y completo</li>
+                <li><strong>Datos correctos:</strong> Confirma que el monto y cuenta destino sean correctos</li>
+                <li><strong>Nueva transferencia:</strong> Puedes realizar una nueva transferencia si es necesario</li>
+                <li><strong>Contacto directo:</strong> Llámanos para aclarar dudas sobre el rechazo</li>
+                <li><strong>Métodos alternativos:</strong> Considera pagar en efectivo en el gimnasio</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Necesitas ayuda o quieres intentar nuevamente?</p>
+              <a href="#" style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 10px;">
+                🔄 Realizar Nueva Transferencia
+              </a>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Transferencia Rechazada - Elite Fitness Club
+
+Hola ${user.firstName},
+
+Lamentamos informarte que tu transferencia bancaria ha sido rechazada.
+
+Detalles:
+- Monto: Q${payment.amount}
+- Revisado por: ${adminName}
+- Fecha: ${new Date().toLocaleDateString('es-ES')}
+- Motivo: ${reason || 'Comprobante inválido'}
+
+Puedes realizar una nueva transferencia o contactarnos para más información.
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de rechazo de transferencia enviado a ${user.email}`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de rechazo de transferencia:', error);
+    throw error;
   }
 }
 
