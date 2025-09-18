@@ -364,92 +364,304 @@ async getPayments(req, res) {
   }
 
   // ✅ Validar transferencia (solo admin - sin cambios)
-  async validateTransfer(req, res) {
-    try {
-      const { id } = req.params;
-      const { approved, notes } = req.body;
+ 
+async validateTransfer(req, res) {
+  try {
+    const { id } = req.params;
+    const { approved, notes } = req.body;
 
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({
-          success: false,
-          message: 'Solo los administradores pueden validar transferencias'
-        });
-      }
-
-      const payment = await Payment.findByPk(id, {
-        include: ['user', 'membership']
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Solo los administradores pueden validar transferencias'
       });
+    }
 
-      if (!payment) {
-        return res.status(404).json({
-          success: false,
-          message: 'Pago no encontrado'
-        });
-      }
+    const { Payment, FinancialMovements, MembershipPlans, GymTimeSlots } = require('../models');
+    
+    const payment = await Payment.findByPk(id, {
+      include: [
+        'user', 
+        {
+          association: 'membership',
+          include: [
+            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+            { association: 'plan', attributes: ['id', 'planName', 'price', 'durationType'] }
+          ]
+        }
+      ]
+    });
 
-      if (payment.paymentMethod !== 'transfer') {
-        return res.status(400).json({
-          success: false,
-          message: 'Este pago no es por transferencia'
-        });
-      }
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pago no encontrado'
+      });
+    }
 
+    if (payment.paymentMethod !== 'transfer') {
+      return res.status(400).json({
+        success: false,
+        message: 'Este pago no es por transferencia'
+      });
+    }
+
+    if (payment.transferValidated) {
+      return res.status(400).json({
+        success: false,
+        message: 'Esta transferencia ya fue validada anteriormente'
+      });
+    }
+
+    const transaction = await Payment.sequelize.transaction();
+    
+    try {
       payment.transferValidated = true;
       payment.transferValidatedBy = req.user.id;
       payment.transferValidatedAt = new Date();
-      payment.status = approved ? 'completed' : 'failed';
+      const adminName = req.user.getFullName();
       
-      if (notes) {
-        payment.notes = payment.notes 
-          ? `${payment.notes}\n\nValidación: ${notes}`
-          : `Validación: ${notes}`;
-      }
-
-      await payment.save();
-
+      let membershipActivated = false;
+      let scheduleSlotsReserved = 0;
+      let scheduleSlotsReleased = 0;
+      
       if (approved) {
+        // ========== APROBACIÓN DE TRANSFERENCIA ==========
+        payment.status = 'completed';
+        const validationNote = `✅ Transferencia APROBADA por ${adminName} el ${new Date().toLocaleString('es-ES')}${notes ? ` - ${notes}` : ' - Comprobante válido'}`;
+        
+        payment.notes = payment.notes 
+          ? `${payment.notes}\n\n${validationNote}`
+          : validationNote;
+        
+        // Crear movimiento financiero
         try {
-          await FinancialMovements.createFromAnyPayment(payment);
+          await FinancialMovements.createFromAnyPayment(payment, { transaction });
+          console.log('✅ Movimiento financiero creado');
         } catch (financialError) {
           console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
         }
-
-        if (payment.user) {
-          try {
-            await this.sendPaymentNotifications(payment, payment.user);
-          } catch (notificationError) {
-            console.warn('⚠️ Error al enviar notificaciones (no crítico):', notificationError.message);
-          }
-        }
         
+        // Activar membresía y reservar horarios
         if (payment.paymentType === 'membership' && payment.membership) {
           const membership = payment.membership;
           membership.status = 'active';
           
+          // Ajustar fecha de fin si es necesario
           if (new Date(membership.endDate) < new Date()) {
             const newEndDate = new Date();
             newEndDate.setMonth(newEndDate.getMonth() + 1);
             membership.endDate = newEndDate;
           }
           
-          await membership.save();
+          await membership.save({ transaction });
+          membershipActivated = true;
+          
+          // ✅ RESERVAR horarios si los hay
+          if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+            console.log('🔄 Reservando horarios para transferencia aprobada...');
+            
+            for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+              if (Array.isArray(slots) && slots.length > 0) {
+                for (const slotObj of slots) {
+                  const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                  if (slotId) {
+                    try {
+                      await GymTimeSlots.increment('currentReservations', {
+                        by: 1,
+                        where: { id: slotId },
+                        transaction
+                      });
+                      scheduleSlotsReserved++;
+                      console.log(`   ✅ Reservado: ${day} slot ${slotId}`);
+                    } catch (slotError) {
+                      console.warn(`⚠️ Error reservando slot ${slotId}:`, slotError.message);
+                    }
+                  }
+                }
+              }
+            }
+            console.log(`✅ ${scheduleSlotsReserved} horarios reservados por transferencia aprobada`);
+          }
+        }
+        
+      } else {
+        // ========== RECHAZO DE TRANSFERENCIA ==========
+        payment.status = 'cancelled';
+        const rejectionNote = `❌ Transferencia RECHAZADA por ${adminName} el ${new Date().toLocaleString('es-ES')} - Motivo: ${notes || 'Comprobante inválido'}`;
+        
+        payment.notes = payment.notes 
+          ? `${payment.notes}\n\n${rejectionNote}`
+          : rejectionNote;
+        
+        // Cancelar membresía asociada y liberar horarios
+        if (payment.paymentType === 'membership' && payment.membership) {
+          const membership = payment.membership;
+          
+          // Liberar horarios reservados antes de cancelar
+          if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+            console.log('🔄 Liberando horarios por transferencia rechazada...');
+            
+            for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+              if (Array.isArray(slots) && slots.length > 0) {
+                for (const slotObj of slots) {
+                  try {
+                    const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                    if (slotId) {
+                      const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+                      if (slot && slot.currentReservations > 0) {
+                        await slot.decrement('currentReservations', { transaction });
+                        scheduleSlotsReleased++;
+                        console.log(`   🔓 Liberado: ${day} slot ${slotId}`);
+                      }
+                    }
+                  } catch (slotError) {
+                    console.warn(`⚠️ Error liberando slot ${slotObj}:`, slotError.message);
+                  }
+                }
+              }
+            }
+            console.log(`✅ ${scheduleSlotsReleased} horarios liberados por transferencia rechazada`);
+          }
+          
+          membership.status = 'cancelled';
+          membership.notes = membership.notes 
+            ? `${membership.notes}\n\nMembresía cancelada - Transferencia rechazada: ${notes || 'Comprobante inválido'}`
+            : `Membresía cancelada - Transferencia rechazada: ${notes || 'Comprobante inválido'}`;
+          await membership.save({ transaction });
         }
       }
+
+      await payment.save({ transaction });
+      await transaction.commit();
+
+      // ========== ENVÍO DE EMAILS ==========
+      if (payment.user) {
+        try {
+          if (approved) {
+            // ✅ Para aprobaciones: email simple de transferencia aprobada
+            await this.sendTransferApprovalEmail(payment.user, payment, adminName, notes);
+            console.log('✅ Email de aprobación de transferencia enviado');
+          } else {
+            // ✅ Para rechazos: email completo de cancelación de membresía
+            await this.sendMembershipCancellationEmail(
+              payment.user, 
+              payment, 
+              payment.membership, 
+              notes || 'Comprobante de transferencia inválido o ilegible', 
+              adminName, 
+              'rejected'
+            );
+            console.log('✅ Email de cancelación por transferencia rechazada enviado');
+          }
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de validación (no crítico):', emailError.message);
+        }
+      }
+
+      // ✅ NUEVO: Email de membresía activa para transferencias aprobadas
+      if (approved && payment.paymentType === 'membership' && payment.membership && payment.user) {
+        try {
+          // Obtener detalles para email de confirmación
+          let membershipPlan = payment.membership.plan;
+          if (!membershipPlan && payment.membership.planId) {
+            membershipPlan = await MembershipPlans.findByPk(payment.membership.planId);
+          }
+          
+          // Obtener horarios detallados para el email
+          const schedule = await payment.membership.getDetailedSchedule();
+          
+          // Enviar email de CONFIRMACIÓN de membresía activa
+          const membershipController = require('../controllers/membershipController');
+          await membershipController.sendMembershipConfirmationEmail(
+            payment.user,
+            membershipPlan || { 
+              planName: payment.membership.type, 
+              price: payment.amount,
+              durationType: payment.membership.type
+            },
+            schedule
+          );
+          console.log('✅ Email de confirmación de membresía activa enviado (transferencia aprobada)');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de membresía activa (no crítico):', emailError.message);
+        }
+      }
+
+      // ========== RESPUESTA FINAL ==========
+      const hoursWaiting = (new Date() - payment.createdAt) / (1000 * 60 * 60);
+      
+      console.log(`✅ Transferencia ${approved ? 'APROBADA' : 'RECHAZADA'}: ${payment.id} - Q${payment.amount} - Por: ${adminName}`);
 
       res.json({
         success: true,
         message: `Transferencia ${approved ? 'aprobada' : 'rechazada'} exitosamente`,
-        data: { payment }
+        data: { 
+          payment: {
+            id: payment.id,
+            status: payment.status,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            transferValidated: payment.transferValidated,
+            transferValidatedBy: payment.transferValidatedBy,
+            transferValidatedAt: payment.transferValidatedAt,
+            transferProof: payment.transferProof,
+            hoursWaiting: Math.round(hoursWaiting * 10) / 10
+          },
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            status: payment.membership.status,
+            endDate: payment.membership.endDate,
+            planName: payment.membership.plan?.planName || payment.membership.type
+          } : null,
+          user: payment.user ? {
+            id: payment.user.id,
+            name: `${payment.user.firstName} ${payment.user.lastName}`,
+            email: payment.user.email
+          } : null,
+          validatedBy: {
+            id: req.user.id,
+            name: adminName,
+            timestamp: new Date(),
+            decision: approved ? 'approved' : 'rejected',
+            notes: notes || null
+          },
+          effects: {
+            transferValidated: true,
+            paymentStatus: payment.status,
+            membershipActivated: membershipActivated,
+            scheduleReserved: scheduleSlotsReserved > 0,
+            slotsReserved: scheduleSlotsReserved,
+            scheduleReleased: scheduleSlotsReleased > 0,
+            slotsReleased: scheduleSlotsReleased,
+            financialMovementCreated: approved,
+            emailsSent: {
+              transferNotification: !!payment.user,
+              membershipConfirmation: approved && !!payment.membership && !!payment.user
+            }
+          },
+          timeline: {
+            paymentCreated: payment.createdAt,
+            transferValidated: payment.transferValidatedAt,
+            hoursWaiting: Math.round(hoursWaiting * 10) / 10,
+            validationSpeed: hoursWaiting <= 24 ? 'fast' : hoursWaiting <= 48 ? 'normal' : 'slow'
+          }
+        }
       });
+      
     } catch (error) {
-      console.error('Error al validar transferencia:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al validar transferencia',
-        error: error.message
-      });
+      await transaction.rollback();
+      throw error;
     }
+  } catch (error) {
+    console.error('Error al validar transferencia:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al validar transferencia',
+      error: error.message
+    });
   }
+}
 
   // ✅ CORREGIDO: Solo staff puede ver transferencias pendientes
   async getPendingTransfers(req, res) {
@@ -1353,7 +1565,7 @@ async activateCashMembership(req, res) {
       });
     }
     
-    const { Membership, Payment, FinancialMovements } = require('../models');
+    const { Membership, Payment, FinancialMovements, MembershipPlans } = require('../models');
     
     let membership, payment;
     
@@ -1493,13 +1705,42 @@ async activateCashMembership(req, res) {
       
       await transaction.commit();
       
-      // 5. ✅ NUEVO: Enviar email de confirmación
+      // 5. ✅ ORIGINAL: Enviar email de confirmación de pago en efectivo
       if (membership.user) {
         try {
           await this.sendCashPaymentConfirmationEmail(membership.user, payment, membership, staffName);
           console.log('✅ Email de confirmación de efectivo enviado');
         } catch (emailError) {
-          console.warn('⚠️ Error enviando email de confirmación (no crítico):', emailError.message);
+          console.warn('⚠️ Error enviando email de confirmación de efectivo (no crítico):', emailError.message);
+        }
+      }
+      
+      // 6. ✅ NUEVO: Enviar email de membresía activa
+      if (membership.user) {
+        try {
+          // Obtener el plan para el email (usar el existente o buscar en BD)
+          let membershipPlan = membership.plan;
+          if (!membershipPlan && membership.planId) {
+            membershipPlan = await MembershipPlans.findByPk(membership.planId);
+          }
+          
+          // Obtener horarios detallados para el email
+          const schedule = await membership.getDetailedSchedule();
+          
+          // Enviar email de CONFIRMACIÓN de membresía activa
+          const membershipController = require('../controllers/membershipController');
+          await membershipController.sendMembershipConfirmationEmail(
+            membership.user,
+            membershipPlan || { 
+              planName: membership.type, 
+              price: membership.price,
+              durationType: membership.type
+            },
+            schedule
+          );
+          console.log('✅ Email de confirmación de membresía activa enviado');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de membresía activa (no crítico):', emailError.message);
         }
       }
       
@@ -1525,6 +1766,15 @@ async activateCashMembership(req, res) {
             id: req.user.id,
             name: req.user.getFullName(),
             timestamp: new Date()
+          },
+          effects: {
+            membershipActivated: true,
+            paymentCompleted: true,
+            scheduleReserved: !!(membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0),
+            emailsSent: {
+              cashConfirmation: !!membership.user,
+              membershipConfirmation: !!membership.user
+            }
           }
         }
       });
@@ -1707,8 +1957,19 @@ async validateTransfer(req, res) {
       });
     }
 
+    const { Payment, FinancialMovements, MembershipPlans } = require('../models');
+    
     const payment = await Payment.findByPk(id, {
-      include: ['user', 'membership']
+      include: [
+        'user', 
+        {
+          association: 'membership',
+          include: [
+            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+            { association: 'plan', attributes: ['id', 'planName', 'price', 'durationType'] }
+          ]
+        }
+      ]
     });
 
     if (!payment) {
@@ -1741,7 +2002,7 @@ async validateTransfer(req, res) {
           ? `${payment.notes}\n\n${validationNote}`
           : validationNote;
       } else {
-        payment.status = 'cancelled'; // ✅ CAMBIO: cancelled en lugar de failed
+        payment.status = 'cancelled'; // ✅ CORREGIDO: cancelled en lugar de failed
         const rejectionNote = `❌ Transferencia RECHAZADA por ${adminName} el ${new Date().toLocaleString('es-ES')} - Motivo: ${notes || 'Comprobante inválido'}`;
         
         payment.notes = payment.notes 
@@ -1769,11 +2030,61 @@ async validateTransfer(req, res) {
           }
           
           await membership.save({ transaction });
+          
+          // ✅ NUEVO: Reservar horarios si los hay (igual que en activateCashMembership)
+          if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+            const { GymTimeSlots } = require('../models');
+            
+            for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+              if (Array.isArray(slots) && slots.length > 0) {
+                for (const slotObj of slots) {
+                  const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                  if (slotId) {
+                    try {
+                      await GymTimeSlots.increment('currentReservations', {
+                        by: 1,
+                        where: { id: slotId },
+                        transaction
+                      });
+                      console.log(`✅ Horario reservado por transferencia: ${day} slot ${slotId}`);
+                    } catch (slotError) {
+                      console.warn(`⚠️ Error reservando slot ${slotId}:`, slotError.message);
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       } else {
-        // Si se rechaza, cancelar membresía asociada
+        // Si se rechaza, cancelar membresía asociada y liberar horarios
         if (payment.paymentType === 'membership' && payment.membership) {
           const membership = payment.membership;
+          
+          // Liberar horarios reservados antes de cancelar
+          if (membership.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+            const { GymTimeSlots } = require('../models');
+            
+            for (const [day, slots] of Object.entries(membership.reservedSchedule)) {
+              if (Array.isArray(slots) && slots.length > 0) {
+                for (const slotObj of slots) {
+                  try {
+                    const slotId = typeof slotObj === 'object' ? slotObj.slotId : slotObj;
+                    if (slotId) {
+                      const slot = await GymTimeSlots.findByPk(slotId, { transaction });
+                      if (slot && slot.currentReservations > 0) {
+                        await slot.decrement('currentReservations', { transaction });
+                        console.log(`🔓 Horario liberado por rechazo: ${day} slot ${slotId}`);
+                      }
+                    }
+                  } catch (slotError) {
+                    console.warn(`⚠️ Error liberando slot ${slotObj}:`, slotError.message);
+                  }
+                }
+              }
+            }
+          }
+          
           membership.status = 'cancelled';
           membership.notes = membership.notes 
             ? `${membership.notes}\n\nMembresía cancelada - Transferencia rechazada: ${notes || 'Comprobante inválido'}`
@@ -1784,7 +2095,7 @@ async validateTransfer(req, res) {
 
       await transaction.commit();
 
-      // ✅ NUEVO: Enviar email según el resultado
+      // ✅ ORIGINAL: Enviar email según el resultado (transferencia aprobada/rechazada)
       if (payment.user) {
         try {
           if (approved) {
@@ -1799,10 +2110,69 @@ async validateTransfer(req, res) {
         }
       }
 
+      // ✅ NUEVO: Email de membresía activa para transferencias aprobadas
+      if (approved && payment.paymentType === 'membership' && payment.membership) {
+        try {
+          // Obtener detalles para email de confirmación
+          let membershipPlan = payment.membership.plan;
+          if (!membershipPlan && payment.membership.planId) {
+            membershipPlan = await MembershipPlans.findByPk(payment.membership.planId);
+          }
+          
+          // Obtener horarios detallados para el email
+          const schedule = await payment.membership.getDetailedSchedule();
+          
+          // Enviar email de CONFIRMACIÓN de membresía activa
+          const membershipController = require('../controllers/membershipController');
+          await membershipController.sendMembershipConfirmationEmail(
+            payment.user,
+            membershipPlan || { 
+              planName: payment.membership.type, 
+              price: payment.amount,
+              durationType: payment.membership.type
+            },
+            schedule
+          );
+          console.log('✅ Email de confirmación de membresía activa enviado (transferencia aprobada)');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de membresía activa (no crítico):', emailError.message);
+        }
+      }
+
       res.json({
         success: true,
         message: `Transferencia ${approved ? 'aprobada' : 'rechazada'} exitosamente`,
-        data: { payment }
+        data: { 
+          payment: {
+            id: payment.id,
+            status: payment.status,
+            amount: payment.amount,
+            transferValidated: payment.transferValidated,
+            transferValidatedBy: payment.transferValidatedBy,
+            transferValidatedAt: payment.transferValidatedAt
+          },
+          membership: payment.membership ? {
+            id: payment.membership.id,
+            status: payment.membership.status,
+            endDate: payment.membership.endDate
+          } : null,
+          validatedBy: {
+            id: req.user.id,
+            name: adminName,
+            timestamp: new Date()
+          },
+          effects: {
+            transferValidated: true,
+            paymentStatus: payment.status,
+            membershipActivated: approved && !!payment.membership,
+            scheduleReserved: approved && !!(payment.membership?.reservedSchedule && Object.keys(payment.membership.reservedSchedule).length > 0),
+            scheduleReleased: !approved && !!(payment.membership?.reservedSchedule && Object.keys(payment.membership.reservedSchedule).length > 0),
+            emailsSent: {
+              transferNotification: !!payment.user,
+              membershipConfirmation: approved && !!payment.membership && !!payment.user
+            }
+          }
+        }
       });
       
     } catch (error) {
@@ -1816,6 +2186,197 @@ async validateTransfer(req, res) {
       message: 'Error al validar transferencia',
       error: error.message
     });
+  }
+}
+
+// ✅ NUEVO MÉTODO: Email para cancelaciones/anulaciones de membresías
+
+async sendMembershipCancellationEmail(user, payment, membership, reason, cancelledBy, cancelType = 'cancelled') {
+  try {
+    if (!this.emailService || !this.emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado para cancelación');
+      return;
+    }
+    
+    // Determinar tipo de cancelación y colores
+    const cancellationInfo = {
+      cash: {
+        title: 'Solicitud de Membresía Cancelada',
+        subtitle: 'Pago en efectivo no completado',
+        icon: '💵❌',
+        statusColor: '#ef4444',
+        explanation: 'Tu solicitud de membresía ha sido cancelada porque no se completó el pago en efectivo en nuestras instalaciones.',
+        nextSteps: [
+          'Puedes crear una nueva membresía cuando gustes',
+          'Visita nuestro gimnasio o usa nuestra aplicación',
+          'Los horarios que tenías reservados están ahora disponibles',
+          'No se realizó ningún cargo a tu cuenta'
+        ]
+      },
+      transfer: {
+        title: 'Solicitud de Membresía Cancelada',
+        subtitle: 'Transferencia no validada',
+        icon: '🏦❌', 
+        statusColor: '#ef4444',
+        explanation: 'Tu solicitud de membresía ha sido cancelada porque no se pudo validar tu transferencia bancaria.',
+        nextSteps: [
+          'Verifica que el comprobante sea legible y completo',
+          'Asegúrate de transferir el monto exacto',
+          'Puedes intentar con una nueva transferencia',
+          'También puedes pagar en efectivo en el gimnasio'
+        ]
+      }
+    };
+    
+    const paymentMethodKey = payment.paymentMethod === 'cash' ? 'cash' : 'transfer';
+    const info = cancellationInfo[paymentMethodKey];
+    
+    // Obtener información del plan/membresía
+    const planName = membership?.plan?.planName || membership?.type || 'Membresía';
+    const planPrice = payment.amount;
+    
+    // Formatear horarios que se liberaron
+    let scheduleText = '';
+    if (membership?.reservedSchedule && Object.keys(membership.reservedSchedule).length > 0) {
+      scheduleText = Object.entries(membership.reservedSchedule).map(([day, slots]) => {
+        if (!Array.isArray(slots) || slots.length === 0) return null;
+        
+        const dayName = {
+          monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+          thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+        }[day];
+        
+        const slotsText = slots.map(slot => {
+          if (typeof slot === 'object') {
+            return `${slot.openTime?.slice(0, 5)} - ${slot.closeTime?.slice(0, 5)}`;
+          }
+          return slot;
+        }).join(', ');
+        
+        return `${dayName}: ${slotsText}`;
+      }).filter(Boolean).join('\n');
+    }
+    
+    const emailTemplate = {
+      subject: `❌ ${info.title} - ${planName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, ${info.statusColor} 0%, #7c2d12 100%); padding: 30px; text-align: center; color: white;">
+            <h1>${info.icon} ${info.title}</h1>
+            <p style="font-size: 18px; margin: 0;">${info.subtitle}</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>Lamentamos informarte que ${info.explanation}</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${info.statusColor};">
+              <h3 style="color: ${info.statusColor}; margin-top: 0;">📋 Detalles de la Cancelación</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Plan:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${planName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Precio:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${planPrice}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de pago:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${payment.paymentMethod === 'cash' ? 'Efectivo en gimnasio' : 'Transferencia bancaria'}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de solicitud:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date(payment.createdAt).toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Cancelado por:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${cancelledBy}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Motivo:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${reason}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado final:</strong></td><td style="padding: 8px;"><span style="background: ${info.statusColor}; color: white; padding: 4px 8px; border-radius: 4px;">Cancelada</span></td></tr>
+              </table>
+            </div>
+            
+            ${scheduleText ? `
+            <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+              <h3 style="color: #1e40af; margin-top: 0;">📅 Horarios Liberados</h3>
+              <p style="color: #1e40af;">Los siguientes horarios que tenías reservados han sido liberados y están disponibles nuevamente:</p>
+              <pre style="background: white; padding: 15px; border-radius: 4px; font-family: monospace; color: #1e40af;">${scheduleText}</pre>
+            </div>
+            ` : ''}
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #059669; margin-top: 0;">🔄 Próximos Pasos</h3>
+              <ul style="color: #4b5563; line-height: 1.6;">
+                ${info.nextSteps.map(step => `<li>${step}</li>`).join('')}
+              </ul>
+            </div>
+            
+            <div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #92400e; margin-top: 0;">💡 Importante</h3>
+              <ul style="color: #92400e; line-height: 1.6;">
+                <li><strong>Sin cargos:</strong> No se realizó ningún cargo a tu cuenta</li>
+                <li><strong>Nueva oportunidad:</strong> Puedes crear una nueva membresía cuando gustes</li>
+                <li><strong>Horarios disponibles:</strong> Los horarios están libres para otros usuarios</li>
+                <li><strong>Soporte:</strong> Estamos aquí para ayudarte con cualquier duda</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b; margin-bottom: 15px;">¿Quieres crear una nueva membresía?</p>
+              <a href="#" style="display: inline-block; background: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: bold;">
+                🏋️ Crear Nueva Membresía
+              </a>
+              <a href="#" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 5px; font-weight: bold;">
+                📞 Contactar Soporte
+              </a>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+              <p style="margin: 5px 0;"><strong>🏢 Dirección:</strong> Elite Fitness Club, Guatemala</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+${info.title} - Elite Fitness Club
+
+Hola ${user.firstName},
+
+${info.explanation}
+
+Detalles de la Cancelación:
+- Plan: ${planName}
+- Precio: Q${planPrice}
+- Método: ${payment.paymentMethod === 'cash' ? 'Efectivo en gimnasio' : 'Transferencia bancaria'}
+- Fecha de solicitud: ${new Date(payment.createdAt).toLocaleDateString('es-ES')}
+- Cancelado por: ${cancelledBy}
+- Motivo: ${reason}
+- Estado: Cancelada
+
+${scheduleText ? `Horarios Liberados:\n${scheduleText}\n` : ''}
+
+Próximos pasos:
+${info.nextSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+Importante:
+- No se realizó ningún cargo a tu cuenta
+- Puedes crear una nueva membresía cuando gustes
+- Estamos aquí para ayudarte con cualquier duda
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await this.emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de cancelación enviado a ${user.email} (${paymentMethodKey})`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de cancelación:', error);
+    throw error;
   }
 }
 
@@ -2706,7 +3267,8 @@ async cancelCashPayment(req, res) {
         { 
           association: 'membership',
           include: [
-            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] }
+            { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+            { association: 'plan', attributes: ['id', 'planName', 'price', 'durationType'] }
           ]
         }
       ]
@@ -2729,7 +3291,7 @@ async cancelCashPayment(req, res) {
     if (payment.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: `No se puede anular un pago con estado: ${payment.status}`
+        message: `No se puede anular un pago con estado: ${payment.status === 'cancelled' ? 'anulado' : payment.status}`
       });
     }
     
@@ -2738,12 +3300,18 @@ async cancelCashPayment(req, res) {
     try {
       // 1. Anular el pago
       payment.status = 'cancelled';
+      const adminName = req.user.getFullName();
+      const cancellationNote = `❌ Pago ANULADO por administrador ${adminName} el ${new Date().toLocaleString('es-ES')} - Motivo: ${reason}`;
+      
       payment.notes = payment.notes 
-        ? `${payment.notes}\n\nPago anulado por administrador: ${reason}`
-        : `Pago anulado por administrador: ${reason}`;
+        ? `${payment.notes}\n\n${cancellationNote}`
+        : cancellationNote;
       await payment.save({ transaction });
       
       // 2. Cancelar membresía asociada si existe
+      let membershipCancelled = false;
+      let scheduleSlotsReleased = 0;
+      
       if (payment.membership) {
         const membership = payment.membership;
         
@@ -2760,6 +3328,7 @@ async cancelCashPayment(req, res) {
                     const slot = await GymTimeSlots.findByPk(slotId, { transaction });
                     if (slot && slot.currentReservations > 0) {
                       await slot.decrement('currentReservations', { transaction });
+                      scheduleSlotsReleased++;
                       console.log(`   ✅ Liberado: ${day} slot ${slotId}`);
                     }
                   }
@@ -2778,21 +3347,34 @@ async cancelCashPayment(req, res) {
           : `Membresía cancelada - Pago en efectivo anulado: ${reason}`;
         await membership.save({ transaction });
         
+        membershipCancelled = true;
         console.log(`✅ Membresía ${membership.id} cancelada por pago anulado`);
       }
       
       await transaction.commit();
       
-      // 3. Enviar notificación al usuario (no crítico)
-      if (payment.user || payment.membership?.user) {
+      // 3. ✅ NUEVO: Enviar email de cancelación específico para membresías
+      const targetUser = payment.user || payment.membership?.user;
+      if (targetUser) {
         try {
-          const targetUser = payment.user || payment.membership.user;
-          await this.sendCancellationNotification(targetUser, payment, reason);
-          console.log('✅ Notificación de anulación enviada al usuario');
-        } catch (notificationError) {
-          console.warn('⚠️ Error enviando notificación de anulación (no crítico):', notificationError.message);
+          await this.sendMembershipCancellationEmail(
+            targetUser, 
+            payment, 
+            payment.membership, 
+            reason || 'Pago en efectivo no completado en el tiempo establecido', 
+            adminName, 
+            'cancelled'
+          );
+          console.log('✅ Email de cancelación de membresía enviado al usuario');
+        } catch (emailError) {
+          console.warn('⚠️ Error enviando email de cancelación (no crítico):', emailError.message);
         }
       }
+      
+      // 4. Preparar respuesta detallada
+      const hoursWaiting = (new Date() - payment.createdAt) / (1000 * 60 * 60);
+      
+      console.log(`✅ Pago en efectivo anulado: ${payment.id} - Q${payment.amount} - Motivo: ${reason}`);
       
       res.json({
         success: true,
@@ -2802,17 +3384,39 @@ async cancelCashPayment(req, res) {
             id: payment.id,
             status: payment.status,
             amount: payment.amount,
-            reason: reason
+            paymentMethod: payment.paymentMethod,
+            reason: reason,
+            cancelledAt: new Date(),
+            hoursWaiting: Math.round(hoursWaiting * 10) / 10
           },
           membership: payment.membership ? {
             id: payment.membership.id,
-            status: payment.membership.status
+            status: payment.membership.status,
+            planName: payment.membership.plan?.planName || payment.membership.type
           } : null,
+          user: targetUser ? {
+            id: targetUser.id,
+            name: `${targetUser.firstName} ${targetUser.lastName}`,
+            email: targetUser.email
+          } : null,
+          cancelledBy: {
+            id: req.user.id,
+            name: adminName,
+            timestamp: new Date()
+          },
           effects: {
             paymentCancelled: true,
-            membershipCancelled: !!payment.membership,
-            scheduleReleased: !!(payment.membership?.reservedSchedule && Object.keys(payment.membership.reservedSchedule).length > 0),
-            userNotified: !!(payment.user || payment.membership?.user)
+            membershipCancelled: membershipCancelled,
+            scheduleReleased: scheduleSlotsReleased > 0,
+            slotsReleased: scheduleSlotsReleased,
+            userNotified: !!targetUser,
+            emailSent: !!targetUser
+          },
+          timeline: {
+            paymentCreated: payment.createdAt,
+            paymentCancelled: new Date(),
+            hoursWaiting: Math.round(hoursWaiting * 10) / 10,
+            withinTimeLimit: hoursWaiting <= 48
           }
         }
       });

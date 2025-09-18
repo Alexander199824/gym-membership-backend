@@ -1259,23 +1259,28 @@ async purchaseMembership(req, res) {
     }
     
     // Enviar email de confirmación (no crítico) - Solo si no es cash
-    if (paymentMethod !== 'cash') {
       try {
-        const membershipController = require('../controllers/membershipController');
-        if (membershipController.sendMembershipConfirmationEmail) {
-          await membershipController.sendMembershipConfirmationEmail(
+        if (['cash', 'transfer'].includes(paymentMethod)) {
+          // Para pagos pendientes, enviar email de "solicitud en proceso"
+          await this.sendPendingMembershipEmail(
+            membershipForResponse || membership, 
+            plan, 
+            processedSchedule,
+            paymentMethod
+          );
+          console.log(`✅ Email de solicitud pendiente enviado (${paymentMethod})`);
+        } else {
+          // Para pagos completados, enviar email de confirmación
+          await this.sendMembershipConfirmationEmail(
             membershipForResponse || membership, 
             plan, 
             processedSchedule
           );
-          console.log('✅ Email de confirmación enviado');
+          console.log('✅ Email de confirmación de membresía activa enviado');
         }
       } catch (emailError) {
         console.warn('⚠️ Error enviando email (no crítico):', emailError.message);
       }
-    } else {
-      console.log('💵 Email NO enviado - esperando pago en efectivo');
-    }
     
     // ✅ 8. PREPARAR RESPUESTA FINAL - CAMBIO: CONDICIONAL PARA CASH
     const summary = {
@@ -2862,6 +2867,196 @@ async getAvailableScheduleOptions(req, res) {
   }
 }
 
+// ✅ NUEVO MÉTODO: Email para membresías pendientes
+async sendPendingMembershipEmail(membership, plan, schedule, paymentMethod) {
+  try {
+    const { EmailService } = require('../services/notificationServices');
+    
+    if (!EmailService) {
+      console.log('ℹ️ Servicio de email no disponible');
+      return;
+    }
+    
+    const emailService = new EmailService();
+    
+    if (!emailService.isConfigured) {
+      console.log('ℹ️ Servicio de email no configurado');
+      return;
+    }
+    
+    const user = membership.user;
+    
+    // Determinar texto específico según método de pago
+    const paymentInfo = paymentMethod === 'cash' ? {
+      title: 'Pago en Efectivo Requerido',
+      instruction: 'Visita nuestro gimnasio para completar el pago en efectivo',
+      action: 'Ir al Gimnasio',
+      icon: '💵',
+      statusColor: '#f59e0b',
+      nextSteps: [
+        'Visita Elite Fitness Club en nuestro horario de atención',
+        'Presenta tu nombre y menciona tu reserva de membresía',
+        'Realiza el pago en efectivo con nuestro personal',
+        'Tu membresía se activará inmediatamente después del pago'
+      ]
+    } : {
+      title: 'Comprobante de Transferencia Requerido',
+      instruction: 'Sube tu comprobante de transferencia para validar el pago',
+      action: 'Subir Comprobante',
+      icon: '🏦',
+      statusColor: '#3b82f6',
+      nextSteps: [
+        'Realiza la transferencia a nuestra cuenta bancaria',
+        'Sube una foto clara del comprobante en tu cuenta',
+        'Nuestro equipo validará el pago en máximo 24 horas',
+        'Recibirás confirmación una vez aprobada la transferencia'
+      ]
+    };
+
+    // Formatear horarios para el email
+    const scheduleText = Object.entries(schedule).map(([day, slots]) => {
+      if (slots.length === 0) return null;
+      
+      const dayName = {
+        monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+        thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo'
+      }[day];
+      
+      const slotsText = slots.map(slot => `${slot.openTime} - ${slot.closeTime}`).join(', ');
+      return `${dayName}: ${slotsText}`;
+    }).filter(Boolean).join('\n');
+    
+    const emailTemplate = {
+      subject: `⏳ Solicitud de Membresía Recibida - ${plan.planName}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, ${paymentInfo.statusColor} 0%, #64748b 100%); padding: 30px; text-align: center; color: white;">
+            <h1>${paymentInfo.icon} Solicitud Recibida</h1>
+            <p style="font-size: 18px; margin: 0;">Elite Fitness Club</p>
+          </div>
+          
+          <div style="padding: 30px; background: #f8f9fa;">
+            <h2>Hola ${user.firstName},</h2>
+            <p>¡Gracias por elegir Elite Fitness Club! Hemos recibido tu solicitud de membresía y está <strong>esperando confirmación de pago</strong>.</p>
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${paymentInfo.statusColor};">
+              <h3 style="color: ${paymentInfo.statusColor}; margin-top: 0;">📋 Detalles de tu Solicitud</h3>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Plan:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${plan.planName}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Precio:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">Q${plan.price}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Método de pago:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${paymentMethod === 'cash' ? 'Efectivo en gimnasio' : 'Transferencia bancaria'}</td></tr>
+                <tr><td style="padding: 8px; border-bottom: 1px solid #eee;"><strong>Fecha de solicitud:</strong></td><td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date(membership.createdAt).toLocaleDateString('es-ES')}</td></tr>
+                <tr><td style="padding: 8px;"><strong>Estado:</strong></td><td style="padding: 8px;"><span style="background: ${paymentInfo.statusColor}; color: white; padding: 4px 8px; border-radius: 4px;">Pendiente de Pago</span></td></tr>
+              </table>
+            </div>
+            
+            ${scheduleText ? `
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #667eea; margin-top: 0;">⏰ Horarios Reservados (Pendientes)</h3>
+              <pre style="background: #f1f5f9; padding: 15px; border-radius: 4px; font-family: monospace;">${scheduleText}</pre>
+              <p style="font-size: 14px; color: #64748b; margin: 10px 0 0 0;">
+                💡 Estos horarios se activarán automáticamente una vez confirmado el pago.
+              </p>
+            </div>
+            ` : ''}
+            
+            <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid ${paymentInfo.statusColor};">
+              <h3 style="color: ${paymentInfo.statusColor}; margin-top: 0;">${paymentInfo.icon} ${paymentInfo.title}</h3>
+              <p style="font-size: 16px; color: #374151; margin-bottom: 15px;">
+                <strong>${paymentInfo.instruction}</strong>
+              </p>
+              <ul style="color: #4b5563; line-height: 1.6; margin-bottom: 20px;">
+                ${paymentInfo.nextSteps.map(step => `<li>${step}</li>`).join('')}
+              </ul>
+            </div>
+            
+            ${paymentMethod === 'transfer' ? `
+            <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #3b82f6;">
+              <h3 style="color: #1e40af; margin-top: 0;">🏦 Datos Bancarios</h3>
+              <table style="width: 100%; color: #1e40af;">
+                <tr><td style="padding: 4px 0;"><strong>Banco:</strong></td><td>Banco Industrial</td></tr>
+                <tr><td style="padding: 4px 0;"><strong>Cuenta:</strong></td><td>123-456789-0</td></tr>
+                <tr><td style="padding: 4px 0;"><strong>Nombre:</strong></td><td>Elite Fitness Club S.A.</td></tr>
+                <tr><td style="padding: 4px 0;"><strong>Monto exacto:</strong></td><td style="font-weight: bold; font-size: 18px;">Q${plan.price}</td></tr>
+              </table>
+            </div>
+            ` : ''}
+            
+            <div style="background: #fef3c7; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="color: #92400e; margin-top: 0;">⚠️ Importante</h3>
+              <ul style="color: #92400e; line-height: 1.6;">
+                <li><strong>Tiempo límite:</strong> Tienes 48 horas para completar el pago</li>
+                <li><strong>Horarios reservados:</strong> Se mantendrán hasta la confirmación</li>
+                <li><strong>Sin pago confirmado:</strong> La solicitud será cancelada automáticamente</li>
+                <li><strong>Soporte:</strong> Contáctanos si tienes dudas sobre el proceso</li>
+              </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <p style="color: #64748b;">¿Tienes alguna pregunta? Contáctanos:</p>
+              <p style="margin: 5px 0;"><strong>📞 WhatsApp:</strong> +502 1234-5678</p>
+              <p style="margin: 5px 0;"><strong>📧 Email:</strong> info@elitefitness.com</p>
+            </div>
+          </div>
+          
+          <div style="background: #1f2937; color: #9ca3af; text-align: center; padding: 20px;">
+            <p style="margin: 0;">Elite Fitness Club - Tu mejor versión te está esperando</p>
+            <p style="margin: 5px 0 0 0; font-size: 12px;">© 2024 Elite Fitness Club. Todos los derechos reservados.</p>
+          </div>
+        </div>
+      `,
+      text: `
+Solicitud de Membresía Recibida - Elite Fitness Club
+
+Hola ${user.firstName},
+
+Hemos recibido tu solicitud de membresía y está esperando confirmación de pago.
+
+Detalles de tu Solicitud:
+- Plan: ${plan.planName} 
+- Precio: Q${plan.price}
+- Método: ${paymentMethod === 'cash' ? 'Efectivo en gimnasio' : 'Transferencia bancaria'}
+- Estado: Pendiente de Pago
+
+${paymentInfo.instruction}
+
+Próximos pasos:
+${paymentInfo.nextSteps.map((step, i) => `${i + 1}. ${step}`).join('\n')}
+
+${scheduleText ? `Horarios Reservados (Pendientes):\n${scheduleText}` : ''}
+
+${paymentMethod === 'transfer' ? `
+Datos Bancarios:
+- Banco: Banco Industrial
+- Cuenta: 123-456789-0
+- Nombre: Elite Fitness Club S.A.
+- Monto exacto: Q${plan.price}
+` : ''}
+
+¡Gracias por elegir Elite Fitness Club!
+
+Elite Fitness Club
+📞 +502 1234-5678
+📧 info@elitefitness.com
+      `
+    };
+    
+    const result = await emailService.sendEmail({
+      to: user.email,
+      subject: emailTemplate.subject,
+      html: emailTemplate.html,
+      text: emailTemplate.text
+    });
+    
+    console.log(`✅ Email de solicitud pendiente enviado a ${user.email} (${paymentMethod})`);
+    return result;
+    
+  } catch (error) {
+    console.error('Error enviando email de solicitud pendiente:', error);
+    throw error;
+  }
+}
+
 // ✅ NUEVO: Obtener membresías pendientes de pago en efectivo
 async getPendingCashMemberships(req, res) {
   try {
@@ -2970,6 +3165,8 @@ async getPendingCashMemberships(req, res) {
     });
   }
 }
+
+
 
 }
 
