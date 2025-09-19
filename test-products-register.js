@@ -1,29 +1,30 @@
-// test-products-register.js - REGISTRADOR DE PRODUCTOS v3.0 (CLOUDINARY + NUEVOS DATOS)
+// test-products-register.js - REGISTRADOR COMPLETO v4.0 (CON DIAGNÓSTICO INTEGRADO)
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 
-class ProductsRegister {
+class ProductsRegisterWithDiagnostic {
   constructor(baseURL = 'http://localhost:5000') {
     this.baseURL = baseURL;
     this.adminToken = null;
     
-    // ✅ NUEVOS DATOS DE PRODUCTOS (diferentes pero mismas imágenes)
+    // ✅ NUEVOS PRODUCTOS CON DATOS ÚNICOS
     this.productsData = [
       {
-        name: 'Proteína Isolate Premium Gold',
-        description: 'Proteína aislada de suero de alta pureza con aminoácidos esenciales. Fórmula avanzada para atletas profesionales. Sabor vainilla francesa con digestión rápida y absorción optimizada.',
-        price: 75.99,
-        originalPrice: 95.99,
-        sku: 'PROT-ISO-GOLD-VAN',
-        stockQuantity: 18,
-        minStock: 4,
-        weight: 2.2,
+        name: 'Mass Gainer Extreme 3000',
+        description: 'Ganador de masa muscular de alta densidad calórica con proteínas de liberación sostenida. Contiene creatina, glutamina y vitaminas esenciales. Ideal para atletas que buscan aumentar peso de forma saludable.',
+        price: 89.99,
+        originalPrice: 119.99,
+        sku: 'MASS-GAIN-3000-CHOC',
+        stockQuantity: 22,
+        minStock: 5,
+        weight: 3.0,
         dimensions: {
-          length: 16,
-          width: 16,
-          height: 22,
+          length: 18,
+          width: 18,
+          height: 25,
           unit: 'cm'
         },
         isFeatured: true,
@@ -36,18 +37,18 @@ class ProductsRegister {
         imagePath: 'C:\\Users\\echev\\OneDrive\\Escritorio\\productos de prueba\\suplementos-universalfitness.png'
       },
       {
-        name: 'Kit Entrenamiento Elite Pro',
-        description: 'Set completo de entrenamiento profesional que incluye camiseta técnica, shorts deportivos y toalla de microfibra. Materiales de alta tecnología con propiedades antibacteriales y control de humedad.',
-        price: 65.99,
-        originalPrice: 89.99,
-        sku: 'KIT-ELITE-PRO-XL',
-        stockQuantity: 12,
-        minStock: 2,
-        weight: 1.2,
+        name: 'Uniforme Deportivo Performance Plus',
+        description: 'Uniforme deportivo de alto rendimiento con tecnología Dri-FIT avanzada. Incluye camiseta, shorts y calcetas deportivas. Diseñado para máximo confort durante entrenamientos intensos.',
+        price: 79.99,
+        originalPrice: 109.99,
+        sku: 'UNIF-PERF-PLUS-M',
+        stockQuantity: 16,
+        minStock: 3,
+        weight: 0.9,
         dimensions: {
-          length: 35,
-          width: 28,
-          height: 8,
+          length: 32,
+          width: 26,
+          height: 6,
           unit: 'cm'
         },
         isFeatured: true,
@@ -68,15 +69,19 @@ class ProductsRegister {
     this.uploadedImages = [];
     this.existingCategories = [];
     this.existingBrands = [];
+    
+    // Control de diagnóstico
+    this.diagnosticRun = false;
+    this.cloudinaryConfigured = false;
   }
 
   async registerAllProducts() {
-    console.log('🏪 Elite Fitness Club - Registrador de Productos v3.0 (CLOUDINARY + NUEVOS DATOS)');
-    console.log('='.repeat(85));
-    console.log('🎯 OBJETIVO: Crear nuevos productos con imágenes en Cloudinary');
-    console.log('📦 PRODUCTOS A REGISTRAR: 2 productos NUEVOS (Proteína + Kit Entrenamiento)');
-    console.log('☁️ ALMACENAMIENTO: Cloudinary para producción');
-    console.log('🔄 PROCESO: Autenticación → Verificación → Categorías → Marcas → Productos → Cloudinary\n');
+    console.log('🏪 Elite Fitness Club - Registrador de Productos v4.0 (CON DIAGNÓSTICO INTEGRADO)');
+    console.log('='.repeat(90));
+    console.log('🎯 OBJETIVO: Crear productos con imágenes en Cloudinary + diagnóstico automático');
+    console.log('📦 PRODUCTOS: 2 productos ÚNICOS (Mass Gainer + Uniforme Performance)');
+    console.log('☁️ CLOUDINARY: Con verificación y diagnóstico automático si falla');
+    console.log('🔄 PROCESO: Auth → Verificación → Categorías → Marcas → Productos → Cloudinary → Diagnóstico\n');
     
     try {
       await this.loginAdmin();
@@ -84,13 +89,16 @@ class ProductsRegister {
       await this.ensureCategories();
       await this.ensureBrands();
       await this.createProducts();
-      await this.uploadProductImages();
+      await this.uploadProductImagesWithDiagnostic();
       await this.showFinalSummary();
       
       console.log('\n🎉 ¡REGISTRO DE PRODUCTOS COMPLETADO EXITOSAMENTE!');
       console.log('✅ Todos los productos están listos para la venta');
-      console.log('☁️ Imágenes almacenadas en Cloudinary para producción');
-      console.log('🛒 Los clientes pueden ver y comprar estos productos desde cualquier lugar');
+      
+      if (this.uploadedImages.length > 0) {
+        console.log('☁️ Imágenes almacenadas en Cloudinary para producción');
+        console.log('🛒 Los clientes pueden ver y comprar estos productos desde cualquier lugar');
+      }
       
     } catch (error) {
       console.error('\n❌ Error en el registro:', error.message);
@@ -104,6 +112,417 @@ class ProductsRegister {
       await this.showCleanupInstructions();
     }
   }
+
+  // ✅ NUEVO: Upload con diagnóstico automático integrado
+  async uploadProductImagesWithDiagnostic() {
+    console.log('\n6. ☁️ Subiendo imágenes a Cloudinary (con diagnóstico automático)...');
+    
+    if (this.registeredProducts.length === 0) {
+      console.log('   ⚠️ No hay productos registrados para subir imágenes');
+      return;
+    }
+    
+    console.log('   📤 Las imágenes se subirán a Cloudinary para acceso global');
+    console.log('   🔍 Diagnóstico automático si alguna subida falla');
+    
+    let uploadErrors = [];
+    
+    for (let i = 0; i < this.registeredProducts.length; i++) {
+      const product = this.registeredProducts[i];
+      console.log(`\n   ☁️ SUBIENDO IMAGEN ${i + 1}/${this.registeredProducts.length}: "${product.name}"`);
+      console.log('   ' + '-'.repeat(70));
+      
+      try {
+        const imagePath = product.imagePath;
+        console.log(`   📁 Ruta local: ${imagePath}`);
+        
+        // Verificar que el archivo existe
+        if (!fs.existsSync(imagePath)) {
+          const error = `Archivo no encontrado: ${imagePath}`;
+          console.error(`   ❌ ${error}`);
+          uploadErrors.push({ product: product.name, error });
+          continue;
+        }
+        
+        const stats = fs.statSync(imagePath);
+        const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
+        console.log(`   📏 Tamaño: ${fileSizeMB} MB`);
+        
+        // Verificar límite de tamaño
+        if (stats.size > 10 * 1024 * 1024) {
+          const error = `Archivo demasiado grande: ${fileSizeMB} MB (máximo 10MB)`;
+          console.error(`   ❌ ${error}`);
+          uploadErrors.push({ product: product.name, error });
+          continue;
+        }
+        
+        // ✅ USAR EL PATRÓN EXITOSO DEL TEST DE VIDEO/LOGO
+        const form = new FormData();
+        form.append('image', fs.createReadStream(imagePath), {
+          filename: path.basename(imagePath),
+          contentType: this.getImageContentType(imagePath)
+        });
+        
+        console.log(`   ☁️ Subiendo a Cloudinary...`);
+        
+        // ✅ USAR EXACTAMENTE EL MISMO PATRÓN QUE FUNCIONA
+        const response = await axios.post(
+          `${this.baseURL}/api/store/management/products/${product.id}/images?isPrimary=true&altText=${encodeURIComponent(product.name + ' - Imagen principal')}&displayOrder=1`, 
+          form,
+          {
+            headers: {
+              ...form.getHeaders(),
+              'Authorization': `Bearer ${this.adminToken}`
+            },
+            timeout: 60000 // 60 segundos como en el test que funciona
+          }
+        );
+        
+        if (response.data.success) {
+          this.uploadedImages.push(response.data.data.image);
+          console.log(`   ✅ IMAGEN SUBIDA EXITOSAMENTE A CLOUDINARY`);
+          console.log(`      🆔 ID: ${response.data.data.image.id}`);
+          console.log(`      🔗 URL: ${response.data.data.image.imageUrl}`);
+          console.log(`      ⭐ Imagen principal: ${response.data.data.image.isPrimary ? 'Sí' : 'No'}`);
+          
+          // Mostrar información de Cloudinary si está disponible
+          if (response.data.data.image.cloudinaryInfo) {
+            const cloudinaryInfo = response.data.data.image.cloudinaryInfo;
+            console.log(`      ☁️ Cloudinary ID: ${cloudinaryInfo.publicId}`);
+            console.log(`      📏 Dimensiones: ${cloudinaryInfo.width}x${cloudinaryInfo.height}`);
+            console.log(`      📁 Formato: ${cloudinaryInfo.format}`);
+            console.log(`      💾 Tamaño: ${(cloudinaryInfo.size / 1024).toFixed(2)} KB`);
+          }
+          
+          // Verificar que la URL es de Cloudinary
+          if (response.data.data.image.imageUrl.includes('cloudinary.com')) {
+            console.log(`      ✅ Confirmado: Imagen en Cloudinary CDN`);
+            this.cloudinaryConfigured = true;
+          } else {
+            console.log(`      ⚠️ Advertencia: URL no es de Cloudinary (${response.data.data.image.imageUrl.substring(0, 50)}...)`);
+          }
+        } else {
+          throw new Error('Respuesta sin success=true');
+        }
+        
+      } catch (error) {
+        console.error(`   ❌ Error subiendo imagen para "${product.name}"`);
+        console.error(`      💥 Status: ${error.response?.status || 'N/A'}`);
+        console.error(`      💥 Message: ${error.response?.data?.message || error.message}`);
+        
+        uploadErrors.push({
+          product: product.name,
+          error: error.response?.data?.message || error.message,
+          status: error.response?.status,
+          details: error.response?.data
+        });
+      }
+    }
+    
+    // ✅ DIAGNÓSTICO AUTOMÁTICO SI HAY ERRORES
+    if (uploadErrors.length > 0) {
+      console.log(`\n⚠️ ${uploadErrors.length} errores de subida detectados. Ejecutando diagnóstico automático...`);
+      await this.runAutomaticDiagnostic(uploadErrors);
+    }
+    
+    console.log(`\n   🎯 IMÁGENES PROCESADAS: ${this.uploadedImages.length} de ${this.registeredProducts.length} subidas a Cloudinary`);
+    
+    if (this.uploadedImages.length > 0) {
+      console.log(`   ☁️ ✅ ${this.uploadedImages.length} imágenes están en Cloudinary CDN`);
+      console.log(`   🌐 ✅ Accesibles desde cualquier ubicación mundial`);
+      console.log(`   🚀 ✅ Optimizadas automáticamente para web`);
+    }
+  }
+
+  // ✅ NUEVO: Diagnóstico automático cuando falla la subida
+  async runAutomaticDiagnostic(uploadErrors) {
+    console.log('\n🔍 DIAGNÓSTICO AUTOMÁTICO DE CLOUDINARY');
+    console.log('='.repeat(60));
+    
+    this.diagnosticRun = true;
+    
+    try {
+      // 1. Verificar variables de entorno
+      await this.checkEnvironmentVariables();
+      
+      // 2. Verificar dependencias
+      await this.checkCloudinaryDependencies();
+      
+      // 3. Probar conexión directa con Cloudinary
+      await this.testDirectCloudinaryConnection();
+      
+      // 4. Verificar endpoints de la aplicación
+      await this.checkApplicationEndpoints();
+      
+      // 5. Analizar errores específicos
+      await this.analyzeUploadErrors(uploadErrors);
+      
+      // 6. Mostrar soluciones
+      await this.showDiagnosticSolutions(uploadErrors);
+      
+    } catch (diagnosticError) {
+      console.error('\n❌ Error en diagnóstico automático:', diagnosticError.message);
+    }
+  }
+
+  async checkEnvironmentVariables() {
+    console.log('\n1. 🔧 Verificando variables de entorno...');
+    
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    
+    console.log(`   CLOUDINARY_CLOUD_NAME: ${cloudName ? '✅ Configurado' : '❌ NO CONFIGURADO'}`);
+    console.log(`   CLOUDINARY_API_KEY: ${apiKey ? '✅ Configurado' : '❌ NO CONFIGURADO'}`);
+    console.log(`   CLOUDINARY_API_SECRET: ${apiSecret ? '✅ Configurado' : '❌ NO CONFIGURADO'}`);
+    
+    if (!cloudName || !apiKey || !apiSecret) {
+      console.log('\n❌ PROBLEMA CRÍTICO: Variables de entorno faltantes');
+      console.log('💡 SOLUCIÓN INMEDIATA:');
+      console.log('   1. Ve a cloudinary.com e inicia sesión');
+      console.log('   2. Copia tus credenciales del Dashboard');
+      console.log('   3. Agrega al archivo .env:');
+      console.log('      CLOUDINARY_CLOUD_NAME=tu_cloud_name');
+      console.log('      CLOUDINARY_API_KEY=tu_api_key');
+      console.log('      CLOUDINARY_API_SECRET=tu_api_secret');
+      return false;
+    }
+    
+    // Verificar que no sean valores placeholder
+    if (cloudName.includes('your_') || apiKey.includes('your_')) {
+      console.log('\n❌ PROBLEMA: Variables contienen valores placeholder');
+      console.log('💡 SOLUCIÓN: Reemplaza con tus credenciales reales de Cloudinary');
+      return false;
+    }
+    
+    console.log('   ✅ Variables de entorno OK');
+    return true;
+  }
+
+  async checkCloudinaryDependencies() {
+    console.log('\n2. 📦 Verificando dependencias de Cloudinary...');
+    
+    try {
+      require('cloudinary');
+      console.log('   cloudinary: ✅ Instalado');
+    } catch (error) {
+      console.log('   cloudinary: ❌ NO INSTALADO');
+      console.log('   💡 Ejecuta: npm install cloudinary');
+      return false;
+    }
+    
+    try {
+      require('multer-storage-cloudinary');
+      console.log('   multer-storage-cloudinary: ✅ Instalado');
+    } catch (error) {
+      console.log('   multer-storage-cloudinary: ❌ NO INSTALADO');
+      console.log('   💡 Ejecuta: npm install multer-storage-cloudinary');
+      return false;
+    }
+    
+    console.log('   ✅ Dependencias OK');
+    return true;
+  }
+
+  async testDirectCloudinaryConnection() {
+    console.log('\n3. ☁️ Probando conexión directa con Cloudinary...');
+    
+    try {
+      const cloudinary = require('cloudinary').v2;
+      
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET
+      });
+      
+      console.log('   Configuración: ✅ Aplicada');
+      
+      // Test de ping
+      const result = await cloudinary.api.ping();
+      console.log('   Conexión: ✅ Exitosa');
+      console.log(`   Status: ${result.status}`);
+      
+      // Test de subida simple
+      console.log('   Probando subida de imagen de prueba...');
+      const testImageBase64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      
+      const uploadResult = await cloudinary.uploader.upload(testImageBase64, {
+        folder: 'gym/diagnostic',
+        public_id: 'test-' + Date.now()
+      });
+      
+      console.log('   Subida directa: ✅ EXITOSA');
+      console.log(`   URL generada: ${uploadResult.secure_url}`);
+      
+      // Limpiar
+      await cloudinary.uploader.destroy(uploadResult.public_id);
+      console.log('   Limpieza: ✅ Completada');
+      
+      this.cloudinaryConfigured = true;
+      return true;
+      
+    } catch (error) {
+      console.log('   Conexión: ❌ FALLÓ');
+      console.log(`   Error: ${error.message}`);
+      
+      if (error.message.includes('Invalid API Key')) {
+        console.log('   💡 PROBLEMA: CLOUDINARY_API_KEY incorrecta');
+      } else if (error.message.includes('Invalid API Secret')) {
+        console.log('   💡 PROBLEMA: CLOUDINARY_API_SECRET incorrecta');
+      } else if (error.message.includes('Invalid cloud name')) {
+        console.log('   💡 PROBLEMA: CLOUDINARY_CLOUD_NAME incorrecto');
+      }
+      
+      return false;
+    }
+  }
+
+  async checkApplicationEndpoints() {
+    console.log('\n4. 🔧 Verificando endpoints de la aplicación...');
+    
+    try {
+      // Verificar rutas de gestión de productos
+      const response = await axios.get(`${this.baseURL}/api/store/management/products`, {
+        headers: { 'Authorization': `Bearer ${this.adminToken}` }
+      });
+      console.log('   /api/store/management/products: ✅ Disponible');
+      
+      // Verificar si hay productos para probar
+      if (this.registeredProducts.length > 0) {
+        const testProduct = this.registeredProducts[0];
+        
+        try {
+          const imagesResponse = await axios.get(`${this.baseURL}/api/store/management/products/${testProduct.id}/images`, {
+            headers: { 'Authorization': `Bearer ${this.adminToken}` }
+          });
+          console.log(`   /api/store/management/products/${testProduct.id}/images: ✅ Disponible`);
+        } catch (error) {
+          console.log(`   /api/store/management/products/${testProduct.id}/images: ❌ Error ${error.response?.status}`);
+        }
+      }
+      
+      return true;
+      
+    } catch (error) {
+      console.log('   Endpoints: ❌ Error');
+      console.log(`   Status: ${error.response?.status}`);
+      console.log(`   Message: ${error.response?.data?.message}`);
+      return false;
+    }
+  }
+
+  async analyzeUploadErrors(uploadErrors) {
+    console.log('\n5. 🔍 Analizando errores específicos...');
+    
+    const errorTypes = {};
+    
+    uploadErrors.forEach(error => {
+      const type = this.categorizeError(error);
+      if (!errorTypes[type]) {
+        errorTypes[type] = [];
+      }
+      errorTypes[type].push(error);
+    });
+    
+    console.log('   📊 Tipos de errores encontrados:');
+    Object.keys(errorTypes).forEach(type => {
+      const count = errorTypes[type].length;
+      console.log(`      ${type}: ${count} error${count > 1 ? 'es' : ''}`);
+    });
+    
+    // Mostrar detalles de cada tipo
+    for (const [type, errors] of Object.entries(errorTypes)) {
+      console.log(`\n   📋 Detalles de "${type}":`);
+      errors.forEach(error => {
+        console.log(`      • ${error.product}: ${error.error}`);
+        if (error.status) {
+          console.log(`        Status: ${error.status}`);
+        }
+      });
+    }
+  }
+
+  categorizeError(error) {
+    const message = error.error?.toLowerCase() || '';
+    const status = error.status;
+    
+    if (message.includes('no se subió ningún archivo')) {
+      return 'Archivo no recibido';
+    } else if (message.includes('error al subir imagen')) {
+      return 'Error de subida';
+    } else if (status === 413) {
+      return 'Archivo demasiado grande';
+    } else if (status === 401) {
+      return 'Error de autenticación';
+    } else if (status === 404) {
+      return 'Endpoint no encontrado';
+    } else if (status === 500) {
+      return 'Error del servidor';
+    } else if (message.includes('cloudinary')) {
+      return 'Error de Cloudinary';
+    } else {
+      return 'Error desconocido';
+    }
+  }
+
+  async showDiagnosticSolutions(uploadErrors) {
+    console.log('\n6. 💡 SOLUCIONES RECOMENDADAS');
+    console.log('='.repeat(50));
+    
+    const hasCloudinaryError = uploadErrors.some(e => e.error?.toLowerCase().includes('cloudinary'));
+    const hasAuthError = uploadErrors.some(e => e.status === 401);
+    const hasServerError = uploadErrors.some(e => e.status === 500);
+    
+    if (!this.cloudinaryConfigured) {
+      console.log('🔧 SOLUCIÓN PRINCIPAL: Configurar Cloudinary');
+      console.log('   1. ✅ Verifica variables de entorno en .env');
+      console.log('   2. ✅ Reinicia el servidor después de configurar .env');
+      console.log('   3. ✅ Verifica que StoreImageController use Cloudinary');
+    }
+    
+    if (hasAuthError) {
+      console.log('\n🔐 SOLUCIÓN: Error de autenticación');
+      console.log('   1. ✅ Verifica que el token de admin sea válido');
+      console.log('   2. ✅ Verifica permisos de staff en las rutas');
+    }
+    
+    if (hasServerError) {
+      console.log('\n🏥 SOLUCIÓN: Error del servidor');
+      console.log('   1. ✅ Revisa logs del servidor para más detalles');
+      console.log('   2. ✅ Verifica que StoreImageController esté actualizado');
+      console.log('   3. ✅ Asegúrate de que las rutas usen uploadProductImage de cloudinary');
+    }
+    
+    if (hasCloudinaryError) {
+      console.log('\n☁️ SOLUCIÓN: Error específico de Cloudinary');
+      console.log('   1. ✅ Verifica credenciales en cloudinary.com');
+      console.log('   2. ✅ Asegúrate de que el plan de Cloudinary tenga suficiente cuota');
+      console.log('   3. ✅ Verifica que multer-storage-cloudinary esté configurado');
+    }
+    
+    console.log('\n🚀 PRÓXIMOS PASOS:');
+    console.log('   1. Aplica las soluciones sugeridas');
+    console.log('   2. Reinicia el servidor: npm start');
+    console.log('   3. Ejecuta el test nuevamente');
+    console.log('   4. Si persisten problemas, revisa logs del servidor');
+  }
+
+  // ✅ MÉTODOS AUXILIARES
+
+  getImageContentType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    const types = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg', 
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml'
+    };
+    return types[ext] || 'image/jpeg';
+  }
+
+  // ✅ MÉTODOS PRINCIPALES (mismos que antes pero optimizados)
 
   async loginAdmin() {
     console.log('1. 🔐 Autenticando como administrador...');
@@ -199,7 +618,7 @@ class ProductsRegister {
     for (const categoryData of requiredCategories) {
       console.log(`\n   📂 Procesando categoría: "${categoryData.name}"`);
       
-      // Buscar si ya existe (comparación más flexible)
+      // Buscar si ya existe
       const existingCategory = this.existingCategories.find(c => {
         const existingName = c.name.toLowerCase().trim();
         const requiredName = categoryData.name.toLowerCase().trim();
@@ -212,7 +631,6 @@ class ProductsRegister {
         console.log(`   ✅ Categoría encontrada: "${existingCategory.name}" (ID: ${existingCategory.id})`);
         this.registeredCategories.push(existingCategory);
       } else {
-        // Intentar crear nueva categoría
         try {
           console.log(`   🔨 Creando nueva categoría: "${categoryData.name}"`);
           
@@ -230,24 +648,11 @@ class ProductsRegister {
             status: error.response?.status,
             message: error.response?.data?.message || error.message
           });
-          
-          // Última oportunidad: buscar por nombre similar
-          const similarCategory = this.existingCategories.find(c => 
-            c.name.toLowerCase().includes(categoryData.name.toLowerCase().split(' ')[0])
-          );
-          
-          if (similarCategory) {
-            console.log(`   🔄 Usando categoría similar: "${similarCategory.name}" (ID: ${similarCategory.id})`);
-            this.registeredCategories.push(similarCategory);
-          }
         }
       }
     }
     
     console.log(`\n   🎯 CATEGORÍAS DISPONIBLES: ${this.registeredCategories.length} listas para usar`);
-    this.registeredCategories.forEach(cat => {
-      console.log(`      📂 ${cat.name} (ID: ${cat.id})`);
-    });
   }
 
   async ensureBrands() {
@@ -267,7 +672,6 @@ class ProductsRegister {
     for (const brandData of requiredBrands) {
       console.log(`\n   🏷️ Procesando marca: "${brandData.name}"`);
       
-      // Buscar si ya existe
       const existingBrand = this.existingBrands.find(b => {
         const existingName = b.name.toLowerCase().trim();
         const requiredName = brandData.name.toLowerCase().trim();
@@ -278,7 +682,6 @@ class ProductsRegister {
         console.log(`   ✅ Marca encontrada: "${existingBrand.name}" (ID: ${existingBrand.id})`);
         this.registeredBrands.push(existingBrand);
       } else {
-        // Intentar crear nueva marca
         try {
           console.log(`   🔨 Creando nueva marca: "${brandData.name}"`);
           
@@ -301,13 +704,10 @@ class ProductsRegister {
     }
     
     console.log(`\n   🎯 MARCAS DISPONIBLES: ${this.registeredBrands.length} listas para usar`);
-    this.registeredBrands.forEach(brand => {
-      console.log(`      🏷️ ${brand.name} (ID: ${brand.id})`);
-    });
   }
 
   async createProducts() {
-    console.log('\n5. 📦 Creando nuevos productos...');
+    console.log('\n5. 📦 Creando nuevos productos únicos...');
     
     if (this.registeredCategories.length === 0) {
       throw new Error('No hay categorías disponibles para crear productos');
@@ -323,7 +723,7 @@ class ProductsRegister {
       console.log('   ' + '-'.repeat(70));
       
       try {
-        // Buscar la categoría y marca correspondientes
+        // Buscar categoría y marca
         const category = this.registeredCategories.find(c => {
           const categoryName = c.name.toLowerCase().trim();
           const requiredName = productData.categoryName.toLowerCase().trim();
@@ -336,21 +736,12 @@ class ProductsRegister {
           return brandName === requiredName;
         });
         
-        if (!category) {
-          console.error(`   ❌ Categoría "${productData.categoryName}" no encontrada`);
-          console.log('   📋 Categorías disponibles:');
-          this.registeredCategories.forEach(c => console.log(`      • ${c.name}`));
+        if (!category || !brand) {
+          console.error(`   ❌ Categoría o marca no encontrada`);
           continue;
         }
         
-        if (!brand) {
-          console.error(`   ❌ Marca "${productData.brandName}" no encontrada`);
-          console.log('   📋 Marcas disponibles:');
-          this.registeredBrands.forEach(b => console.log(`      • ${b.name}`));
-          continue;
-        }
-        
-        // Verificar si el producto ya existe (por SKU)
+        // Verificar duplicados por SKU
         try {
           const existingProductResponse = await axios.get(`${this.baseURL}/api/store/products`, {
             params: { search: productData.sku, limit: 1 }
@@ -360,8 +751,7 @@ class ProductsRegister {
           const existingProduct = existingProducts.find(p => p.sku === productData.sku);
           
           if (existingProduct) {
-            console.log(`   ⚠️ Producto con SKU "${productData.sku}" ya existe (ID: ${existingProduct.id})`);
-            console.log(`   🔄 Saltando creación...`);
+            console.log(`   ⚠️ Producto con SKU "${productData.sku}" ya existe`);
             continue;
           }
         } catch (checkError) {
@@ -388,13 +778,10 @@ class ProductsRegister {
           deliveryTime: productData.deliveryTime
         };
         
-        console.log(`   📊 Datos del nuevo producto:`);
+        console.log(`   📊 Datos del producto:`);
         console.log(`      💰 Precio: $${productPayload.price} (original: $${productPayload.originalPrice})`);
         console.log(`      📦 Stock: ${productPayload.stockQuantity} unidades`);
-        console.log(`      📂 Categoría: ${category.name} (ID: ${category.id})`);
-        console.log(`      🏷️ Marca: ${brand.name} (ID: ${brand.id})`);
         console.log(`      🏷️ SKU: ${productPayload.sku}`);
-        console.log(`      ⭐ Destacado: ${productPayload.isFeatured ? 'Sí' : 'No'}`);
         console.log(`      📏 Dimensiones: ${productPayload.dimensions.length}x${productPayload.dimensions.width}x${productPayload.dimensions.height} ${productPayload.dimensions.unit}`);
         
         // Crear el producto
@@ -415,125 +802,18 @@ class ProductsRegister {
           console.log(`      🆔 ID: ${response.data.data.product.id}`);
           console.log(`      📦 Nombre: ${response.data.data.product.name}`);
           console.log(`      💰 Precio: $${response.data.data.product.price}`);
-          console.log(`      🔄 Descuento: ${((productData.originalPrice - productData.price) / productData.originalPrice * 100).toFixed(1)}%`);
+          
+          const discount = ((productData.originalPrice - productData.price) / productData.originalPrice * 100).toFixed(1);
+          console.log(`      🔄 Descuento: ${discount}%`);
         }
         
       } catch (error) {
-        console.error(`   ❌ Error creando producto "${productData.name}":`);
-        console.error(`      💥 Status: ${error.response?.status}`);
-        console.error(`      💥 Message: ${error.response?.data?.message || error.message}`);
-        
-        if (error.response?.data?.errors) {
-          console.error('      📋 Errores de validación:');
-          error.response.data.errors.forEach(err => {
-            console.error(`         • ${err.path || err.param}: ${err.message || err.msg}`);
-          });
-        }
+        console.error(`   ❌ Error creando producto "${productData.name}"`);
+        console.error(`      💥 ${error.response?.data?.message || error.message}`);
       }
     }
     
     console.log(`\n   🎯 PRODUCTOS REGISTRADOS: ${this.registeredProducts.length} de ${this.productsData.length} completados`);
-  }
-
-  async uploadProductImages() {
-    console.log('\n6. ☁️ Subiendo imágenes a Cloudinary...');
-    
-    if (this.registeredProducts.length === 0) {
-      console.log('   ⚠️ No hay productos registrados para subir imágenes');
-      return;
-    }
-    
-    console.log('   📤 Las imágenes se subirán a Cloudinary para acceso global');
-    console.log('   🌐 URLs serán accesibles desde cualquier ubicación');
-    
-    for (let i = 0; i < this.registeredProducts.length; i++) {
-      const product = this.registeredProducts[i];
-      console.log(`\n   ☁️ SUBIENDO IMAGEN ${i + 1}/${this.registeredProducts.length}: "${product.name}"`);
-      console.log('   ' + '-'.repeat(60));
-      
-      try {
-        const imagePath = product.imagePath;
-        console.log(`   📁 Ruta local: ${imagePath}`);
-        
-        // Verificar que el archivo existe
-        if (!fs.existsSync(imagePath)) {
-          console.error(`   ❌ Archivo no encontrado: ${imagePath}`);
-          continue;
-        }
-        
-        const stats = fs.statSync(imagePath);
-        const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-        console.log(`   📏 Tamaño: ${fileSizeMB} MB`);
-        
-        // Verificar límite de tamaño
-        if (stats.size > 10 * 1024 * 1024) {
-          console.error(`   ❌ Archivo demasiado grande: ${fileSizeMB} MB (máximo 10MB para Cloudinary)`);
-          continue;
-        }
-        
-        // Crear FormData
-        const formData = new FormData();
-        formData.append('image', fs.createReadStream(imagePath));
-        
-        console.log(`   ☁️ Subiendo a Cloudinary...`);
-        
-        // Subir imagen (ahora va directo a Cloudinary)
-        const response = await axios.post(
-          `${this.baseURL}/api/store/management/products/${product.id}/images?isPrimary=true&altText=${encodeURIComponent(product.name + ' - Imagen principal')}&displayOrder=1`, 
-          formData,
-          {
-            headers: { 
-              'Authorization': `Bearer ${this.adminToken}`,
-              ...formData.getHeaders()
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 45000 // 45 segundos para Cloudinary
-          }
-        );
-        
-        if (response.data.success) {
-          this.uploadedImages.push(response.data.data.image);
-          console.log(`   ✅ IMAGEN SUBIDA EXITOSAMENTE A CLOUDINARY`);
-          console.log(`      🆔 ID: ${response.data.data.image.id}`);
-          console.log(`      🔗 URL: ${response.data.data.image.imageUrl}`);
-          console.log(`      ⭐ Imagen principal: ${response.data.data.image.isPrimary ? 'Sí' : 'No'}`);
-          
-          // Mostrar información de Cloudinary si está disponible
-          if (response.data.data.image.cloudinaryInfo) {
-            const cloudinaryInfo = response.data.data.image.cloudinaryInfo;
-            console.log(`      ☁️ Cloudinary ID: ${cloudinaryInfo.publicId}`);
-            console.log(`      📏 Dimensiones: ${cloudinaryInfo.width}x${cloudinaryInfo.height}`);
-            console.log(`      📁 Formato: ${cloudinaryInfo.format}`);
-            console.log(`      💾 Tamaño: ${(cloudinaryInfo.size / 1024).toFixed(2)} KB`);
-            console.log(`      🚀 CDN: Accesible globalmente`);
-          }
-          
-          // Verificar que la URL es de Cloudinary
-          if (response.data.data.image.imageUrl.includes('cloudinary.com')) {
-            console.log(`      ✅ Confirmado: Imagen en Cloudinary CDN`);
-          }
-        }
-        
-      } catch (error) {
-        console.error(`   ❌ Error subiendo imagen para "${product.name}":`);
-        console.error(`      💥 ${error.response?.data?.message || error.message}`);
-        
-        if (error.code === 'ECONNABORTED') {
-          console.error('      ⏰ Timeout - Cloudinary puede tardar más en procesar imágenes grandes');
-        } else if (error.response?.status === 413) {
-          console.error('      📏 Archivo demasiado grande para el servidor');
-        }
-      }
-    }
-    
-    console.log(`\n   🎯 IMÁGENES PROCESADAS: ${this.uploadedImages.length} de ${this.registeredProducts.length} subidas a Cloudinary`);
-    
-    if (this.uploadedImages.length > 0) {
-      console.log(`   ☁️ ✅ Todas las imágenes están en Cloudinary CDN`);
-      console.log(`   🌐 ✅ Accesibles desde cualquier ubicación mundial`);
-      console.log(`   🚀 ✅ Optimizadas automáticamente para web`);
-    }
   }
 
   async showFinalSummary() {
@@ -546,9 +826,13 @@ class ProductsRegister {
     console.log(`   📦 Productos: ${this.registeredProducts.length} creados`);
     console.log(`   ☁️ Imágenes: ${this.uploadedImages.length} subidas a Cloudinary`);
     
+    if (this.diagnosticRun) {
+      console.log(`   🔍 Diagnóstico automático: ✅ Ejecutado`);
+    }
+    
     // Detalles de productos creados
     if (this.registeredProducts.length > 0) {
-      console.log('\n📦 NUEVOS PRODUCTOS CREADOS:');
+      console.log('\n📦 NUEVOS PRODUCTOS ÚNICOS:');
       this.registeredProducts.forEach((product, index) => {
         const hasImage = this.uploadedImages.some(img => img.productId === product.id);
         const discount = ((product.originalPrice - product.price) / product.originalPrice * 100).toFixed(1);
@@ -559,21 +843,11 @@ class ProductsRegister {
         console.log(`      📦 Stock: ${product.stockQuantity} unidades`);
         console.log(`      🏷️ SKU: ${product.sku}`);
         console.log(`      ⭐ Destacado: ${product.isFeatured ? 'Sí' : 'No'}`);
-        console.log(`      🖼️ Imagen: ${hasImage ? '✅ Subida' : '❌ Sin imagen'}`);
+        console.log(`      🖼️ Imagen: ${hasImage ? '✅ Subida a Cloudinary' : '❌ Sin imagen'}`);
         
-        // Mostrar imagen si existe
         const productImage = this.uploadedImages.find(img => img.productId === product.id);
-        if (productImage) {
-          console.log(`         🔗 URL: ${productImage.imageUrl}`);
-          
-          // Mostrar si es de Cloudinary
-          if (productImage.imageUrl.includes('cloudinary.com')) {
-            console.log(`         ☁️ Almacenado en Cloudinary CDN`);
-            
-            if (productImage.cloudinaryInfo) {
-              console.log(`         📏 ${productImage.cloudinaryInfo.width}x${productImage.cloudinaryInfo.height} (${productImage.cloudinaryInfo.format})`);
-            }
-          }
+        if (productImage && productImage.imageUrl.includes('cloudinary.com')) {
+          console.log(`         ☁️ URL Cloudinary: ${productImage.imageUrl.substring(0, 60)}...`);
         }
       });
       
@@ -594,7 +868,6 @@ class ProductsRegister {
       console.log(`   💰 Valor actual: $${totalValue.toFixed(2)}`);
       console.log(`   💸 Valor original: $${totalOriginalValue.toFixed(2)}`);
       console.log(`   🎯 Ahorro total: $${totalSavings.toFixed(2)} (${((totalSavings/totalOriginalValue)*100).toFixed(1)}%)`);
-      console.log(`   📊 Precio promedio: $${(totalValue / totalStock).toFixed(2)}`);
     }
     
     // URLs de acceso
@@ -603,79 +876,56 @@ class ProductsRegister {
     console.log(`   ⭐ Destacados: ${this.baseURL}/api/store/products/featured`);
     console.log(`   🔧 Gestión: ${this.baseURL}/api/store/management/products`);
     
-    // Ejemplos de URLs específicas si hay productos
-    if (this.registeredProducts.length > 0) {
-      console.log('\n🔗 URLs ESPECÍFICAS DE PRODUCTOS NUEVOS:');
-      this.registeredProducts.forEach(product => {
-        console.log(`   • ${product.name}: ${this.baseURL}/api/store/products/${product.id}`);
-      });
-    }
-    
-    // Estado final
+    // Estado final con diagnóstico
     console.log('\n✅ ESTADO FINAL:');
     if (this.registeredProducts.length === this.productsData.length) {
       console.log('   🎉 ¡TODOS LOS PRODUCTOS REGISTRADOS EXITOSAMENTE!');
-      console.log('   ✅ Los productos están disponibles para la venta');
       
       if (this.uploadedImages.length === this.registeredProducts.length) {
-        console.log('   🖼️ ✅ Todas las imágenes subidas correctamente');
-        
-        // Verificar si las imágenes están en Cloudinary
-        const cloudinaryImages = this.uploadedImages.filter(img => 
-          img.imageUrl && img.imageUrl.includes('cloudinary.com')
-        );
-        
-        if (cloudinaryImages.length > 0) {
-          console.log(`   ☁️ ✅ ${cloudinaryImages.length} imágenes almacenadas en Cloudinary`);
-          console.log('   🌐 ✅ Imágenes accesibles desde cualquier ubicación');
-          console.log('   🌐 ✅ listo para produccion');
-          console.log('   📱 ✅ Optimización automática por dispositivo');
-          console.log('   ⚡ ✅ Carga rápida vía CDN global');
-        } else {
-          console.log('   ⚠️ Imágenes en almacenamiento local (no recomendado para producción)');
-        }
-      } else {
+        console.log('   🖼️ ✅ Todas las imágenes subidas a Cloudinary');
+        console.log('   ☁️ ✅ CDN global activo para máximo rendimiento');
+        console.log('   🚀 ✅ Sistema listo para producción');
+      } else if (this.uploadedImages.length > 0) {
         console.log(`   🖼️ ⚠️ ${this.uploadedImages.length}/${this.registeredProducts.length} imágenes subidas`);
+        console.log('   🔍 ✅ Diagnóstico automático ejecutado para identificar problemas');
+      } else {
+        console.log('   🖼️ ❌ No se subieron imágenes');
+        if (this.diagnosticRun) {
+          console.log('   🔍 ✅ Diagnóstico automático ejecutado - revisa las soluciones sugeridas');
+        }
       }
-    } else {
-      console.log(`   ⚠️ ${this.registeredProducts.length}/${this.productsData.length} productos registrados`);
-      console.log('   📋 Revisa los errores para más detalles');
     }
     
-    // Información de Cloudinary
-    if (this.uploadedImages.length > 0) {
-      console.log('\n☁️ INFORMACIÓN DE CLOUDINARY:');
-      console.log('   ✅ Imágenes almacenadas en CDN global');
-      console.log('   ✅ Redimensionamiento automático bajo demanda');
-      console.log('   ✅ Optimización de formato (WebP/AVIF)');
-      console.log('   ✅ Compresión inteligente de calidad');
-      console.log('   ✅ HTTPS seguro por defecto');
-      console.log('   ✅ Respaldo automático en la nube');
+    if (this.cloudinaryConfigured) {
+      console.log('\n☁️ CLOUDINARY STATUS: ✅ Configurado y funcionando');
+    } else if (this.diagnosticRun) {
+      console.log('\n☁️ CLOUDINARY STATUS: ❌ Requiere configuración - ver diagnóstico');
     }
   }
 
   async showCleanupInstructions() {
     console.log('\n🧹 INSTRUCCIONES DE LIMPIEZA');
-    console.log('=' .repeat(60));
+    console.log('=' .repeat(50));
     
     if (this.registeredProducts.length > 0) {
-      console.log('📦 PRODUCTOS CREADOS (para eliminar si necesario):');
+      console.log('📦 PRODUCTOS CREADOS:');
       this.registeredProducts.forEach(product => {
-        console.log(`   • ID: ${product.id} - "${product.name}" (SKU: ${product.sku})`);
-        console.log(`     DELETE ${this.baseURL}/api/store/management/products/${product.id}`);
+        console.log(`   • "${product.name}" (ID: ${product.id}, SKU: ${product.sku})`);
       });
+      console.log('\n💡 Usa el panel de administración para gestionar estos productos');
     }
     
     if (this.uploadedImages.length > 0) {
       console.log('\n☁️ IMÁGENES EN CLOUDINARY:');
-      this.uploadedImages.forEach(image => {
-        console.log(`   • ID: ${image.id} - Producto: ${image.productId}`);
-        console.log(`     URL: ${image.imageUrl}`);
-      });
-      console.log('\n💡 Las imágenes en Cloudinary se eliminarán automáticamente al eliminar productos');
+      console.log(`   • ${this.uploadedImages.length} imágenes subidas exitosamente`);
+      console.log('   • Se eliminarán automáticamente al eliminar productos');
     }
     
-    console.log('\n💡 Usa el panel de administración para gestionar productos y imágenes');
+    if (this.diagnosticRun) {
+      console.log('\n🔍 DIAGNÓSTICO EJECUTADO:');
+      console.log('   • Revisa las soluciones sugeridas arriba');
+      console.log('   • Aplica correcciones y ejecuta el test nuevamente');
+    }
   }
 
   // Método para verificar conectividad
@@ -683,11 +933,9 @@ class ProductsRegister {
     console.log('🔍 Verificando conectividad y configuración...');
     
     try {
-      // Test conexión básica
       const response = await axios.get(`${this.baseURL}/api/store/products`, { timeout: 5000 });
       console.log('   ✅ Conexión con API exitosa');
       
-      // Test rutas protegidas
       try {
         await axios.get(`${this.baseURL}/api/store/management/products`, { timeout: 5000 });
       } catch (error) {
@@ -696,8 +944,7 @@ class ProductsRegister {
         }
       }
       
-      console.log('   ☁️ Cloudinary se verificará al subir primera imagen');
-      
+      console.log('   ☁️ Cloudinary se verificará durante el proceso');
       return true;
     } catch (error) {
       console.log(`   ❌ Error de conectividad: ${error.message}`);
@@ -708,49 +955,41 @@ class ProductsRegister {
 
 // ✅ FUNCIÓN DE AYUDA ACTUALIZADA
 function showHelp() {
-  console.log('\n🏪 Elite Fitness Club - Registrador de Productos v3.0 (CLOUDINARY)\n');
-  console.log('🎯 FUNCIONALIDADES:');
-  console.log('  📂 Verifica/crea categorías (Suplementos, Ropa Deportiva)');
-  console.log('  🏷️ Verifica/crea marcas (Universal Nutrition, Nike)');
-  console.log('  📦 Registra NUEVOS productos con datos únicos');
+  console.log('\n🏪 Elite Fitness Club - Registrador v4.0 (CON DIAGNÓSTICO AUTOMÁTICO)\n');
+  console.log('🎯 CARACTERÍSTICAS:');
+  console.log('  📦 Registra productos únicos con datos reales');
   console.log('  ☁️ Sube imágenes a Cloudinary para producción');
-  console.log('  🌐 URLs accesibles globalmente vía CDN');
-  console.log('  🔄 Maneja datos existentes automáticamente\n');
+  console.log('  🔍 Diagnóstico automático si la subida falla');
+  console.log('  🔧 Soluciones automáticas para problemas comunes');
+  console.log('  🌐 URLs accesibles globalmente vía CDN\n');
   
-  console.log('☁️ VENTAJAS DE CLOUDINARY:');
-  console.log('  🚀 CDN global para carga rápida');
-  console.log('  📱 Optimización automática por dispositivo');
-  console.log('  🔧 Redimensionamiento bajo demanda');
-  console.log('  💾 Respaldo seguro en la nube');
-  console.log('  🌐 HTTPS por defecto\n');
+  console.log('✨ NUEVOS PRODUCTOS:');
+  console.log('  🥤 Mass Gainer Extreme 3000 ($89.99, 22 unidades)');
+  console.log('     • SKU: MASS-GAIN-3000-CHOC, 25% descuento');
+  console.log('  👕 Uniforme Deportivo Performance Plus ($79.99, 16 unidades)');
+  console.log('     • SKU: UNIF-PERF-PLUS-M, 27% descuento\n');
   
-  console.log('✨ NUEVOS PRODUCTOS A REGISTRAR:');
-  console.log('  🥤 Proteína Isolate Premium Gold ($75.99, 18 unidades)');
-  console.log('     • SKU: PROT-ISO-GOLD-VAN');
-  console.log('     • Descuento: 21% (antes $95.99)');
-  console.log('  🎽 Kit Entrenamiento Elite Pro ($65.99, 12 unidades)');
-  console.log('     • SKU: KIT-ELITE-PRO-XL');
-  console.log('     • Descuento: 27% (antes $89.99)\n');
+  console.log('🔍 DIAGNÓSTICO AUTOMÁTICO:');
+  console.log('  ✅ Verifica variables de entorno de Cloudinary');
+  console.log('  ✅ Prueba conexión directa con Cloudinary');
+  console.log('  ✅ Analiza errores específicos de subida');
+  console.log('  ✅ Proporciona soluciones específicas\n');
   
   console.log('🚀 USO:');
-  console.log('  node test-products-register.js          # Registro completo');
+  console.log('  node test-products-register.js          # Registro con diagnóstico');
   console.log('  node test-products-register.js --help   # Esta ayuda');
   console.log('  node test-products-register.js --test   # Solo test conexión\n');
   
   console.log('📋 REQUISITOS:');
   console.log('  • Servidor corriendo en puerto 5000');
   console.log('  • Usuario admin: admin@gym.com / Admin123!');
-  console.log('  • Cloudinary configurado en variables de entorno');
-  console.log('  • Imágenes en rutas especificadas');
-  console.log('  • Rutas de gestión configuradas\n');
+  console.log('  • Variables Cloudinary en .env (se verifica automáticamente)');
+  console.log('  • Imágenes en rutas especificadas\n');
   
-  console.log('🔧 CONFIGURACIÓN CLOUDINARY (.env):');
-  console.log('  CLOUDINARY_CLOUD_NAME=tu_cloud_name');
-  console.log('  CLOUDINARY_API_KEY=tu_api_key');
-  console.log('  CLOUDINARY_API_SECRET=tu_api_secret\n');
+  console.log('💡 Si la subida falla, el diagnóstico se ejecuta automáticamente');
 }
 
-// ✅ FUNCIÓN PRINCIPAL ACTUALIZADA
+// ✅ FUNCIÓN PRINCIPAL
 async function main() {
   const args = process.argv.slice(2);
   
@@ -759,13 +998,13 @@ async function main() {
     return;
   }
   
-  const register = new ProductsRegister();
+  const register = new ProductsRegisterWithDiagnostic();
   
   if (args.includes('--test') || args.includes('-t')) {
-    console.log('🧪 MODO TEST - Solo verificando conectividad y configuración\n');
+    console.log('🧪 MODO TEST - Solo verificando conectividad\n');
     const isConnected = await register.testConnectivity();
     if (isConnected) {
-      console.log('\n✅ Backend accesible - Listo para registrar productos con Cloudinary');
+      console.log('\n✅ Backend accesible - Listo para registrar productos');
     } else {
       console.log('\n❌ Problemas de conectividad - Verifica el servidor');
     }
@@ -776,36 +1015,19 @@ async function main() {
     await register.registerAllProducts();
     
   } catch (error) {
-    console.error('\n🚨 ERROR EN EL REGISTRO:');
+    console.error('\n🚨 ERROR CRÍTICO EN EL REGISTRO:');
     console.error(`❌ ${error.message}\n`);
     
-    console.error('💡 POSIBLES SOLUCIONES:');
-    
+    console.error('💡 SOLUCIONES RÁPIDAS:');
     if (error.message.includes('ECONNREFUSED')) {
-      console.error('   1. ✅ Verifica que el servidor esté corriendo: npm start');
-      console.error('   2. ✅ Verifica que el puerto sea correcto (5000)');
+      console.error('   🏥 Inicia el servidor: npm start');
     } else if (error.message.includes('Credenciales incorrectas')) {
-      console.error('   1. ✅ Verifica usuario: admin@gym.com');
-      console.error('   2. ✅ Verifica contraseña: Admin123!');
-      console.error('   3. ✅ Verifica que el usuario tenga rol admin');
-    } else if (error.message.includes('401')) {
-      console.error('   1. ✅ Verifica el middleware de autenticación');
-      console.error('   2. ✅ Verifica permisos de staff');
+      console.error('   🔐 Verifica usuario admin: admin@gym.com / Admin123!');
     } else if (error.message.includes('404')) {
-      console.error('   1. ✅ Verifica rutas de gestión configuradas');
-      console.error('   2. ✅ Verifica que storeAdminRoutes esté importado');
-    } else if (error.message.includes('Cloudinary')) {
-      console.error('   1. ✅ Verifica configuración de Cloudinary en .env');
-      console.error('   2. ✅ Verifica CLOUDINARY_CLOUD_NAME, API_KEY, API_SECRET');
-      console.error('   3. ✅ Verifica que multer-storage-cloudinary esté instalado');
+      console.error('   🔧 Verifica rutas de gestión en storeAdminRoutes.js');
     }
     
-    console.error('\n🔍 PARA DIAGNOSTICAR:');
-    console.error('   • node test-products-register.js --test');
-    console.error('   • Revisar logs del servidor');
-    console.error('   • Verificar configuración de Cloudinary');
-    console.error('   • Probar rutas con Postman');
-    
+    console.error('\n🔍 El diagnóstico automático se ejecutará en la próxima ejecución si hay errores de Cloudinary');
     process.exit(1);
   }
 }
@@ -815,4 +1037,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { ProductsRegister };
+module.exports = { ProductsRegisterWithDiagnostic };
