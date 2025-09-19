@@ -13,11 +13,11 @@ class ProductsRegisterWithDiagnostic {
     // ✅ NUEVOS PRODUCTOS CON DATOS ÚNICOS
     this.productsData = [
       {
-        name: 'Mass Gainer Extreme 3000',
+        name: 'Massssss Gainer Extreme 3000',
         description: 'Ganador de masa muscular de alta densidad calórica con proteínas de liberación sostenida. Contiene creatina, glutamina y vitaminas esenciales. Ideal para atletas que buscan aumentar peso de forma saludable.',
         price: 89.99,
         originalPrice: 119.99,
-        sku: 'MASS-GAIN-3000-CHOC',
+        sku: 'MASS-GAIN-3000-C55H',
         stockQuantity: 22,
         minStock: 5,
         weight: 3.0,
@@ -37,11 +37,11 @@ class ProductsRegisterWithDiagnostic {
         imagePath: 'C:\\Users\\echev\\OneDrive\\Escritorio\\productos de prueba\\suplementos-universalfitness.png'
       },
       {
-        name: 'Uniforme Deportivo Performance Plus',
+        name: 'Uniforme12 Deportivo Performance Plus',
         description: 'Uniforme deportivo de alto rendimiento con tecnología Dri-FIT avanzada. Incluye camiseta, shorts y calcetas deportivas. Diseñado para máximo confort durante entrenamientos intensos.',
         price: 79.99,
         originalPrice: 109.99,
-        sku: 'UNIF-PERF-PLUS-M',
+        sku: 'UNIF-PERF-PL5US-M',
         stockQuantity: 16,
         minStock: 3,
         weight: 0.9,

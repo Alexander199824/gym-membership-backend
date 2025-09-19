@@ -11,9 +11,10 @@ const storeController = require('../controllers/storeController');
 
 // Importar validaciones
 const { body, param, query, validationResult } = require('express-validator');
+
+// ✅ IMPORTAR CONFIGURACIÓN DE CLOUDINARY (NO REDEFINIR)
+const { uploadProductImage } = require('../config/cloudinary');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs').promises;
 
 const router = express.Router();
 
@@ -529,61 +530,15 @@ router.post('/products/:id/duplicate', [
 // 🖼️ GESTIÓN DE IMÁGENES DE PRODUCTOS (/api/store/management/images/*)
 // ===================================================================
 
-// Configuración de Multer para imágenes
-const createMulterConfig = () => {
-  const storage = multer.diskStorage({
-    destination: async (req, file, cb) => {
-      const uploadPath = path.join(process.cwd(), 'uploads', 'products');
-      
-      try {
-        await fs.mkdir(uploadPath, { recursive: true });
-        cb(null, uploadPath);
-      } catch (error) {
-        console.error('Error creando directorio de uploads:', error);
-        cb(error, null);
-      }
-    },
-    filename: (req, file, cb) => {
-      const productId = req.params.id || req.params.productId;
-      const timestamp = Date.now();
-      const randomNum = Math.floor(Math.random() * 1000);
-      const ext = path.extname(file.originalname).toLowerCase();
-      const filename = `product_${productId}_${timestamp}_${randomNum}${ext}`;
-      cb(null, filename);
-    }
-  });
-
-  const fileFilter = (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
-    
-    const ext = path.extname(file.originalname).toLowerCase();
-    
-    if (allowedTypes.includes(file.mimetype) && allowedExtensions.includes(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Tipo de archivo no permitido. Solo JPEG, PNG y WebP'), false);
-    }
-  };
-
-  return multer({
-    storage,
-    fileFilter,
-    limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB
-      files: 10 // Máximo 10 archivos
-    }
-  });
-};
-
-const upload = createMulterConfig();
-
-const handleMulterError = (error, req, res, next) => {
+// ✅ MANEJO DE ERRORES DE MULTER ESPECÍFICO PARA CLOUDINARY
+const handleCloudinaryMulterError = (error, req, res, next) => {
+  console.error('🔥 Error de Multer Cloudinary:', error);
+  
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
-        message: 'El archivo es demasiado grande. Máximo 5MB'
+        message: 'El archivo es demasiado grande. Máximo 5MB para Cloudinary'
       });
     }
     if (error.code === 'LIMIT_FILE_COUNT') {
@@ -600,14 +555,25 @@ const handleMulterError = (error, req, res, next) => {
     }
   }
   
-  if (error.message === 'Tipo de archivo no permitido. Solo JPEG, PNG y WebP') {
+  if (error.message && error.message.includes('Cloudinary')) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error de Cloudinary: ' + error.message
+    });
+  }
+  
+  if (error.message && error.message.includes('Solo se permiten imágenes')) {
     return res.status(400).json({
       success: false,
       message: error.message
     });
   }
   
-  next(error);
+  return res.status(500).json({
+    success: false,
+    message: 'Error al subir imagen',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+  });
 };
 
 const validateImageParams = [
@@ -693,23 +659,67 @@ const checkProductExists = async (req, res, next) => {
   }
 };
 
-// Rutas de imágenes
+// ✅ RUTAS DE IMÁGENES USANDO CLOUDINARY CONFIGURADO
 router.get('/products/:id/images', validateProductId, checkProductExists, storeImageController.getProductImages);
+
+// ✅ SUBIDA INDIVIDUAL - USAR CONFIGURACIÓN DE CLOUDINARY EXISTENTE
 router.post('/products/:id/images', 
   validateProductId,
   checkProductExists,
   validateImageParams,
-  upload.single('image'),
-  handleMulterError,
+  (req, res, next) => {
+    console.log('🖼️ Iniciando subida de imagen a Cloudinary...');
+    uploadProductImage.single('image')(req, res, (error) => {
+      if (error) {
+        console.error('❌ Error en middleware de Cloudinary:', error);
+        return handleCloudinaryMulterError(error, req, res, next);
+      }
+      console.log('✅ Middleware de Cloudinary completado exitosamente');
+      if (req.file) {
+        console.log('📸 Archivo recibido:', {
+          fieldname: req.file.fieldname,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          public_id: req.file.public_id,
+          secure_url: req.file.secure_url
+        });
+      }
+      next();
+    });
+  },
   storeImageController.uploadProductImage
 );
+
+// ✅ SUBIDA MÚLTIPLE - USAR CONFIGURACIÓN DE CLOUDINARY EXISTENTE
 router.post('/products/:id/images/multiple',
   validateProductId,
   checkProductExists,
-  upload.array('images', 10),
-  handleMulterError,
+  (req, res, next) => {
+    console.log('🖼️ Iniciando subida múltiple a Cloudinary...');
+    uploadProductImage.array('images', 10)(req, res, (error) => {
+      if (error) {
+        console.error('❌ Error en middleware múltiple de Cloudinary:', error);
+        return handleCloudinaryMulterError(error, req, res, next);
+      }
+      console.log('✅ Middleware múltiple de Cloudinary completado');
+      if (req.files && req.files.length > 0) {
+        console.log(`📸 ${req.files.length} archivos recibidos`);
+        req.files.forEach((file, index) => {
+          console.log(`   Archivo ${index + 1}:`, {
+            originalname: file.originalname,
+            size: file.size,
+            public_id: file.public_id,
+            secure_url: file.secure_url
+          });
+        });
+      }
+      next();
+    });
+  },
   storeImageController.uploadMultipleImages
 );
+
 router.put('/products/:productId/images/:imageId',
   validateBothIds,
   validateUpdateImage,
@@ -823,15 +833,22 @@ router.get('/config', (req, res) => {
     success: true,
     message: 'Configuración de gestión de tienda',
     data: {
-      maxFileSize: '5MB',
+      maxFileSize: '5MB (Cloudinary)',
       allowedImageTypes: ['JPEG', 'PNG', 'WebP'],
       maxImagesPerProduct: 10,
       stockAlertThreshold: 10,
+      cloudinary: {
+        enabled: true,
+        maxFileSize: '5MB',
+        transformations: 'On-the-fly',
+        storage: 'Cloud CDN'
+      },
       features: {
         bulkOperations: true,
         imageManagement: true,
         inventoryTracking: true,
-        salesReports: true
+        salesReports: true,
+        cloudinaryIntegration: true
       }
     }
   });
@@ -847,7 +864,7 @@ router.get('/health', (req, res) => {
       brands: 'Active',
       categories: 'Active', 
       products: 'Active',
-      images: 'Active',
+      images: 'Active (Cloudinary)',
       orders: 'Active',
       reports: 'Active'
     }
@@ -861,20 +878,8 @@ router.get('/health', (req, res) => {
 router.use((error, req, res, next) => {
   console.error('Error en gestión de tienda:', error);
   
-  // Limpiar archivos subidos si hubo error
-  if (req.file) {
-    fs.unlink(req.file.path).catch(unlinkError => {
-      console.error('Error eliminando archivo tras error:', unlinkError);
-    });
-  }
-  
-  if (req.files && Array.isArray(req.files)) {
-    req.files.forEach(file => {
-      fs.unlink(file.path).catch(unlinkError => {
-        console.error('Error eliminando archivo tras error:', unlinkError);
-      });
-    });
-  }
+  // Con Cloudinary no necesitamos limpiar archivos locales
+  // ya que los archivos van directamente a la nube
   
   if (error.name === 'SequelizeUniqueConstraintError') {
     const field = error.errors[0]?.path;
@@ -914,17 +919,11 @@ router.use((error, req, res, next) => {
     });
   }
   
-  if (error.code === 'ENOENT') {
-    return res.status(404).json({
+  // Errores específicos de Cloudinary
+  if (error.message && error.message.includes('Cloudinary')) {
+    return res.status(500).json({
       success: false,
-      message: 'Archivo no encontrado'
-    });
-  }
-  
-  if (error.code === 'ENOSPC') {
-    return res.status(507).json({
-      success: false,
-      message: 'Espacio en disco insuficiente'
+      message: 'Error de Cloudinary: ' + error.message
     });
   }
   

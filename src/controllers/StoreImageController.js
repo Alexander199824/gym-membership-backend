@@ -1,4 +1,4 @@
-// src/controllers/StoreImageController.js - CON CLOUDINARY
+// src/controllers/StoreImageController.js - SOLO CLOUDINARY (NO LOCAL)
 const { StoreProduct, StoreProductImage } = require('../models');
 const { 
   uploadProductImage, 
@@ -18,12 +18,12 @@ class StoreImageController {
     }
   }
 
-  // ✅ Obtener configuración de multer (ya viene de cloudinary.js)
+  // ✅ Obtener configuración de multer (USAR LA DE CLOUDINARY)
   getMulterConfig() {
     return uploadProductImage;
   }
 
-  // ✅ Subir imagen de producto (ACTUALIZADO para Cloudinary)
+  // ✅ Subir imagen de producto (SOLO CLOUDINARY)
   async uploadProductImage(req, res) {
     try {
       const { id: productId } = req.params;
@@ -57,7 +57,6 @@ class StoreImageController {
 
       // URL de Cloudinary (secure_url es HTTPS)
       const imageUrl = req.file.secure_url;
-      const publicId = req.file.public_id;
 
       // Si es imagen primaria, desmarcar las demás como primarias
       if (isPrimary === 'true') {
@@ -76,20 +75,20 @@ class StoreImageController {
         finalDisplayOrder = (maxOrder || 0) + 1;
       }
 
-      // Crear registro de imagen con URL de Cloudinary
+      // ✅ Crear registro de imagen SIN publicId (solo URL de Cloudinary)
       const productImage = await StoreProductImage.create({
         productId: parseInt(productId),
         imageUrl, // URL de Cloudinary
         altText: altText || product.name,
         isPrimary: isPrimary === 'true',
-        displayOrder: parseInt(finalDisplayOrder),
-        publicId // Guardar publicId para poder eliminar después
+        displayOrder: parseInt(finalDisplayOrder)
+        // ❌ NO guardamos publicId en BD
       });
 
       // Generar múltiples tamaños automáticamente
       const imageSizes = generateImageSizes(imageUrl);
 
-      console.log(`📸 Imagen subida para producto ${product.name}: ${req.file.filename}`);
+      console.log(`📸 Imagen subida para producto ${product.name}`);
 
       res.status(201).json({
         success: true,
@@ -122,7 +121,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Subir múltiples imágenes (ACTUALIZADO para Cloudinary)
+  // ✅ Subir múltiples imágenes (SOLO CLOUDINARY)
   async uploadMultipleImages(req, res) {
     try {
       const { id: productId } = req.params;
@@ -162,15 +161,14 @@ class StoreImageController {
         
         try {
           const imageUrl = file.secure_url; // URL de Cloudinary
-          const publicId = file.public_id;
           
           const productImage = await StoreProductImage.create({
             productId: parseInt(productId),
             imageUrl,
             altText: product.name,
             isPrimary: false,
-            displayOrder: maxOrder + i + 1,
-            publicId // Guardar para poder eliminar después
+            displayOrder: maxOrder + i + 1
+            // ❌ NO guardamos publicId en BD
           });
 
           // Generar tamaños múltiples
@@ -306,7 +304,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Eliminar imagen (ACTUALIZADO para Cloudinary)
+  // ✅ Eliminar imagen - EXTRAYENDO publicId de URL
   async deleteProductImage(req, res) {
     try {
       const { productId, imageId } = req.params;
@@ -322,19 +320,15 @@ class StoreImageController {
         });
       }
 
-      // Extraer publicId de la URL de Cloudinary
-      let publicId = image.publicId;
-      if (!publicId) {
-        // Fallback: extraer de la URL si no se guardó el publicId
-        publicId = this.extractPublicIdFromUrl(image.imageUrl);
-      }
+      // ✅ Extraer publicId de la URL de Cloudinary
+      const publicId = this.extractPublicIdFromUrl(image.imageUrl);
 
       console.log(`🗑️ Eliminando imagen de Cloudinary: ${publicId}`);
 
-      // Eliminar de la base de datos
+      // Eliminar de la base de datos primero
       await image.destroy();
 
-      // Eliminar de Cloudinary
+      // Intentar eliminar de Cloudinary
       if (publicId) {
         try {
           const deleteResult = await deleteFile(publicId);
@@ -342,9 +336,11 @@ class StoreImageController {
             console.log(`✅ Archivo eliminado de Cloudinary: ${publicId}`);
           } else {
             console.warn(`⚠️ No se pudo eliminar de Cloudinary: ${deleteResult.error}`);
+            // No fallar la operación por esto
           }
         } catch (cloudinaryError) {
           console.warn(`⚠️ Error eliminando de Cloudinary: ${cloudinaryError.message}`);
+          // No fallar la operación por esto
         }
       } else {
         console.warn(`⚠️ No se pudo determinar el publicId para eliminar: ${image.imageUrl}`);
@@ -510,7 +506,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Limpiar imágenes huérfanas (ACTUALIZADO para Cloudinary)
+  // ✅ Limpiar imágenes huérfanas
   async cleanupOrphanImages(req, res) {
     try {
       const orphanImages = await StoreProductImage.findAll({
@@ -531,14 +527,11 @@ class StoreImageController {
 
       for (const image of orphanImages) {
         try {
-          // Extraer publicId
-          let publicId = image.publicId;
-          if (!publicId) {
-            publicId = this.extractPublicIdFromUrl(image.imageUrl);
-          }
+          // Extraer publicId de URL
+          const publicId = this.extractPublicIdFromUrl(image.imageUrl);
 
           if (publicId) {
-            // Eliminar de Cloudinary
+            // Intentar eliminar de Cloudinary
             try {
               const deleteResult = await deleteFile(publicId);
               if (deleteResult.success) {
@@ -627,13 +620,39 @@ class StoreImageController {
 
   // Extraer publicId de URL de Cloudinary
   extractPublicIdFromUrl(cloudinaryUrl) {
-    if (!cloudinaryUrl) return null;
+    if (!cloudinaryUrl || !cloudinaryUrl.includes('cloudinary.com')) {
+      return null;
+    }
+    
     try {
-      // Extraer el publicId de una URL de Cloudinary
+      // Extraer publicId de URL de Cloudinary
       // Ejemplo: https://res.cloudinary.com/demo/image/upload/v1234567890/gym/products/sample.jpg
-      const matches = cloudinaryUrl.match(/\/([^\/]+)\.[a-z]+$/);
-      return matches ? matches[1] : null;
-    } catch {
+      // Resultado: gym/products/sample
+      const parts = cloudinaryUrl.split('/upload/');
+      if (parts.length !== 2) return null;
+      
+      const pathWithVersion = parts[1];
+      // Remover versión si existe (v1234567890/)
+      const pathParts = pathWithVersion.split('/');
+      let cleanPath;
+      
+      if (pathParts[0].startsWith('v') && /^\d+$/.test(pathParts[0].substring(1))) {
+        // Tiene versión, removerla
+        cleanPath = pathParts.slice(1).join('/');
+      } else {
+        // No tiene versión
+        cleanPath = pathWithVersion;
+      }
+      
+      // Remover extensión del archivo
+      const lastDotIndex = cleanPath.lastIndexOf('.');
+      if (lastDotIndex > 0) {
+        cleanPath = cleanPath.substring(0, lastDotIndex);
+      }
+      
+      return cleanPath;
+    } catch (error) {
+      console.warn('Error extrayendo publicId de URL:', error);
       return null;
     }
   }
