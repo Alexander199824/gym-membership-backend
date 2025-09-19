@@ -9,7 +9,6 @@ const dataCleanupRoutes = require('./dataCleanupRoutes');
 const gymRoutes = require('./gymRoutes');
 const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
-const adminRoutes = require('./adminRoutes');
 const stripeRoutes = require('./stripeRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 
@@ -137,15 +136,17 @@ router.get('/health', async (req, res) => {
   
   res.json({
     success: true,
-    message: 'Elite Fitness Club API - Sistema Completo con Frontend Integration',
+    message: 'Elite Fitness Club API - Sistema Completo con Gestión de Tienda',
     timestamp: new Date().toISOString(),
-    version: '2.3.0',
+    version: '2.4.0',
     database: databaseStatus, // ✅ ESTO ES LO QUE LEE EL TEST
     databaseDetails,
     services: {
       core: 'Active',
       auth: 'Active',
       gym: 'Active',
+      store: 'Active',
+      storeManagement: 'Active',
       financial: 'Active',
       schedule: 'Active',
       frontend_integration: 'Active',
@@ -168,7 +169,7 @@ router.get('/endpoints', (req, res) => {
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.3.0',
+    version: '2.4.0',
     endpoints: {
       core: {
         health: 'GET /api/health',
@@ -219,13 +220,32 @@ router.get('/endpoints', (req, res) => {
       promotions: {
         active: 'GET /api/promotions/active (específico frontend)'
       },
-      store: {
+      store_public: {
         products: 'GET /api/store/products',
         featured: 'GET /api/store/featured-products (específico frontend)',
+        categories: 'GET /api/store/categories',
+        brands: 'GET /api/store/brands',
+        search: 'GET /api/store/search',
+        categoryProducts: 'GET /api/store/category/:slug/products',
+        relatedProducts: 'GET /api/store/products/:id/related',
         cart: 'GET,POST,PUT,DELETE /api/store/cart',
         orders: 'POST /api/store/orders',
         myOrders: 'GET /api/store/my-orders',
-        admin: 'GET /api/store/admin/* (staff only)'
+        checkStock: 'POST /api/store/check-stock',
+        stats: 'GET /api/store/stats'
+      },
+      store_management: {
+        brands: 'CRUD /api/store/management/brands/*',
+        categories: 'CRUD /api/store/management/categories/*',
+        products: 'CRUD /api/store/management/products/*',
+        inventory: 'PUT /api/store/management/products/*/stock',
+        bulkStock: 'PUT /api/store/management/products/bulk-stock',
+        images: 'POST,PUT,DELETE /api/store/management/products/*/images/*',
+        orders: 'GET,PUT /api/store/management/orders/*',
+        dashboard: 'GET /api/store/management/dashboard',
+        reports: 'GET /api/store/management/reports/*',
+        config: 'GET /api/store/management/config',
+        health: 'GET /api/store/management/health'
       },
       financial: {
         movements: 'GET,POST /api/financial/movements',
@@ -270,7 +290,6 @@ router.use('/data-cleanup', dataCleanupRoutes);
 router.use('/gym', gymRoutes);
 router.use('/financial', financialRoutes);
 router.use('/schedule', scheduleRoutes);
-router.use('/admin', adminRoutes);
 router.use('/stripe', stripeRoutes);
 router.use('/dashboard', dashboardRoutes);
 
@@ -293,14 +312,26 @@ router.use('*', (req, res) => {
     path: req.originalUrl,
     method: req.method,
     suggestion: 'Consulta GET /api/endpoints para ver rutas disponibles',
+    public_endpoints: [
+      'GET /api/store/products',
+      'GET /api/store/categories',
+      'GET /api/store/search',
+      'POST /api/store/cart',
+      'POST /api/store/orders'
+    ],
+    management_endpoints: [
+      'GET /api/store/management/products (requiere staff)',
+      'POST /api/store/management/brands (requiere staff)',
+      'GET /api/store/management/dashboard (requiere staff)'
+    ],
     frontend_specific_endpoints: [
       'GET /api/gym/config',
       'GET /api/content/landing', 
       'GET /api/branding/theme',
       'GET /api/promotions/active',
       'GET /api/store/featured-products',
-      'POST /api/testimonials', // ✅ NUEVO
-      'GET /api/testimonials/my-testimonials' // ✅ NUEVO
+      'POST /api/testimonials',
+      'GET /api/testimonials/my-testimonials'
     ],
     multimedia_endpoints: [
       'POST /api/gym-media/upload-logo',

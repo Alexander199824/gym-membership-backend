@@ -1,68 +1,35 @@
-// src/routes/storeRoutes.js - ACTUALIZADO CON FUNCIONALIDAD COMPLETA
+// src/routes/storeRoutes.js - SOLO RUTAS PÚBLICAS DE TIENDA
 const express = require('express');
 const storeController = require('../controllers/storeController');
-const { authenticateToken, requireStaff } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
 const { optionalAuthenticateToken } = require('../middleware/optionalAuth');
 
-// ✅ IMPORTAR NUEVAS RUTAS DE ADMINISTRACIÓN
-const adminRoutes = require('./admin');
+// ✅ IMPORTAR RUTAS DE GESTIÓN (administración)
+const storeAdminRoutes = require('./storeAdminRoutes');
 
 const router = express.Router();
 
-// ✅ MIDDLEWARE DE LOGGING GENERAL
+// ✅ LOGGING PARA DEBUGGING
 router.use((req, res, next) => {
-  console.log(`🛒 Store Route: ${req.method} ${req.originalUrl} - User: ${req.user?.email || 'Guest'} - IP: ${req.ip}`);
+  console.log(`🛒 Store Public: ${req.method} ${req.originalUrl} - User: ${req.user?.email || 'Guest'} - IP: ${req.ip}`);
   next();
 });
 
-// ✅ === RUTAS PÚBLICAS EXISTENTES (SIN CAMBIOS) ===
+// ===================================================================
+// 🌐 RUTAS PÚBLICAS (sin autenticación)
+// ===================================================================
 
-// Productos públicos
+// Catálogo de productos
 router.get('/products', storeController.getProducts);
 router.get('/products/featured', storeController.getFeaturedProducts);
+router.get('/featured-products', storeController.getFeaturedProducts); // Alias para frontend
 router.get('/products/:id', storeController.getProductById);
 
-// ✅ NUEVO: Endpoint específico adicional para productos destacados
-router.get('/featured-products', storeController.getFeaturedProducts);
-
-// Categorías y marcas públicas
+// Categorías y marcas
 router.get('/categories', storeController.getCategories);
 router.get('/brands', storeController.getBrands);
 
-// ✅ === CARRITO (Usuarios logueados y invitados) ===
-
-router.get('/cart', optionalAuthenticateToken, storeController.getCart);
-router.post('/cart', optionalAuthenticateToken, storeController.addToCart);
-router.put('/cart/:id', optionalAuthenticateToken, storeController.updateCartItem);
-router.delete('/cart/:id', optionalAuthenticateToken, storeController.removeFromCart);
-
-// ✅ === ÓRDENES ===
-
-// Crear orden (checkout) - Con autenticación opcional
-router.post('/orders', optionalAuthenticateToken, storeController.createOrder);
-
-// Órdenes del usuario (requiere login obligatorio)
-router.get('/my-orders', authenticateToken, storeController.getMyOrders);
-router.get('/orders/:id', optionalAuthenticateToken, storeController.getOrderById);
-
-// ✅ === NUEVAS RUTAS DE ADMINISTRACIÓN COMPLETAS ===
-router.use('/admin', adminRoutes);
-
-// ✅ === RUTAS DE ADMINISTRACIÓN EXISTENTES (MANTENIDAS PARA COMPATIBILIDAD) ===
-// Estas rutas se mantienen para no romper funcionalidad existente
-// pero ahora están duplicadas también en /admin/
-
-// Gestión de órdenes (existente)
-router.get('/admin/orders', authenticateToken, requireStaff, storeController.getAllOrders);
-router.put('/admin/orders/:id', authenticateToken, requireStaff, storeController.updateOrderStatus);
-
-// Dashboard y reportes (existente)
-router.get('/admin/dashboard', authenticateToken, requireStaff, storeController.getStoreDashboard);
-router.get('/admin/sales-report', authenticateToken, requireStaff, storeController.getSalesReport);
-
-// ✅ === RUTAS PÚBLICAS ADICIONALES MEJORADAS ===
-
-// Búsqueda avanzada pública
+// Búsqueda avanzada
 router.get('/search', async (req, res) => {
   try {
     const {
@@ -78,12 +45,7 @@ router.get('/search', async (req, res) => {
       sortOrder = 'ASC'
     } = req.query;
 
-    const { 
-      StoreProduct, 
-      StoreCategory, 
-      StoreBrand, 
-      StoreProductImage 
-    } = require('../models');
+    const { StoreProduct, StoreCategory, StoreBrand, StoreProductImage } = require('../models');
     const { Op } = require('sequelize');
 
     const offset = (page - 1) * limit;
@@ -128,8 +90,8 @@ router.get('/search', async (req, res) => {
 
     const productsWithInfo = rows.map(product => ({
       ...product.toJSON(),
-      discountPercentage: product.getDiscountPercentage(),
-      inStock: product.isInStock()
+      discountPercentage: product.getDiscountPercentage ? product.getDiscountPercentage() : 0,
+      inStock: product.isInStock ? product.isInStock() : product.stockQuantity > 0
     }));
 
     res.json({
@@ -153,10 +115,10 @@ router.get('/search', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error en búsqueda pública:', error);
+    console.error('Error en búsqueda:', error);
     res.status(500).json({
       success: false,
-      message: 'Error en búsqueda',
+      message: 'Error en búsqueda de productos',
       error: error.message
     });
   }
@@ -210,8 +172,8 @@ router.get('/category/:slug/products', async (req, res) => {
 
     const productsWithInfo = rows.map(product => ({
       ...product.toJSON(),
-      discountPercentage: product.getDiscountPercentage(),
-      inStock: product.isInStock()
+      discountPercentage: product.getDiscountPercentage ? product.getDiscountPercentage() : 0,
+      inStock: product.isInStock ? product.isInStock() : product.stockQuantity > 0
     }));
 
     res.json({
@@ -285,8 +247,8 @@ router.get('/products/:id/related', async (req, res) => {
 
     const productsWithInfo = relatedProducts.map(product => ({
       ...product.toJSON(),
-      discountPercentage: product.getDiscountPercentage(),
-      inStock: product.isInStock()
+      discountPercentage: product.getDiscountPercentage ? product.getDiscountPercentage() : 0,
+      inStock: product.isInStock ? product.isInStock() : product.stockQuantity > 0
     }));
 
     res.json({
@@ -339,7 +301,26 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// ✅ === RUTAS DE UTILIDAD ===
+// ===================================================================
+// 🛒 CARRITO Y CHECKOUT (autenticación opcional)
+// ===================================================================
+
+router.get('/cart', optionalAuthenticateToken, storeController.getCart);
+router.post('/cart', optionalAuthenticateToken, storeController.addToCart);
+router.put('/cart/:id', optionalAuthenticateToken, storeController.updateCartItem);
+router.delete('/cart/:id', optionalAuthenticateToken, storeController.removeFromCart);
+
+// ===================================================================
+// 📦 ÓRDENES (autenticación opcional para crear, requerida para ver)
+// ===================================================================
+
+router.post('/orders', optionalAuthenticateToken, storeController.createOrder);
+router.get('/my-orders', authenticateToken, storeController.getMyOrders);
+router.get('/orders/:id', optionalAuthenticateToken, storeController.getOrderById);
+
+// ===================================================================
+// 🔧 UTILIDADES PÚBLICAS
+// ===================================================================
 
 // Verificar disponibilidad de stock
 router.post('/check-stock', async (req, res) => {
@@ -400,9 +381,18 @@ router.post('/check-stock', async (req, res) => {
   }
 });
 
-// ✅ === MIDDLEWARE DE MANEJO DE ERRORES GLOBAL ===
+// ===================================================================
+// 🔐 RUTAS DE GESTIÓN (requieren autenticación de staff)
+// ===================================================================
+
+router.use('/management', storeAdminRoutes);
+
+// ===================================================================
+// 🚨 MANEJO DE ERRORES
+// ===================================================================
+
 router.use((error, req, res, next) => {
-  console.error('Error en rutas de tienda:', error);
+  console.error('Error en tienda pública:', error);
   
   // Error de validación
   if (error.name === 'ValidationError') {
@@ -431,7 +421,10 @@ router.use((error, req, res, next) => {
   });
 });
 
-// ✅ === MIDDLEWARE PARA RUTAS NO ENCONTRADAS ===
+// ===================================================================
+// 🚫 MIDDLEWARE PARA RUTAS NO ENCONTRADAS
+// ===================================================================
+
 router.use('*', (req, res) => {
   res.status(404).json({
     success: false,
@@ -446,54 +439,13 @@ router.use('*', (req, res) => {
       'POST /cart',
       'POST /orders',
       'GET /search',
-      'GET /admin/* (requiere autenticación)'
+      'GET /management/* (requiere autenticación)'
     ],
     requestedRoute: req.originalUrl
   });
 });
 
 module.exports = router;
-
-// ===================================================================
-// 📋 RESUMEN DE FUNCIONALIDADES DISPONIBLES:
-// ===================================================================
-//
-// ✅ RUTAS PÚBLICAS:
-// - GET /products (con filtros avanzados)
-// - GET /products/featured 
-// - GET /products/:id
-// - GET /categories
-// - GET /brands
-// - GET /search (búsqueda avanzada)
-// - GET /category/:slug/products
-// - GET /products/:id/related
-// - GET /stats
-// - POST /check-stock
-//
-// ✅ CARRITO Y ÓRDENES:
-// - GET /cart (usuarios y invitados)
-// - POST /cart (agregar al carrito)
-// - PUT /cart/:id (actualizar cantidad)
-// - DELETE /cart/:id (eliminar item)
-// - POST /orders (crear orden/checkout)
-// - GET /my-orders (órdenes del usuario)
-// - GET /orders/:id (ver orden específica)
-//
-// ✅ ADMINISTRACIÓN COMPLETA:
-// - /admin/brands/* (CRUD completo de marcas)
-// - /admin/categories/* (CRUD completo de categorías)
-// - /admin/products/* (CRUD completo de productos)
-// - /admin/images/* (gestión completa de imágenes)
-// - /admin/dashboard (dashboard unificado)
-// - /admin/health (verificación del sistema)
-// - /admin/config (configuración)
-//
-// ✅ COMPATIBILIDAD:
-// - Todas las rutas existentes siguen funcionando
-// - Nuevas funcionalidades sin romper nada existente
-// - Autenticación opcional para invitados
-// - Sistema de permisos robusto
-// ===================================================================
 
 // Este archivo define todas las rutas de la tienda online. La mejora principal que hice fue
 // agregar el middleware optionalAuthenticateToken a las rutas del carrito y órdenes, lo que
