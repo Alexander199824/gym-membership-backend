@@ -1,4 +1,4 @@
-// src/controllers/StoreImageController.js - SOLO CLOUDINARY (NO LOCAL)
+// src/controllers/StoreImageController.js - CORREGIDO PARA CLOUDINARY
 const { StoreProduct, StoreProductImage } = require('../models');
 const { 
   uploadProductImage, 
@@ -23,7 +23,7 @@ class StoreImageController {
     return uploadProductImage;
   }
 
-  // ✅ Subir imagen de producto (SOLO CLOUDINARY)
+  // ✅ CORREGIDO: Subir imagen de producto
   async uploadProductImage(req, res) {
     try {
       const { id: productId } = req.params;
@@ -48,15 +48,36 @@ class StoreImageController {
         });
       }
 
-      console.log('✅ Archivo subido a Cloudinary:', {
+      console.log('📸 Información completa del archivo:', {
+        fieldname: req.file.fieldname,
+        originalname: req.file.originalname,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+        // ✅ MOSTRAR TODAS LAS PROPIEDADES DISPONIBLES
+        filename: req.file.filename,
+        path: req.file.path,
         public_id: req.file.public_id,
         secure_url: req.file.secure_url,
-        bytes: req.file.bytes,
-        format: req.file.format
+        url: req.file.url
       });
 
-      // URL de Cloudinary (secure_url es HTTPS)
-      const imageUrl = req.file.secure_url;
+      // ✅ CORREGIDO: Usar req.file.path como en gymMediaController que funciona
+      const imageUrl = req.file.path || req.file.secure_url || req.file.url;
+      
+      if (!imageUrl) {
+        console.error('❌ No se pudo obtener URL de Cloudinary');
+        console.error('📋 Propiedades disponibles en req.file:', Object.keys(req.file));
+        return res.status(500).json({
+          success: false,
+          message: 'Error: No se pudo obtener URL de Cloudinary',
+          debug: {
+            availableProperties: Object.keys(req.file),
+            fileInfo: req.file
+          }
+        });
+      }
+
+      console.log('✅ URL de imagen obtenida:', imageUrl);
 
       // Si es imagen primaria, desmarcar las demás como primarias
       if (isPrimary === 'true') {
@@ -75,14 +96,19 @@ class StoreImageController {
         finalDisplayOrder = (maxOrder || 0) + 1;
       }
 
-      // ✅ Crear registro de imagen SIN publicId (solo URL de Cloudinary)
+      // ✅ CORREGIDO: Crear registro con URL verificada
       const productImage = await StoreProductImage.create({
         productId: parseInt(productId),
-        imageUrl, // URL de Cloudinary
+        imageUrl, // ✅ URL verificada
         altText: altText || product.name,
         isPrimary: isPrimary === 'true',
         displayOrder: parseInt(finalDisplayOrder)
-        // ❌ NO guardamos publicId en BD
+      });
+
+      console.log('✅ Imagen guardada en BD:', {
+        id: productImage.id,
+        imageUrl: productImage.imageUrl,
+        isPrimary: productImage.isPrimary
       });
 
       // Generar múltiples tamaños automáticamente
@@ -98,9 +124,9 @@ class StoreImageController {
             ...productImage.toJSON(),
             imageSizes, // URLs en diferentes tamaños
             cloudinaryInfo: {
-              publicId: req.file.public_id,
+              publicId: req.file.public_id || req.file.filename,
               format: req.file.format,
-              size: req.file.bytes,
+              size: req.file.size,
               width: req.file.width,
               height: req.file.height
             }
@@ -121,7 +147,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Subir múltiples imágenes (SOLO CLOUDINARY)
+  // ✅ CORREGIDO: Subir múltiples imágenes
   async uploadMultipleImages(req, res) {
     try {
       const { id: productId } = req.params;
@@ -160,7 +186,12 @@ class StoreImageController {
         const file = req.files[i];
         
         try {
-          const imageUrl = file.secure_url; // URL de Cloudinary
+          // ✅ CORREGIDO: Usar file.path como en gymMediaController
+          const imageUrl = file.path || file.secure_url || file.url;
+          
+          if (!imageUrl) {
+            throw new Error('No se pudo obtener URL de Cloudinary para el archivo');
+          }
           
           const productImage = await StoreProductImage.create({
             productId: parseInt(productId),
@@ -168,7 +199,6 @@ class StoreImageController {
             altText: product.name,
             isPrimary: false,
             displayOrder: maxOrder + i + 1
-            // ❌ NO guardamos publicId en BD
           });
 
           // Generar tamaños múltiples
@@ -178,9 +208,9 @@ class StoreImageController {
             ...productImage.toJSON(),
             imageSizes,
             cloudinaryInfo: {
-              publicId: file.public_id,
+              publicId: file.public_id || file.filename,
               format: file.format,
-              size: file.bytes,
+              size: file.size,
               width: file.width,
               height: file.height
             }
@@ -188,7 +218,7 @@ class StoreImageController {
 
         } catch (imageError) {
           errors.push({
-            filename: file.original_filename || file.public_id,
+            filename: file.original_filename || file.public_id || file.originalname,
             error: imageError.message
           });
         }
