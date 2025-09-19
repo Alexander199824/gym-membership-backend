@@ -1,4 +1,4 @@
-// src/models/index.js - CORREGIDO: Con MembershipPlans (plural) consistente + REPARACIONES
+// src/models/index.js - VERSIÓN COMPLETA FUSIONADA CON TODAS LAS FUNCIONALIDADES
 'use strict';
 
 const fs = require('fs');
@@ -9,7 +9,7 @@ const { Sequelize, DataTypes } = require('sequelize');
 const basename = path.basename(__filename);
 const db = {};
 
-console.log('📦 Iniciando carga SIMPLIFICADA de modelos...');
+console.log('📦 Iniciando carga COMPLETA de modelos con funcionalidades avanzadas...');
 
 // ✅ Verificar que sequelize esté disponible
 if (!sequelize) {
@@ -18,58 +18,129 @@ if (!sequelize) {
 
 console.log('✅ Conexión a base de datos disponible');
 
-// ✅ LISTA EXPLÍCITA de modelos en orden de dependencias (CORREGIDA)
-const MODEL_ORDER = [
-  // Modelos base sin dependencias
-  'User.js',
-  'MembershipPlans.js', 
-  'StoreBrand.js',
-  'StoreCategory.js',
-  'GymConfiguration.js',
-  'GymHours.js',
-  'GymTimeSlots.js',
-  'DailyIncome.js',
-  'GymBrandingConfig.js',     // Sin FK
-  'GymContactInfo.js',        // Sin FK
-  'GymFormsConfig.js',        // Sin FK
-  'GymNavigation.js',         // Sin FK
-  'GymPromotionalContent.js', // Sin FK
-  'GymSectionsContent.js',    // Sin FK
-  'GymServices.js',           // Sin FK
-  'GymSocialMedia.js',        // Sin FK
-  'GymStatistics.js',         // Sin FK
-  'GymSystemMessages.js',     // Sin FK
-  'GymTestimonials.js',       // Sin FK
-  'StoreProduct.js',
-  'StoreProductImage.js',
-  'Membership.js',
-  'Payment.js',
-  
-  // Modelos que dependen de StoreProduct
-  'StoreCart.js',
-  'StoreOrder.js',
-  'StoreOrderItem.js',
-  
-  // Otros modelos
-  'FinancialMovements.js',
-  'PromotionCodes.js',
-  'MembershipPromotions.js',
-  'Notification.js',          // Depende de User, Membership, Payment
-  'UserPromotions.js',
-  'UserSchedulePreferences.js'
+// ============================================================================
+// CARGA EXPLÍCITA DE MODELOS EXISTENTES (DEL ARCHIVO ORIGINAL)
+// ============================================================================
+
+console.log('📦 Cargando modelos explícitos existentes...');
+
+// ✅ === MODELOS EXISTENTES ===
+const loadExplicitModel = (modelName, filePath) => {
+  try {
+    const fullPath = path.join(__dirname, filePath || `${modelName}.js`);
+    
+    if (fs.existsSync(fullPath)) {
+      delete require.cache[require.resolve(fullPath)];
+      const model = require(fullPath);
+      
+      if (model && (model.name || model.modelName)) {
+        const name = model.name || model.modelName || modelName;
+        db[name] = model;
+        console.log(`   ✅ ${name} cargado explícitamente`);
+        return model;
+      } else {
+        console.log(`   ⚠️ ${modelName} no es un modelo válido`);
+        return null;
+      }
+    } else {
+      console.log(`   ⚠️ ${filePath || modelName + '.js'} no encontrado`);
+      return null;
+    }
+  } catch (error) {
+    console.error(`   ❌ Error cargando ${modelName}:`, error.message);
+    return null;
+  }
+};
+
+// Cargar modelos explícitos en el orden correcto
+const explicitModels = [
+  'User',
+  'Membership', 
+  'Payment',
+  'FinancialMovements',
+  'StoreCategory',
+  'StoreBrand', 
+  'StoreProduct',
+  'StoreProductImage',
+  'StoreCart',
+  'StoreOrder',
+  'StoreOrderItem',
+  'LocalSale',
+  'LocalSaleItem', 
+  'TransferConfirmation',
+  'MembershipPlans',
+  'GymConfiguration',
+  'GymHours',
+  'GymTimeSlots',
+  'DailyIncome',
+  'GymBrandingConfig',
+  'GymContactInfo',
+  'GymFormsConfig',
+  'GymNavigation',
+  'GymPromotionalContent',
+  'GymSectionsContent',
+  'GymServices',
+  'GymSocialMedia',
+  'GymStatistics',
+  'GymSystemMessages',
+  'GymTestimonials',
+  'PromotionCodes',
+  'MembershipPromotions',
+  'Notification',
+  'UserPromotions',
+  'UserSchedulePreferences'
 ];
 
-// ✅ FUNCIÓN para cargar un modelo específico
+explicitModels.forEach(modelName => {
+  loadExplicitModel(modelName);
+});
+
+// ============================================================================
+// CARGA DINÁMICA DE MODELOS ADICIONALES (DEL ARCHIVO MEJORADO)
+// ============================================================================
+
+// ✅ FUNCIÓN para descubrir TODOS los modelos disponibles
+const discoverAllModels = () => {
+  console.log('🔍 Descubriendo modelos adicionales...');
+  
+  const allModelFiles = fs.readdirSync(__dirname)
+    .filter(file => {
+      return (
+        file.indexOf('.') !== 0 &&
+        file !== basename &&
+        file.slice(-3) === '.js' &&
+        file.indexOf('.test.js') === -1 &&
+        file !== 'index.js'
+      );
+    });
+  
+  console.log(`📁 Archivos adicionales encontrados: ${allModelFiles.length}`);
+  
+  return allModelFiles;
+};
+
+// ✅ FUNCIÓN para cargar un modelo específico dinámicamente
 const loadModel = (filename) => {
   try {
     const modelPath = path.join(__dirname, filename);
     
     if (!fs.existsSync(modelPath)) {
-      console.log(`   ⚠️ Archivo ${filename} no encontrado - omitiendo`);
       return null;
     }
     
-    console.log(`🔄 Cargando: ${filename}`);
+    const baseName = filename.replace('.js', '');
+    
+    // Verificar si ya está cargado
+    const existingModel = Object.keys(db).find(key => 
+      key === baseName || key.toLowerCase() === baseName.toLowerCase()
+    );
+    
+    if (existingModel) {
+      console.log(`   ℹ️ ${baseName} ya está cargado como ${existingModel}`);
+      return db[existingModel];
+    }
+    
+    console.log(`🔄 Cargando dinámicamente: ${filename}`);
     
     // Limpiar cache para re-importar
     delete require.cache[require.resolve(modelPath)];
@@ -85,7 +156,7 @@ const loadModel = (filename) => {
           typeof modelModule.create === 'function') {
         
         db[modelName] = modelModule;
-        console.log(`   ✅ ${modelName} cargado exitosamente`);
+        console.log(`   ✅ ${modelName} cargado dinámicamente`);
         
         if (modelModule.tableName) {
           console.log(`      📋 Tabla: ${modelModule.tableName}`);
@@ -102,43 +173,16 @@ const loadModel = (filename) => {
     }
     
   } catch (error) {
-    console.error(`❌ Error cargando ${filename}:`, error.message);
+    console.error(`❌ Error cargando dinámicamente ${filename}:`, error.message);
     return null;
   }
 };
 
-// ✅ FUNCIÓN para descubrir TODOS los modelos disponibles
-const discoverAllModels = () => {
-  console.log('🔍 Descubriendo TODOS los modelos disponibles...');
-  
-  const allModelFiles = fs.readdirSync(__dirname)
-    .filter(file => {
-      return (
-        file.indexOf('.') !== 0 &&
-        file !== basename &&
-        file.slice(-3) === '.js' &&
-        file.indexOf('.test.js') === -1 &&
-        file !== 'index.js'
-      );
-    });
-  
-  console.log(`📁 Archivos de modelos encontrados: ${allModelFiles.length}`);
-  console.log(`📋 Lista completa: ${allModelFiles.join(', ')}`);
-  
-  return allModelFiles;
-};
-
-// ✅ CARGAR MODELOS EN ORDEN ESPECÍFICO
-console.log('📁 Cargando modelos en orden de dependencias...');
-
-MODEL_ORDER.forEach(filename => {
-  loadModel(filename);
-});
-
-// ✅ CARGAR TODOS LOS DEMÁS MODELOS ENCONTRADOS
-console.log('📁 Buscando y cargando TODOS los modelos adicionales...');
+// ✅ CARGAR TODOS LOS MODELOS ADICIONALES NO CARGADOS EXPLÍCITAMENTE
+console.log('📁 Buscando y cargando modelos adicionales...');
 const allDiscoveredFiles = discoverAllModels();
-const additionalFiles = allDiscoveredFiles.filter(file => !MODEL_ORDER.includes(file));
+const explicitFiles = explicitModels.map(name => `${name}.js`);
+const additionalFiles = allDiscoveredFiles.filter(file => !explicitFiles.includes(file));
 
 console.log(`📦 Modelos adicionales a cargar: ${additionalFiles.length}`);
 if (additionalFiles.length > 0) {
@@ -148,14 +192,22 @@ if (additionalFiles.length > 0) {
     loadModel(file);
   });
 } else {
-  console.log('ℹ️ No hay modelos adicionales fuera de MODEL_ORDER');
+  console.log('ℹ️ No hay modelos adicionales fuera de la lista explícita');
 }
 
-// ✅ CONFIGURAR ASOCIACIONES DE FORMA SEGURA
+// ============================================================================
+// CONFIGURACIÓN DE ASOCIACIONES COMBINADA
+// ============================================================================
+
 console.log('🔗 Configurando asociaciones...');
 
 const configureAssociations = () => {
-  const loadedModels = Object.keys(db).filter(key => !['sequelize', 'Sequelize'].includes(key));
+  const loadedModels = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize'].includes(key) && 
+    !key.startsWith('_') && 
+    typeof db[key] === 'object' && 
+    db[key].name
+  );
   
   console.log(`📊 Modelos disponibles para asociaciones: ${loadedModels.join(', ')}`);
   
@@ -165,12 +217,12 @@ const configureAssociations = () => {
     
     if (model && typeof model.associate === 'function') {
       try {
-        console.log(`🔗 Configurando asociaciones para: ${modelName}`);
+        console.log(`🔗 Configurando asociaciones automáticas para: ${modelName}`);
         model.associate(db);
         
         const associations = model.associations;
         if (associations && Object.keys(associations).length > 0) {
-          console.log(`   ✅ ${Object.keys(associations).length} asociaciones creadas`);
+          console.log(`   ✅ ${Object.keys(associations).length} asociaciones automáticas creadas`);
           Object.keys(associations).forEach(assocName => {
             console.log(`      - ${assocName}: ${associations[assocName].associationType}`);
           });
@@ -178,7 +230,7 @@ const configureAssociations = () => {
           console.log(`   ℹ️ No se crearon asociaciones automáticas`);
         }
       } catch (error) {
-        console.error(`   ❌ Error en asociaciones de ${modelName}:`, error.message);
+        console.error(`   ❌ Error en asociaciones automáticas de ${modelName}:`, error.message);
       }
     } else {
       console.log(`   ℹ️ ${modelName} no tiene método associate`);
@@ -201,7 +253,7 @@ const configureAssociations = () => {
       }
     }
     
-    // ✅ CORREGIDO: MembershipPlans (plural) - Membership
+    // MembershipPlans - Membership
     if (db.MembershipPlans && db.Membership) {
       if (!db.MembershipPlans.associations?.memberships) {
         db.MembershipPlans.hasMany(db.Membership, { foreignKey: 'planId', as: 'memberships' });
@@ -270,7 +322,7 @@ const configureAssociations = () => {
       }
     }
     
-    // StoreCart - StoreProduct
+    // StoreCart - StoreProduct y User
     if (db.StoreCart && db.StoreProduct) {
       if (!db.StoreCart.associations?.product) {
         db.StoreCart.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
@@ -278,7 +330,75 @@ const configureAssociations = () => {
       }
     }
     
-    // ✅ NUEVAS ASOCIACIONES CRÍTICAS PARA HORARIOS FLEXIBLES
+    if (db.StoreCart && db.User) {
+      if (!db.StoreCart.associations?.user) {
+        db.StoreCart.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+        console.log('   ✅ Manual: StoreCart -> User');
+      }
+    }
+    
+    // StoreOrder - User y StoreOrderItem
+    if (db.StoreOrder && db.User) {
+      if (!db.StoreOrder.associations?.user) {
+        db.StoreOrder.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+        console.log('   ✅ Manual: StoreOrder -> User');
+      }
+    }
+    
+    if (db.StoreOrder && db.StoreOrderItem) {
+      if (!db.StoreOrder.associations?.items) {
+        db.StoreOrder.hasMany(db.StoreOrderItem, { foreignKey: 'orderId', as: 'items' });
+        console.log('   ✅ Manual: StoreOrder -> StoreOrderItem');
+      }
+      if (!db.StoreOrderItem.associations?.order) {
+        db.StoreOrderItem.belongsTo(db.StoreOrder, { foreignKey: 'orderId', as: 'order' });
+        console.log('   ✅ Manual: StoreOrderItem -> StoreOrder');
+      }
+    }
+    
+    // StoreOrderItem - StoreProduct
+    if (db.StoreOrderItem && db.StoreProduct) {
+      if (!db.StoreOrderItem.associations?.product) {
+        db.StoreOrderItem.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
+        console.log('   ✅ Manual: StoreOrderItem -> StoreProduct');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE VENTAS LOCALES
+    if (db.LocalSale && db.User) {
+      if (!db.LocalSale.associations?.employee) {
+        db.LocalSale.belongsTo(db.User, { foreignKey: 'employeeId', as: 'employee' });
+        console.log('   ✅ Manual: LocalSale -> User (employee)');
+      }
+    }
+    
+    if (db.LocalSale && db.LocalSaleItem) {
+      if (!db.LocalSale.associations?.items) {
+        db.LocalSale.hasMany(db.LocalSaleItem, { foreignKey: 'saleId', as: 'items' });
+        console.log('   ✅ Manual: LocalSale -> LocalSaleItem');
+      }
+      if (!db.LocalSaleItem.associations?.sale) {
+        db.LocalSaleItem.belongsTo(db.LocalSale, { foreignKey: 'saleId', as: 'sale' });
+        console.log('   ✅ Manual: LocalSaleItem -> LocalSale');
+      }
+    }
+    
+    if (db.LocalSaleItem && db.StoreProduct) {
+      if (!db.LocalSaleItem.associations?.product) {
+        db.LocalSaleItem.belongsTo(db.StoreProduct, { foreignKey: 'productId', as: 'product' });
+        console.log('   ✅ Manual: LocalSaleItem -> StoreProduct');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE CONFIRMACIÓN DE TRANSFERENCIAS
+    if (db.TransferConfirmation && db.User) {
+      if (!db.TransferConfirmation.associations?.confirmer) {
+        db.TransferConfirmation.belongsTo(db.User, { foreignKey: 'confirmerId', as: 'confirmer' });
+        console.log('   ✅ Manual: TransferConfirmation -> User (confirmer)');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE HORARIOS FLEXIBLES
     console.log('🕐 Configurando asociaciones de horarios flexibles...');
     
     if (db.GymHours && db.GymTimeSlots) {
@@ -291,8 +411,6 @@ const configureAssociations = () => {
           onUpdate: 'CASCADE'
         });
         console.log('   ✅ Manual: GymHours -> GymTimeSlots');
-      } else {
-        console.log('   ℹ️ GymHours.timeSlots ya configurada');
       }
 
       // GymTimeSlots -> GymHours (muchos a uno)
@@ -304,12 +422,98 @@ const configureAssociations = () => {
           onUpdate: 'CASCADE'
         });
         console.log('   ✅ Manual: GymTimeSlots -> GymHours');
-      } else {
-        console.log('   ℹ️ GymTimeSlots.gymHours ya configurada');
       }
-    } else {
-      if (!db.GymHours) console.log('   ⚠️ GymHours no disponible para asociaciones');
-      if (!db.GymTimeSlots) console.log('   ⚠️ GymTimeSlots no disponible para asociaciones');
+    }
+    
+    // ✅ ASOCIACIONES ADICIONALES DE USUARIOS
+    if (db.Membership && db.User) {
+      if (!db.Membership.associations?.registeredByUser) {
+        db.Membership.belongsTo(db.User, { 
+          foreignKey: 'registeredBy', 
+          as: 'registeredByUser', 
+          constraints: false 
+        });
+        console.log('   ✅ Manual: Membership -> registeredByUser');
+      }
+    }
+
+    if (db.Payment && db.User) {
+      if (!db.Payment.associations?.registeredByUser) {
+        db.Payment.belongsTo(db.User, { 
+          foreignKey: 'registeredBy', 
+          as: 'registeredByUser', 
+          constraints: false 
+        });
+        console.log('   ✅ Manual: Payment -> registeredByUser');
+      }
+      
+      if (!db.Payment.associations?.transferValidator) {
+        db.Payment.belongsTo(db.User, { 
+          foreignKey: 'transferValidatedBy', 
+          as: 'transferValidator', 
+          constraints: false 
+        });
+        console.log('   ✅ Manual: Payment -> transferValidator');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE PROMOCIONES
+    if (db.UserPromotions && db.User) {
+      if (!db.UserPromotions.associations?.user) {
+        db.UserPromotions.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+        console.log('   ✅ Manual: UserPromotions -> User');
+      }
+    }
+    
+    if (db.UserPromotions && db.PromotionCodes) {
+      if (!db.UserPromotions.associations?.promotion) {
+        db.UserPromotions.belongsTo(db.PromotionCodes, { foreignKey: 'promotionId', as: 'promotion' });
+        console.log('   ✅ Manual: UserPromotions -> PromotionCodes');
+      }
+    }
+    
+    if (db.MembershipPromotions && db.Membership) {
+      if (!db.MembershipPromotions.associations?.membership) {
+        db.MembershipPromotions.belongsTo(db.Membership, { foreignKey: 'membershipId', as: 'membership' });
+        console.log('   ✅ Manual: MembershipPromotions -> Membership');
+      }
+    }
+    
+    if (db.MembershipPromotions && db.PromotionCodes) {
+      if (!db.MembershipPromotions.associations?.promotion) {
+        db.MembershipPromotions.belongsTo(db.PromotionCodes, { foreignKey: 'promotionId', as: 'promotion' });
+        console.log('   ✅ Manual: MembershipPromotions -> PromotionCodes');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE NOTIFICACIONES
+    if (db.Notification && db.User) {
+      if (!db.Notification.associations?.user) {
+        db.Notification.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+        console.log('   ✅ Manual: Notification -> User');
+      }
+    }
+    
+    if (db.Notification && db.Membership) {
+      if (!db.Notification.associations?.membership) {
+        db.Notification.belongsTo(db.Membership, { foreignKey: 'membershipId', as: 'membership', constraints: false });
+        console.log('   ✅ Manual: Notification -> Membership');
+      }
+    }
+    
+    if (db.Notification && db.Payment) {
+      if (!db.Notification.associations?.payment) {
+        db.Notification.belongsTo(db.Payment, { foreignKey: 'paymentId', as: 'payment', constraints: false });
+        console.log('   ✅ Manual: Notification -> Payment');
+      }
+    }
+    
+    // ✅ ASOCIACIONES DE PREFERENCIAS DE HORARIOS
+    if (db.UserSchedulePreferences && db.User) {
+      if (!db.UserSchedulePreferences.associations?.user) {
+        db.UserSchedulePreferences.belongsTo(db.User, { foreignKey: 'userId', as: 'user' });
+        console.log('   ✅ Manual: UserSchedulePreferences -> User');
+      }
     }
     
   } catch (error) {
@@ -317,50 +521,15 @@ const configureAssociations = () => {
   }
 };
 
-// ✅ Ejecutar configuración de asociaciones
+// Ejecutar configuración de asociaciones
 configureAssociations();
-
-// ✅ CONFIGURAR ASOCIACIONES ADICIONALES DE USUARIOS (CORREGIDAS)
-if (db.Membership && db.User) {
-  if (!db.Membership.associations?.registeredByUser) {
-    db.Membership.belongsTo(db.User, { 
-      foreignKey: 'registeredBy', 
-      as: 'registeredByUser', 
-      constraints: false 
-    });
-    console.log('   ✅ Manual: Membership -> registeredByUser');
-  }
-}
-
-if (db.Payment && db.User) {
-  if (!db.Payment.associations?.registeredByUser) {
-    db.Payment.belongsTo(db.User, { 
-      foreignKey: 'registeredBy', 
-      as: 'registeredByUser', 
-      constraints: false 
-    });
-    console.log('   ✅ Manual: Payment -> registeredByUser');
-  }
-}
-
-// OPCIONAL: Asociación adicional para transferValidator
-if (db.Payment && db.User) {
-  if (!db.Payment.associations?.transferValidator) {
-    db.Payment.belongsTo(db.User, { 
-      foreignKey: 'transferValidatedBy', 
-      as: 'transferValidator', 
-      constraints: false 
-    });
-    console.log('   ✅ Manual: Payment -> transferValidator');
-  }
-}
 
 // ✅ Agregar sequelize al objeto db
 db.sequelize = sequelize;
 db.Sequelize = Sequelize;
 
 // ============================================================================
-// FUNCIONES DE REPARACIÓN PARA TABLAS PROBLEMÁTICAS (NUEVO)
+// FUNCIONES DE REPARACIÓN PARA TABLAS PROBLEMÁTICAS
 // ============================================================================
 
 // ✅ FUNCIÓN DE REPARACIÓN ESPECÍFICA PARA LAS TABLAS PROBLEMÁTICAS
@@ -488,10 +657,6 @@ const repairProblematicTables = async () => {
   }
 };
 
-// ============================================================================
-// FUNCIONES DE SINCRONIZACIÓN AUTOMÁTICA DE BASE DE DATOS CON FIX DE PAYMENT
-// ============================================================================
-
 // ✅ FUNCIÓN PARA REPARAR MODELO PAYMENT ESPECÍFICAMENTE
 const repairPaymentModel = async () => {
   console.log('🔧 Reparando modelo Payment...');
@@ -530,34 +695,104 @@ const repairPaymentModel = async () => {
   }
 };
 
-// ✅ CORREGIDO: Función de sincronización controlada MEJORADA CON REPARACIÓN
+// ============================================================================
+// FUNCIONES DE SINCRONIZACIÓN Y GESTIÓN DE BASE DE DATOS (ORIGINALES + MEJORADAS)
+// ============================================================================
+
+// ✅ FUNCIÓN PARA CREAR HORARIOS BÁSICOS
+const createDefaultGymSchedule = async () => {
+  try {
+    console.log('🕐 Creando horarios de gimnasio por defecto...');
+    
+    const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    for (const day of daysOfWeek) {
+      const [gymHour, created] = await db.GymHours.findOrCreate({
+        where: { dayOfWeek: day },
+        defaults: {
+          dayOfWeek: day,
+          openingTime: '06:00:00',
+          closingTime: '22:00:00',
+          isClosed: day === 'sunday', // Cerrado los domingos por defecto
+          useFlexibleSchedule: false
+        }
+      });
+
+      if (created) {
+        console.log(`✅ Horario creado para ${day}`);
+      }
+    }
+
+    console.log('🕐 Horarios básicos configurados');
+  } catch (error) {
+    console.error('❌ Error creando horarios:', error.message);
+  }
+};
+
+// ✅ Crear datos iniciales (FUNCIÓN ORIGINAL)
+const initializeData = async () => {
+  try {
+    console.log('🌱 Inicializando datos por defecto...');
+    
+    // Crear categorías de tienda
+    if (db.StoreCategory && db.StoreCategory.seedDefaultCategories) {
+      await db.StoreCategory.seedDefaultCategories();
+    }
+    
+    // Crear marcas de tienda
+    if (db.StoreBrand && db.StoreBrand.seedDefaultBrands) {
+      await db.StoreBrand.seedDefaultBrands();
+    }
+    
+    // Crear productos de ejemplo
+    if (db.StoreProduct && db.StoreProduct.seedSampleProducts) {
+      await db.StoreProduct.seedSampleProducts(db.StoreCategory, db.StoreBrand);
+    }
+    
+    // Crear planes de membresía
+    if (db.MembershipPlans && db.MembershipPlans.seedDefaultPlans) {
+      await db.MembershipPlans.seedDefaultPlans();
+    }
+    
+    // Crear horarios básicos si existen los modelos
+    if (db.GymHours && db.GymTimeSlots) {
+      await createDefaultGymSchedule();
+    }
+    
+    console.log('✅ Datos iniciales creados exitosamente');
+    
+  } catch (error) {
+    console.error('❌ Error inicializando datos:', error.message);
+  }
+};
+
+// ✅ FUNCIÓN DE SINCRONIZACIÓN MEJORADA Y COMPLETA
 const syncDatabase = async (options = {}) => {
-  console.log('🔄 Iniciando sincronización controlada de base de datos...');
+  console.log('🔄 Iniciando sincronización completa de base de datos...');
   
   try {
     await sequelize.authenticate();
     console.log('✅ Conexión verificada');
 
-    // ✅ OBTENER TODOS LOS MODELOS CARGADOS
+    // Obtener todos los modelos cargados
     const allLoadedModels = Object.keys(db).filter(key => 
-      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
+      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
     );
 
     console.log(`📊 TODOS los modelos cargados: ${allLoadedModels.length}`);
     console.log(`📋 Lista completa: ${allLoadedModels.join(', ')}`);
 
-    // ✅ DETECTAR SI ESTAMOS EN DESARROLLO Y NECESITAMOS ALTER
-    const isDevelopment = process.env.NODE_ENV === 'development' || options.forceDevelopmentMode;
-    const syncOptions = isDevelopment ? { alter: true, ...options } : options;
+    // Detectar si estamos en desarrollo
+    const isDevelopment = process.env.NODE_ENV === 'development' || options.forceDevelopmentMode || options.force;
+    const syncOptions = isDevelopment ? { alter: !options.force, force: options.force, ...options } : options;
     
-    console.log(`🔧 Modo de sincronización: ${isDevelopment ? 'DESARROLLO (alter: true)' : 'PRODUCCIÓN (alter: false)'}`);
+    console.log(`🔧 Modo de sincronización: ${isDevelopment ? `DESARROLLO (${options.force ? 'force: true' : 'alter: true'})` : 'PRODUCCIÓN'}`);
 
-    // ✅ Orden específico para modelos críticos + resto dinámicamente (CORREGIDO)
+    // Orden específico para modelos críticos
     const prioritySyncOrder = [
       'User', 'MembershipPlans', 'StoreBrand', 'StoreCategory', 'DailyIncome', 'GymConfiguration', 'GymHours',
-      'GymTimeSlots', 'Membership', 'StoreProduct',
-      'Payment', 'StoreProductImage', 'StoreCart', 'StoreOrder',
-      'StoreOrderItem', 'FinancialMovements'
+      'GymTimeSlots', 'Membership', 'StoreProduct', 'Payment', 'StoreProductImage', 'StoreCart', 'StoreOrder',
+      'StoreOrderItem', 'FinancialMovements', 'LocalSale', 'LocalSaleItem', 'TransferConfirmation'
     ];
 
     // Agregar modelos que no están en la lista de prioridad
@@ -565,10 +800,6 @@ const syncDatabase = async (options = {}) => {
     const fullSyncOrder = [...prioritySyncOrder, ...remainingModels];
 
     console.log(`🔄 Sincronizando ${fullSyncOrder.length} modelos total...`);
-    console.log(`⭐ Prioridad (${prioritySyncOrder.length}): ${prioritySyncOrder.join(', ')}`);
-    if (remainingModels.length > 0) {
-      console.log(`➕ Adicionales (${remainingModels.length}): ${remainingModels.join(', ')}`);
-    }
 
     let syncSuccess = 0;
     let syncErrors = 0;
@@ -580,12 +811,10 @@ const syncDatabase = async (options = {}) => {
         try {
           console.log(`🔄 Sincronizando ${modelName}...`);
           
-          // ✅ INTENTO 1: Sincronización normal
           await db[modelName].sync(syncOptions);
           console.log(`✅ ${modelName} sincronizado`);
           
-          // Si usamos alter, registrar la tabla alterada
-          if (syncOptions.alter) {
+          if (syncOptions.alter || syncOptions.force) {
             alteredTables.push(modelName);
           }
           
@@ -594,7 +823,7 @@ const syncDatabase = async (options = {}) => {
         } catch (error) {
           console.error(`❌ Error en ${modelName}:`, error.message);
           
-          // ✅ DETECCIÓN DE PROBLEMAS ESPECÍFICOS
+          // Detectar problemas específicos y intentar reparaciones
           const isEnumUniqueError = error.message.includes('syntax error at or near "UNIQUE"') ||
                                    error.message.includes('ENUM') && error.message.includes('unique');
           
@@ -614,7 +843,7 @@ const syncDatabase = async (options = {}) => {
             }
           }
           
-          // ✅ INTENTO 2: Si falla y es error de columna, forzar ALTER
+          // Intentos de recuperación
           if (error.message.includes('does not exist') || 
               error.message.includes('column') || 
               error.message.includes('relation')) {
@@ -622,7 +851,6 @@ const syncDatabase = async (options = {}) => {
             console.log(`🔄 ${modelName}: Detectado error de esquema, forzando ALTER...`);
             
             try {
-              // Forzar alter independientemente del entorno
               await db[modelName].sync({ alter: true, force: false });
               console.log(`⚠️ ${modelName} sincronizado con ALTER forzado`);
               alteredTables.push(modelName);
@@ -630,13 +858,13 @@ const syncDatabase = async (options = {}) => {
             } catch (alterError) {
               console.error(`❌ ${modelName}: Error persistente después de ALTER:`, alterError.message);
               
-              // ✅ INTENTO 3: Como último recurso, recrear tabla en desarrollo
               if (isDevelopment && (alterError.message.includes('constraint') || alterError.message.includes('type'))) {
                 console.log(`🔄 ${modelName}: Último recurso - recreando tabla...`);
                 try {
                   await db[modelName].drop({ cascade: true });
                   await db[modelName].sync({ force: false });
                   console.log(`⚠️ ${modelName} recreado completamente`);
+                  repairedTables.push(modelName);
                   syncSuccess++;
                 } catch (recreateError) {
                   console.error(`❌ ${modelName}: Error incluso recreando:`, recreateError.message);
@@ -645,18 +873,6 @@ const syncDatabase = async (options = {}) => {
               } else {
                 syncErrors++;
               }
-            }
-          } 
-          // ✅ INTENTO 2B: Si es error de FK, intentar sin constraints
-          else if (error.message.includes('foreign key') || error.message.includes('violates')) {
-            console.log(`🔄 ${modelName}: Error de FK, intentando sin constraints...`);
-            try {
-              await db[modelName].sync({ ...syncOptions, alter: false });
-              console.log(`⚠️ ${modelName} sincronizado sin constraints`);
-              syncSuccess++;
-            } catch (retryError) {
-              console.error(`❌ ${modelName}: Error persistente:`, retryError.message);
-              syncErrors++;
             }
           } else {
             syncErrors++;
@@ -673,44 +889,16 @@ const syncDatabase = async (options = {}) => {
     console.log(`   📋 Total procesados: ${syncSuccess + syncErrors}`);
     
     if (alteredTables.length > 0) {
-      console.log(`🔧 Tablas alteradas: ${alteredTables.join(', ')}`);
+      console.log(`🔧 Tablas alteradas/recreadas: ${alteredTables.join(', ')}`);
     }
     
     if (repairedTables.length > 0) {
       console.log(`🛠️ Tablas reparadas: ${repairedTables.join(', ')}`);
     }
 
-    // ✅ VERIFICACIÓN ESPECÍFICA PARA GYMCONFIGURATION
-    if (db.GymConfiguration) {
-      try {
-        console.log('🔍 Verificando tabla gym_configuration...');
-        
-        // Intentar crear o verificar configuración
-        const config = await db.GymConfiguration.getConfig();
-        if (config && config.id) {
-          console.log(`✅ Tabla gym_configuration verificada correctamente (ID: ${config.id})`);
-        } else {
-          console.log('⚠️ Configuración creada pero sin ID verificable');
-        }
-        
-      } catch (verifyError) {
-        console.error('❌ Error verificando tabla gym_configuration:', verifyError.message);
-      }
-    }
-
-    // ✅ Crear datos iniciales (usando MembershipPlans plural)
-    if (db.MembershipPlans && db.MembershipPlans.seedDefaultPlans) {
-      console.log('🌱 Creando planes de membresía por defecto...');
-      try {
-        await db.MembershipPlans.seedDefaultPlans();
-      } catch (error) {
-        console.log('⚠️ Error creando planes por defecto:', error.message);
-      }
-    }
-
-    // Crear horarios básicos si existen los modelos
-    if (db.GymHours && db.GymTimeSlots) {
-      await createDefaultGymSchedule();
+    // Crear datos iniciales si es force o no existen datos
+    if (syncOptions.force || options.initializeData) {
+      await initializeData();
     }
 
     console.log('🎉 Sincronización completada exitosamente');
@@ -768,29 +956,27 @@ const syncDatabaseWithRepair = async (options = {}) => {
   }
 };
 
-// Función de reset para desarrollo
+// ✅ Función de reset para desarrollo
 const resetDatabase = async () => {
   console.log('⚠️ RESET DE BASE DE DATOS...');
   
   // Obtener TODOS los modelos cargados
   const allLoadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
   );
 
-  // Orden inverso inteligente (prioridad inversa + resto) - CORREGIDO
+  // Orden inverso inteligente
   const priorityDropOrder = [
-    'FinancialMovements', 'StoreOrderItem', 'StoreOrder', 'StoreCart', 
+    'FinancialMovements', 'LocalSaleItem', 'LocalSale', 'TransferConfirmation', 'StoreOrderItem', 'StoreOrder', 'StoreCart', 
     'StoreProductImage', 'Payment', 'StoreProduct', 'Membership', 
     'GymTimeSlots', 'GymHours', 'GymConfiguration', 'StoreCategory', 'StoreBrand', 
     'MembershipPlans', 'DailyIncome', 'User'
   ];
   
   const remainingForDrop = allLoadedModels.filter(model => !priorityDropOrder.includes(model));
-  // Los adicionales van primero porque pueden depender de los críticos
   const fullDropOrder = [...remainingForDrop, ...priorityDropOrder];
 
   console.log(`🗑️ Eliminando ${fullDropOrder.length} modelos en orden seguro...`);
-  console.log(`📋 Orden de eliminación: ${fullDropOrder.join(', ')}`);
 
   try {
     for (const modelName of fullDropOrder) {
@@ -804,7 +990,7 @@ const resetDatabase = async () => {
       }
     }
 
-    await syncDatabase({ force: true });
+    await syncDatabase({ force: true, initializeData: true });
     console.log('🔄 Base de datos reseteada');
     return { success: true };
   } catch (error) {
@@ -813,40 +999,10 @@ const resetDatabase = async () => {
   }
 };
 
-// ✅ FUNCIÓN PARA CREAR HORARIOS BÁSICOS
-const createDefaultGymSchedule = async () => {
-  try {
-    console.log('🕐 Creando horarios de gimnasio por defecto...');
-    
-    const daysOfWeek = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
-    
-    for (const day of daysOfWeek) {
-      const [gymHour, created] = await db.GymHours.findOrCreate({
-        where: { dayOfWeek: day },
-        defaults: {
-          dayOfWeek: day,
-          openingTime: '06:00:00',
-          closingTime: '22:00:00',
-          isClosed: day === 'sunday', // Cerrado los domingos por defecto
-          useFlexibleSchedule: false
-        }
-      });
-
-      if (created) {
-        console.log(`✅ Horario creado para ${day}`);
-      }
-    }
-
-    console.log('🕐 Horarios básicos configurados');
-  } catch (error) {
-    console.error('❌ Error creando horarios:', error.message);
-  }
-};
-
-// Verificar estado de la base de datos
+// ✅ Verificar estado de la base de datos
 const checkDatabaseStatus = async () => {
   const models = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
   );
   const status = {};
   
@@ -862,7 +1018,7 @@ const checkDatabaseStatus = async () => {
   return status;
 };
 
-// ✅ FUNCIÓN DE INICIALIZACIÓN MEJORADA CON FIX DE PAYMENT Y REPARACIONES
+// ✅ FUNCIÓN DE INICIALIZACIÓN PARA DESARROLLO
 const initializeForDevelopment = async () => {
   console.log('🚀 Inicializando para desarrollo...');
   
@@ -925,42 +1081,86 @@ const initializeForDevelopment = async () => {
   }
 };
 
-// Exportar las funciones de sincronización
-db.syncDatabase = syncDatabase;
-db.resetDatabase = resetDatabase;
-db.checkDatabaseStatus = checkDatabaseStatus;
-db.initializeForDevelopment = initializeForDevelopment;
-db.repairPaymentModel = repairPaymentModel;
-db.repairProblematicTables = repairProblematicTables;
-db.syncDatabaseWithRepair = syncDatabaseWithRepair;
-
-// ============================================================================
-// AUTO-INICIALIZACIÓN
-// ============================================================================
-
-// Auto-inicializar si se establece la variable de entorno
-const autoInit = async () => {
-  const shouldAutoInit = process.env.AUTO_INIT_DB === 'true' || process.env.NODE_ENV === 'development';
-  
-  if (shouldAutoInit) {
-    console.log('🔄 Auto-inicialización activada...');
+// ✅ Validar integridad de modelos (FUNCIÓN ORIGINAL)
+const validateModels = async () => {
+  try {
+    console.log('🔍 Validando integridad de modelos...');
     
-    try {
-      const result = await initializeForDevelopment();
-      
-      if (result.success) {
-        console.log('✅ Base de datos lista para usar');
-      } else {
-        console.error('❌ Fallo en auto-inicialización:', result.error);
-      }
-    } catch (error) {
-      console.error('❌ Error en auto-inicialización:', error.message);
+    // Obtener modelos actuales
+    const loadedModels = Object.keys(db).filter(key => 
+      !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
+    );
+    
+    // Validar que todos los modelos críticos estén definidos
+    const requiredModels = [
+      'User', 'Membership', 'Payment', 'FinancialMovements',
+      'StoreCategory', 'StoreBrand', 'StoreProduct', 'StoreProductImage',
+      'StoreCart', 'StoreOrder', 'StoreOrderItem',
+      'LocalSale', 'LocalSaleItem', 'TransferConfirmation',
+      'MembershipPlans'
+    ];
+    
+    const missingModels = requiredModels.filter(modelName => !db[modelName]);
+    
+    if (missingModels.length > 0) {
+      throw new Error(`Modelos críticos faltantes: ${missingModels.join(', ')}`);
     }
+    
+    // Validar asociaciones críticas
+    const criticalAssociations = [
+      { model: 'LocalSale', association: 'employee' },
+      { model: 'LocalSaleItem', association: 'product' },
+      { model: 'StoreProduct', association: 'category' },
+      { model: 'StoreOrder', association: 'items' },
+      { model: 'TransferConfirmation', association: 'confirmer' },
+      { model: 'GymHours', association: 'timeSlots' },
+      { model: 'GymTimeSlots', association: 'gymHours' }
+    ];
+    
+    for (const { model, association } of criticalAssociations) {
+      if (db[model] && !db[model].associations?.[association]) {
+        console.warn(`⚠️ Asociación faltante: ${model}.${association}`);
+      }
+    }
+    
+    console.log('✅ Validación de modelos completada');
+    console.log(`📊 Total de modelos cargados: ${loadedModels.length}`);
+    
+    return {
+      success: true,
+      totalModels: loadedModels.length,
+      missingCritical: missingModels,
+      loadedModels
+    };
+    
+  } catch (error) {
+    console.error('❌ Error validando modelos:', error.message);
+    return { success: false, error: error.message };
   }
 };
 
+// ✅ Obtener estadísticas de modelos (FUNCIÓN ORIGINAL)
+const getModelsInfo = () => {
+  const loadedModels = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
+  );
+  
+  const info = {
+    totalModels: loadedModels.length,
+    models: loadedModels.map(modelName => ({
+      name: modelName,
+      tableName: db[modelName].tableName,
+      hasAssociations: !!db[modelName].associations,
+      associationsCount: db[modelName].associations ? 
+        Object.keys(db[modelName].associations).length : 0
+    }))
+  };
+  
+  return info;
+};
+
 // ============================================================================
-// FUNCIONES DE DIAGNÓSTICO ORIGINALES + MEJORADAS
+// FUNCIONES DE DIAGNÓSTICO AVANZADAS
 // ============================================================================
 
 // ✅ FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
@@ -985,101 +1185,13 @@ const verifyFlexibleScheduleModels = () => {
   };
 };
 
-// ✅ FUNCIÓN DE VERIFICACIÓN DE MODELOS MEJORADA
-const verifyModels = () => {
-  const allDiscovered = discoverAllModels();
-  const loadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
-  );
-  
-  console.log('\n📊 RESUMEN COMPLETO:');
-  console.log(`📁 Archivos .js encontrados: ${allDiscovered.length}`);
-  console.log(`✅ Modelos cargados exitosamente: ${loadedModels.length}`);
-  console.log(`❌ Archivos no cargados: ${allDiscovered.length - loadedModels.length}`);
-  
-  if (allDiscovered.length > loadedModels.length) {
-    const notLoaded = allDiscovered.filter(file => {
-      const modelName = file.replace('.js', '');
-      return !loadedModels.some(loaded => 
-        loaded === modelName || 
-        loaded.toLowerCase() === modelName.toLowerCase()
-      );
-    });
-    console.log(`⚠️ Archivos no cargados como modelos: ${notLoaded.join(', ')}`);
-  }
-  
-  if (loadedModels.length > 0) {
-    console.log(`📦 Modelos cargados: ${loadedModels.join(', ')}`);
-    
-    // Mostrar asociaciones por modelo
-    loadedModels.forEach(modelName => {
-      const model = db[modelName];
-      if (model && model.associations) {
-        const assocCount = Object.keys(model.associations).length;
-        if (assocCount > 0) {
-          console.log(`🔗 ${modelName}: ${assocCount} asociaciones - ${Object.keys(model.associations).join(', ')}`);
-        } else {
-          console.log(`📦 ${modelName}: Sin asociaciones`);
-        }
-      }
-    });
-    
-    // ✅ VERIFICAR MODELOS CRÍTICOS DE TIENDA
-    const criticalStoreModels = ['StoreProduct', 'StoreCategory', 'StoreBrand'];
-    const missingCritical = criticalStoreModels.filter(model => !db[model]);
-    
-    if (missingCritical.length > 0) {
-      console.log(`⚠️ Modelos críticos faltantes: ${missingCritical.join(', ')}`);
-    } else {
-      console.log('✅ Todos los modelos críticos de tienda están cargados');
-    }
-    
-    // ✅ VERIFICAR MODELOS CRÍTICOS DE HORARIOS FLEXIBLES
-    const criticalScheduleModels = ['GymHours', 'GymTimeSlots'];
-    const missingSchedule = criticalScheduleModels.filter(model => !db[model]);
-    
-    if (missingSchedule.length > 0) {
-      console.log(`⚠️ Modelos de horarios faltantes: ${missingSchedule.join(', ')}`);
-    } else {
-      console.log('✅ Todos los modelos de horarios flexibles están cargados');
-      // Verificar asociaciones específicas
-      verifyFlexibleScheduleModels();
-    }
-    
-    // ✅ VERIFICAR QUE MEMBERSHIPPLANS ESTÉ CARGADO CORRECTAMENTE
-    if (db.MembershipPlans) {
-      console.log('✅ MembershipPlans (plural) cargado correctamente');
-    } else {
-      console.log('❌ MembershipPlans (plural) NO encontrado - esto puede causar errores');
-    }
-    
-  } else {
-    console.log('❌ No se cargaron modelos - revisar estructura de archivos');
-  }
-};
-
-// ✅ Verificar modelos
-verifyModels();
-
-// ✅ VERIFICAR CONEXIÓN
-const verifyConnection = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('✅ Conexión a base de datos verificada desde models/index.js');
-  } catch (error) {
-    console.error('❌ Error de conexión:', error.message);
-  }
-};
-
-verifyConnection();
-
-console.log('🎉 Carga simplificada completada\n');
-
-// ✅ EXPORTAR FUNCIÓN DE DIAGNÓSTICO EXTENDIDA
-db.diagnose = () => {
+// ✅ FUNCIÓN DE DIAGNÓSTICO COMPLETO
+const diagnose = () => {
   console.log('\n🔍 DIAGNÓSTICO COMPLETO DE MODELOS:');
   
-  const models = Object.keys(db).filter(key => !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key));
+  const models = Object.keys(db).filter(key => 
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
+  );
   
   models.forEach(modelName => {
     const model = db[modelName];
@@ -1095,7 +1207,7 @@ db.diagnose = () => {
     }
   });
   
-  // ✅ Diagnóstico específico de horarios flexibles
+  // Diagnóstico específico de horarios flexibles
   console.log('\n🕐 DIAGNÓSTICO DE HORARIOS FLEXIBLES:');
   const flexibleDiagnosis = verifyFlexibleScheduleModels();
   console.log(`   - Modelos disponibles: ${flexibleDiagnosis.gymHoursAvailable && flexibleDiagnosis.gymTimeSlotsAvailable ? 'SÍ' : 'NO'}`);
@@ -1111,13 +1223,13 @@ db.diagnose = () => {
   };
 };
 
-// ✅ NUEVA FUNCIÓN DE DIAGNÓSTICO COMPLETO
-db.fullDiagnosis = () => {
+// ✅ FUNCIÓN DE DIAGNÓSTICO COMPLETO DETALLADO
+const fullDiagnosis = () => {
   console.log('\n🔍 DIAGNÓSTICO COMPLETO Y DETALLADO:');
   
   const allFiles = discoverAllModels();
   const loadedModels = Object.keys(db).filter(key => 
-    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair'].includes(key)
+    !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
   );
   
   console.log(`\n📈 ESTADÍSTICAS GENERALES:`);
@@ -1153,12 +1265,80 @@ db.fullDiagnosis = () => {
   };
 };
 
-// ✅ EXPORTAR FUNCIÓN DE VERIFICACIÓN DE HORARIOS FLEXIBLES
+// ============================================================================
+// AUTO-INICIALIZACIÓN
+// ============================================================================
+
+// Auto-inicializar si se establece la variable de entorno
+const autoInit = async () => {
+  const shouldAutoInit = process.env.AUTO_INIT_DB === 'true' || process.env.NODE_ENV === 'development';
+  
+  if (shouldAutoInit) {
+    console.log('🔄 Auto-inicialización activada...');
+    
+    try {
+      const result = await initializeForDevelopment();
+      
+      if (result.success) {
+        console.log('✅ Base de datos lista para usar');
+      } else {
+        console.error('❌ Fallo en auto-inicialización:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error en auto-inicialización:', error.message);
+    }
+  }
+};
+
+// ✅ VERIFICAR CONEXIÓN
+const verifyConnection = async () => {
+  try {
+    await sequelize.authenticate();
+    console.log('✅ Conexión a base de datos verificada desde models/index.js');
+  } catch (error) {
+    console.error('❌ Error de conexión:', error.message);
+  }
+};
+
+verifyConnection();
+
+// ============================================================================
+// EXPORTAR TODAS LAS FUNCIONES Y MODELOS
+// ============================================================================
+
+// Exportar funciones al objeto db
+db.syncDatabase = syncDatabase;
+db.resetDatabase = resetDatabase;
+db.checkDatabaseStatus = checkDatabaseStatus;
+db.initializeForDevelopment = initializeForDevelopment;
+db.repairPaymentModel = repairPaymentModel;
+db.repairProblematicTables = repairProblematicTables;
+db.syncDatabaseWithRepair = syncDatabaseWithRepair;
+db.initializeData = initializeData;
+db.validateModels = validateModels;
+db.getModelsInfo = getModelsInfo;
+db.diagnose = diagnose;
+db.fullDiagnosis = fullDiagnosis;
 db.verifyFlexibleScheduleModels = verifyFlexibleScheduleModels;
+
+console.log('🎉 Carga completa fusionada completada\n');
 
 // Ejecutar auto-inicialización solo si no es entorno de pruebas
 if (process.env.NODE_ENV !== 'test') {
   autoInit();
 }
+
+// ============================================================================
+// MOSTRAR RESUMEN FINAL
+// ============================================================================
+
+console.log('\n📊 RESUMEN FINAL DE CARGA:');
+const finalModels = Object.keys(db).filter(key => 
+  !['sequelize', 'Sequelize', 'diagnose', 'verifyFlexibleScheduleModels', 'syncDatabase', 'resetDatabase', 'checkDatabaseStatus', 'initializeForDevelopment', 'fullDiagnosis', 'repairPaymentModel', 'repairProblematicTables', 'syncDatabaseWithRepair', 'initializeData', 'validateModels', 'getModelsInfo'].includes(key)
+);
+
+console.log(`✅ Total de modelos cargados: ${finalModels.length}`);
+console.log(`📋 Modelos disponibles: ${finalModels.join(', ')}`);
+console.log(`🔧 Funciones de utilidad disponibles: syncDatabase, resetDatabase, initializeForDevelopment, diagnose, fullDiagnosis, repairPaymentModel, repairProblematicTables, syncDatabaseWithRepair, initializeData, validateModels, getModelsInfo, verifyFlexibleScheduleModels`);
 
 module.exports = db;
