@@ -1,60 +1,35 @@
-// src/controllers/StoreImageController.js
+// src/controllers/StoreImageController.js - CON CLOUDINARY
 const { StoreProduct, StoreProductImage } = require('../models');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs').promises;
-const sharp = require('sharp'); // Para redimensionar imágenes (opcional)
+const { 
+  uploadProductImage, 
+  deleteFile, 
+  generateImageSizes,
+  isCloudinaryConfigured 
+} = require('../config/cloudinary');
 
 class StoreImageController {
 
-  // ✅ Configuración de multer para subida de archivos
-  getMulterConfig() {
-    const storage = multer.diskStorage({
-      destination: async (req, file, cb) => {
-        const uploadPath = path.join(process.cwd(), 'uploads', 'products');
-        
-        // Crear directorio si no existe
-        try {
-          await fs.mkdir(uploadPath, { recursive: true });
-        } catch (error) {
-          console.error('Error creando directorio de uploads:', error);
-        }
-        
-        cb(null, uploadPath);
-      },
-      filename: (req, file, cb) => {
-        const productId = req.params.id || req.params.productId;
-        const timestamp = Date.now();
-        const ext = path.extname(file.originalname);
-        const filename = `product_${productId}_${timestamp}${ext}`;
-        cb(null, filename);
-      }
-    });
-
-    const fileFilter = (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-      
-      if (allowedTypes.includes(file.mimetype)) {
-        cb(null, true);
-      } else {
-        cb(new Error('Tipo de archivo no permitido. Solo JPEG, PNG y WebP'), false);
-      }
-    };
-
-    return multer({
-      storage,
-      fileFilter,
-      limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB
-      }
-    });
+  constructor() {
+    console.log('📸 StoreImageController iniciado con Cloudinary');
+    
+    // Verificar configuración de Cloudinary al inicializar
+    if (!isCloudinaryConfigured()) {
+      console.warn('⚠️ Cloudinary no está configurado correctamente para productos');
+    }
   }
 
-  // ✅ Subir imagen de producto
+  // ✅ Obtener configuración de multer (ya viene de cloudinary.js)
+  getMulterConfig() {
+    return uploadProductImage;
+  }
+
+  // ✅ Subir imagen de producto (ACTUALIZADO para Cloudinary)
   async uploadProductImage(req, res) {
     try {
       const { id: productId } = req.params;
       const { isPrimary = false, altText, displayOrder } = req.query;
+
+      console.log('📸 Subiendo imagen a Cloudinary para producto:', productId);
 
       // Verificar que el producto existe
       const product = await StoreProduct.findByPk(productId);
@@ -73,8 +48,16 @@ class StoreImageController {
         });
       }
 
-      // Generar URL de la imagen
-      const imageUrl = `/uploads/products/${req.file.filename}`;
+      console.log('✅ Archivo subido a Cloudinary:', {
+        public_id: req.file.public_id,
+        secure_url: req.file.secure_url,
+        bytes: req.file.bytes,
+        format: req.file.format
+      });
+
+      // URL de Cloudinary (secure_url es HTTPS)
+      const imageUrl = req.file.secure_url;
+      const publicId = req.file.public_id;
 
       // Si es imagen primaria, desmarcar las demás como primarias
       if (isPrimary === 'true') {
@@ -93,34 +76,44 @@ class StoreImageController {
         finalDisplayOrder = (maxOrder || 0) + 1;
       }
 
-      // Crear registro de imagen
+      // Crear registro de imagen con URL de Cloudinary
       const productImage = await StoreProductImage.create({
         productId: parseInt(productId),
-        imageUrl,
+        imageUrl, // URL de Cloudinary
         altText: altText || product.name,
         isPrimary: isPrimary === 'true',
-        displayOrder: parseInt(finalDisplayOrder)
+        displayOrder: parseInt(finalDisplayOrder),
+        publicId // Guardar publicId para poder eliminar después
       });
+
+      // Generar múltiples tamaños automáticamente
+      const imageSizes = generateImageSizes(imageUrl);
 
       console.log(`📸 Imagen subida para producto ${product.name}: ${req.file.filename}`);
 
       res.status(201).json({
         success: true,
-        message: 'Imagen subida exitosamente',
-        data: { image: productImage }
+        message: 'Imagen subida exitosamente a Cloudinary',
+        data: { 
+          image: {
+            ...productImage.toJSON(),
+            imageSizes, // URLs en diferentes tamaños
+            cloudinaryInfo: {
+              publicId: req.file.public_id,
+              format: req.file.format,
+              size: req.file.bytes,
+              width: req.file.width,
+              height: req.file.height
+            }
+          }
+        }
       });
     } catch (error) {
       console.error('Error al subir imagen:', error);
       
-      // Eliminar archivo si hubo error
-      if (req.file) {
-        try {
-          await fs.unlink(req.file.path);
-        } catch (unlinkError) {
-          console.error('Error eliminando archivo:', unlinkError);
-        }
-      }
-
+      // Con Cloudinary no necesitamos limpiar archivos locales
+      // El archivo ya está en Cloudinary si llegó hasta aquí
+      
       res.status(500).json({
         success: false,
         message: 'Error al subir imagen',
@@ -129,10 +122,12 @@ class StoreImageController {
     }
   }
 
-  // ✅ Subir múltiples imágenes
+  // ✅ Subir múltiples imágenes (ACTUALIZADO para Cloudinary)
   async uploadMultipleImages(req, res) {
     try {
       const { id: productId } = req.params;
+
+      console.log('📸 Subiendo múltiples imágenes a Cloudinary para producto:', productId);
 
       // Verificar que el producto existe
       const product = await StoreProduct.findByPk(productId);
@@ -151,60 +146,66 @@ class StoreImageController {
         });
       }
 
+      console.log(`📤 Procesando ${req.files.length} archivos subidos a Cloudinary`);
+
       const uploadedImages = [];
       const errors = [];
 
-      try {
-        // Obtener el siguiente displayOrder
-        let maxOrder = await StoreProductImage.max('displayOrder', {
-          where: { productId }
-        });
-        maxOrder = maxOrder || 0;
+      // Obtener el siguiente displayOrder
+      let maxOrder = await StoreProductImage.max('displayOrder', {
+        where: { productId }
+      });
+      maxOrder = maxOrder || 0;
 
-        for (let i = 0; i < req.files.length; i++) {
-          const file = req.files[i];
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        
+        try {
+          const imageUrl = file.secure_url; // URL de Cloudinary
+          const publicId = file.public_id;
           
-          try {
-            const imageUrl = `/uploads/products/${file.filename}`;
-            
-            const productImage = await StoreProductImage.create({
-              productId: parseInt(productId),
-              imageUrl,
-              altText: product.name,
-              isPrimary: false,
-              displayOrder: maxOrder + i + 1
-            });
+          const productImage = await StoreProductImage.create({
+            productId: parseInt(productId),
+            imageUrl,
+            altText: product.name,
+            isPrimary: false,
+            displayOrder: maxOrder + i + 1,
+            publicId // Guardar para poder eliminar después
+          });
 
-            uploadedImages.push(productImage);
-          } catch (imageError) {
-            errors.push({
-              filename: file.filename,
-              error: imageError.message
-            });
-          }
+          // Generar tamaños múltiples
+          const imageSizes = generateImageSizes(imageUrl);
+
+          uploadedImages.push({
+            ...productImage.toJSON(),
+            imageSizes,
+            cloudinaryInfo: {
+              publicId: file.public_id,
+              format: file.format,
+              size: file.bytes,
+              width: file.width,
+              height: file.height
+            }
+          });
+
+        } catch (imageError) {
+          errors.push({
+            filename: file.original_filename || file.public_id,
+            error: imageError.message
+          });
         }
-
-        console.log(`📸 ${uploadedImages.length} imágenes subidas para producto ${product.name}`);
-
-        res.status(201).json({
-          success: errors.length === 0,
-          message: `${uploadedImages.length} imágenes subidas, ${errors.length} errores`,
-          data: {
-            images: uploadedImages,
-            errors
-          }
-        });
-      } catch (error) {
-        // Eliminar archivos si hubo error
-        for (const file of req.files) {
-          try {
-            await fs.unlink(file.path);
-          } catch (unlinkError) {
-            console.error('Error eliminando archivo:', unlinkError);
-          }
-        }
-        throw error;
       }
+
+      console.log(`✅ ${uploadedImages.length} imágenes subidas para producto ${product.name}`);
+
+      res.status(201).json({
+        success: errors.length === 0,
+        message: `${uploadedImages.length} imágenes subidas, ${errors.length} errores`,
+        data: {
+          images: uploadedImages,
+          errors
+        }
+      });
     } catch (error) {
       console.error('Error al subir múltiples imágenes:', error);
       res.status(500).json({
@@ -225,9 +226,15 @@ class StoreImageController {
         order: [['isPrimary', 'DESC'], ['displayOrder', 'ASC']]
       });
 
+      // Agregar tamaños múltiples a cada imagen
+      const imagesWithSizes = images.map(image => ({
+        ...image.toJSON(),
+        imageSizes: generateImageSizes(image.imageUrl)
+      }));
+
       res.json({
         success: true,
-        data: { images }
+        data: { images: imagesWithSizes }
       });
     } catch (error) {
       console.error('Error al obtener imágenes:', error);
@@ -278,10 +285,16 @@ class StoreImageController {
 
       console.log(`✅ Imagen actualizada: ${imageId}`);
 
+      // Incluir tamaños múltiples en la respuesta
+      const imageWithSizes = {
+        ...image.toJSON(),
+        imageSizes: generateImageSizes(image.imageUrl)
+      };
+
       res.json({
         success: true,
         message: 'Imagen actualizada exitosamente',
-        data: { image }
+        data: { image: imageWithSizes }
       });
     } catch (error) {
       console.error('Error al actualizar imagen:', error);
@@ -293,7 +306,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Eliminar imagen
+  // ✅ Eliminar imagen (ACTUALIZADO para Cloudinary)
   async deleteProductImage(req, res) {
     try {
       const { productId, imageId } = req.params;
@@ -309,19 +322,32 @@ class StoreImageController {
         });
       }
 
-      // Obtener la ruta del archivo
-      const filename = path.basename(image.imageUrl);
-      const filePath = path.join(process.cwd(), 'uploads', 'products', filename);
+      // Extraer publicId de la URL de Cloudinary
+      let publicId = image.publicId;
+      if (!publicId) {
+        // Fallback: extraer de la URL si no se guardó el publicId
+        publicId = this.extractPublicIdFromUrl(image.imageUrl);
+      }
+
+      console.log(`🗑️ Eliminando imagen de Cloudinary: ${publicId}`);
 
       // Eliminar de la base de datos
       await image.destroy();
 
-      // Eliminar archivo físico
-      try {
-        await fs.unlink(filePath);
-        console.log(`🗑️ Archivo eliminado: ${filename}`);
-      } catch (fileError) {
-        console.warn(`⚠️ No se pudo eliminar el archivo: ${filename}`, fileError.message);
+      // Eliminar de Cloudinary
+      if (publicId) {
+        try {
+          const deleteResult = await deleteFile(publicId);
+          if (deleteResult.success) {
+            console.log(`✅ Archivo eliminado de Cloudinary: ${publicId}`);
+          } else {
+            console.warn(`⚠️ No se pudo eliminar de Cloudinary: ${deleteResult.error}`);
+          }
+        } catch (cloudinaryError) {
+          console.warn(`⚠️ Error eliminando de Cloudinary: ${cloudinaryError.message}`);
+        }
+      } else {
+        console.warn(`⚠️ No se pudo determinar el publicId para eliminar: ${image.imageUrl}`);
       }
 
       console.log(`🗑️ Imagen eliminada: ${imageId}`);
@@ -413,10 +439,16 @@ class StoreImageController {
 
       console.log(`⭐ Imagen primaria establecida: ${imageId}`);
 
+      // Incluir tamaños múltiples en la respuesta
+      const imageWithSizes = {
+        ...image.toJSON(),
+        imageSizes: generateImageSizes(image.imageUrl)
+      };
+
       res.json({
         success: true,
         message: 'Imagen primaria establecida exitosamente',
-        data: { image }
+        data: { image: imageWithSizes }
       });
     } catch (error) {
       console.error('Error al establecer imagen primaria:', error);
@@ -428,7 +460,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Optimizar imagen (redimensionar y comprimir)
+  // ✅ Optimizar imagen (usando transformaciones de Cloudinary)
   async optimizeImage(req, res) {
     try {
       const { productId, imageId } = req.params;
@@ -445,37 +477,28 @@ class StoreImageController {
         });
       }
 
-      const filename = path.basename(image.imageUrl);
-      const originalPath = path.join(process.cwd(), 'uploads', 'products', filename);
-      const optimizedFilename = `optimized_${filename}`;
-      const optimizedPath = path.join(process.cwd(), 'uploads', 'products', optimizedFilename);
+      // Con Cloudinary, la optimización se hace on-the-fly via URL
+      // Generar URL optimizada
+      const baseUrl = image.imageUrl.split('/upload/')[0] + '/upload/';
+      const imagePath = image.imageUrl.split('/upload/')[1];
+      
+      const optimizedUrl = `${baseUrl}w_${width},h_${height},c_fill,q_${quality}/${imagePath}`;
 
-      // Verificar que sharp esté disponible
-      if (!sharp) {
-        return res.status(500).json({
-          success: false,
-          message: 'Sharp no está disponible para optimización de imágenes'
-        });
-      }
-
-      // Optimizar imagen
-      await sharp(originalPath)
-        .resize(parseInt(width), parseInt(height), {
-          fit: 'inside',
-          withoutEnlargement: true
-        })
-        .jpeg({ quality: parseInt(quality) })
-        .toFile(optimizedPath);
-
-      // Reemplazar imagen original
-      await fs.unlink(originalPath);
-      await fs.rename(optimizedPath, originalPath);
-
-      console.log(`🔧 Imagen optimizada: ${filename}`);
+      console.log(`🔧 URL optimizada generada para imagen ${imageId}: ${optimizedUrl}`);
 
       res.json({
         success: true,
-        message: 'Imagen optimizada exitosamente'
+        message: 'URL optimizada generada exitosamente',
+        data: {
+          originalUrl: image.imageUrl,
+          optimizedUrl,
+          transformation: {
+            width: parseInt(width),
+            height: parseInt(height),
+            quality: parseInt(quality),
+            crop: 'fill'
+          }
+        }
       });
     } catch (error) {
       console.error('Error al optimizar imagen:', error);
@@ -487,7 +510,7 @@ class StoreImageController {
     }
   }
 
-  // ✅ Limpiar imágenes huérfanas (sin producto asociado)
+  // ✅ Limpiar imágenes huérfanas (ACTUALIZADO para Cloudinary)
   async cleanupOrphanImages(req, res) {
     try {
       const orphanImages = await StoreProductImage.findAll({
@@ -504,20 +527,31 @@ class StoreImageController {
       const deletedFiles = [];
       const errors = [];
 
+      console.log(`🧹 Iniciando limpieza de ${orphanImages.length} imágenes huérfanas`);
+
       for (const image of orphanImages) {
         try {
-          const filename = path.basename(image.imageUrl);
-          const filePath = path.join(process.cwd(), 'uploads', 'products', filename);
-
-          // Eliminar archivo físico
-          try {
-            await fs.unlink(filePath);
-            deletedFiles.push(filename);
-          } catch (fileError) {
-            console.warn(`No se pudo eliminar archivo: ${filename}`);
+          // Extraer publicId
+          let publicId = image.publicId;
+          if (!publicId) {
+            publicId = this.extractPublicIdFromUrl(image.imageUrl);
           }
 
-          // Eliminar registro
+          if (publicId) {
+            // Eliminar de Cloudinary
+            try {
+              const deleteResult = await deleteFile(publicId);
+              if (deleteResult.success) {
+                deletedFiles.push(publicId);
+              } else {
+                console.warn(`No se pudo eliminar de Cloudinary: ${publicId}`);
+              }
+            } catch (cloudinaryError) {
+              console.warn(`Error eliminando de Cloudinary: ${cloudinaryError.message}`);
+            }
+          }
+
+          // Eliminar registro de BD
           await image.destroy();
         } catch (error) {
           errors.push({
@@ -575,7 +609,8 @@ class StoreImageController {
         data: {
           totalImages: parseInt(stats?.dataValues?.totalImages || 0),
           primaryImages: parseInt(stats?.dataValues?.primaryImages || 0),
-          productsWithoutImages
+          productsWithoutImages,
+          cloudinaryEnabled: isCloudinaryConfigured()
         }
       });
     } catch (error) {
@@ -585,6 +620,42 @@ class StoreImageController {
         message: 'Error al obtener estadísticas',
         error: error.message
       });
+    }
+  }
+
+  // ✅ MÉTODOS AUXILIARES
+
+  // Extraer publicId de URL de Cloudinary
+  extractPublicIdFromUrl(cloudinaryUrl) {
+    if (!cloudinaryUrl) return null;
+    try {
+      // Extraer el publicId de una URL de Cloudinary
+      // Ejemplo: https://res.cloudinary.com/demo/image/upload/v1234567890/gym/products/sample.jpg
+      const matches = cloudinaryUrl.match(/\/([^\/]+)\.[a-z]+$/);
+      return matches ? matches[1] : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Generar URLs con transformaciones específicas
+  generateTransformedUrl(originalUrl, transformations) {
+    if (!originalUrl) return null;
+    
+    const baseUrl = originalUrl.split('/upload/')[0] + '/upload/';
+    const imagePath = originalUrl.split('/upload/')[1];
+    
+    return `${baseUrl}${transformations}/${imagePath}`;
+  }
+
+  // Obtener información de imagen desde Cloudinary
+  async getCloudinaryImageInfo(publicId) {
+    try {
+      const { getFileInfo } = require('../config/cloudinary');
+      return await getFileInfo(publicId);
+    } catch (error) {
+      console.error('Error obteniendo info de Cloudinary:', error);
+      return null;
     }
   }
 }

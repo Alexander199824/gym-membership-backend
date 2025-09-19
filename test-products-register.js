@@ -1,4 +1,4 @@
-// test-products-register.js - REGISTRADOR COMPLETO DE PRODUCTOS v1.0 (DESDE CERO)
+// test-products-register.js - REGISTRADOR DE PRODUCTOS v3.0 (CLOUDINARY + NUEVOS DATOS)
 const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
@@ -9,58 +9,52 @@ class ProductsRegister {
     this.baseURL = baseURL;
     this.adminToken = null;
     
-    // Datos de productos a registrar
+    // ✅ NUEVOS DATOS DE PRODUCTOS (diferentes pero mismas imágenes)
     this.productsData = [
       {
-        name: 'Nitro Tech Whey Protein',
-        description: 'Proteína de suero de leche premium con tecnología de aislamiento avanzada. Ideal para el desarrollo muscular y recuperación post-entrenamiento. Sabor chocolate.',
-        price: 89.99,
-        comparePrice: 109.99,
-        sku: 'NT-WHEY-CHOC-2LB',
-        stockQuantity: 25,
-        minStock: 5,
-        weight: 2.0,
-        dimensions: '15x15x20',
+        name: 'Proteína Isolate Premium Gold',
+        description: 'Proteína aislada de suero de alta pureza con aminoácidos esenciales. Fórmula avanzada para atletas profesionales. Sabor vainilla francesa con digestión rápida y absorción optimizada.',
+        price: 75.99,
+        originalPrice: 95.99,
+        sku: 'PROT-ISO-GOLD-VAN',
+        stockQuantity: 18,
+        minStock: 4,
+        weight: 2.2,
+        dimensions: {
+          length: 16,
+          width: 16,
+          height: 22,
+          unit: 'cm'
+        },
         isFeatured: true,
-        isActive: true,
-        tags: ['proteína', 'suplemento', 'músculo', 'recuperación'],
-        variants: {
-          sabor: ['Chocolate', 'Vainilla', 'Fresa'],
-          tamaño: ['2 lbs', '4 lbs', '8 lbs']
-        },
-        nutritionalInfo: {
-          porcion: '30g',
-          proteina: '24g',
-          carbohidratos: '3g',
-          grasas: '1g',
-          calorias: '120'
-        },
+        allowOnlinePayment: true,
+        allowCardPayment: true,
+        allowCashOnDelivery: true,
+        deliveryTime: '24-48 horas',
         categoryName: 'Suplementos',
         brandName: 'Universal Nutrition',
         imagePath: 'C:\\Users\\echev\\OneDrive\\Escritorio\\productos de prueba\\suplementos-universalfitness.png'
       },
       {
-        name: 'Conjunto Deportivo Hombre Premium',
-        description: 'Conjunto deportivo de alta calidad para hombre, incluye camiseta y pantalón. Material transpirable y de secado rápido. Perfecto para entrenamientos intensos y uso casual.',
-        price: 45.99,
-        comparePrice: 65.99,
-        sku: 'CD-HOMBRE-PREM-L',
-        stockQuantity: 15,
-        minStock: 3,
-        weight: 0.8,
-        dimensions: '30x25x5',
+        name: 'Kit Entrenamiento Elite Pro',
+        description: 'Set completo de entrenamiento profesional que incluye camiseta técnica, shorts deportivos y toalla de microfibra. Materiales de alta tecnología con propiedades antibacteriales y control de humedad.',
+        price: 65.99,
+        originalPrice: 89.99,
+        sku: 'KIT-ELITE-PRO-XL',
+        stockQuantity: 12,
+        minStock: 2,
+        weight: 1.2,
+        dimensions: {
+          length: 35,
+          width: 28,
+          height: 8,
+          unit: 'cm'
+        },
         isFeatured: true,
-        isActive: true,
-        tags: ['ropa', 'conjunto', 'deportivo', 'hombre', 'entrenamiento'],
-        variants: {
-          talla: ['S', 'M', 'L', 'XL', 'XXL'],
-          color: ['Negro', 'Gris', 'Azul Marino']
-        },
-        materialInfo: {
-          composicion: '90% Poliéster, 10% Elastano',
-          cuidado: 'Lavar en máquina máx 30°C',
-          origen: 'China'
-        },
+        allowOnlinePayment: true,
+        allowCardPayment: true,
+        allowCashOnDelivery: true,
+        deliveryTime: '1-3 días hábiles',
         categoryName: 'Ropa Deportiva',
         brandName: 'Nike',
         imagePath: 'C:\\Users\\echev\\OneDrive\\Escritorio\\productos de prueba\\51NhX5fdSEL.jpg'
@@ -72,32 +66,40 @@ class ProductsRegister {
     this.registeredBrands = [];
     this.registeredProducts = [];
     this.uploadedImages = [];
+    this.existingCategories = [];
+    this.existingBrands = [];
   }
 
   async registerAllProducts() {
-    console.log('🏪 REGISTRADOR COMPLETO DE PRODUCTOS - DESDE CERO v1.0');
-    console.log('='.repeat(80));
-    console.log('🎯 OBJETIVO: Crear productos completos con categorías, marcas e imágenes');
-    console.log('📦 PRODUCTOS A REGISTRAR: 2 productos (Suplemento + Ropa deportiva)');
-    console.log('🔄 PROCESO COMPLETO: Categorías → Marcas → Productos → Imágenes\n');
+    console.log('🏪 Elite Fitness Club - Registrador de Productos v3.0 (CLOUDINARY + NUEVOS DATOS)');
+    console.log('='.repeat(85));
+    console.log('🎯 OBJETIVO: Crear nuevos productos con imágenes en Cloudinary');
+    console.log('📦 PRODUCTOS A REGISTRAR: 2 productos NUEVOS (Proteína + Kit Entrenamiento)');
+    console.log('☁️ ALMACENAMIENTO: Cloudinary para producción');
+    console.log('🔄 PROCESO: Autenticación → Verificación → Categorías → Marcas → Productos → Cloudinary\n');
     
     try {
       await this.loginAdmin();
-      await this.showExistingData();
-      await this.createCategories();
-      await this.createBrands();
+      await this.loadExistingData();
+      await this.ensureCategories();
+      await this.ensureBrands();
       await this.createProducts();
       await this.uploadProductImages();
       await this.showFinalSummary();
       
       console.log('\n🎉 ¡REGISTRO DE PRODUCTOS COMPLETADO EXITOSAMENTE!');
       console.log('✅ Todos los productos están listos para la venta');
-      console.log('🛒 Los clientes ya pueden ver y comprar estos productos');
+      console.log('☁️ Imágenes almacenadas en Cloudinary para producción');
+      console.log('🛒 Los clientes pueden ver y comprar estos productos desde cualquier lugar');
       
     } catch (error) {
       console.error('\n❌ Error en el registro:', error.message);
       if (error.response) {
-        console.error('📋 Detalles del error:', error.response.data);
+        console.error('📋 Detalles del error:', {
+          status: error.response.status,
+          data: error.response.data,
+          url: error.response.config?.url
+        });
       }
       await this.showCleanupInstructions();
     }
@@ -117,191 +119,253 @@ class ProductsRegister {
         console.log('   ✅ Autenticación exitosa');
         console.log(`   👤 Usuario: ${response.data.data.user.firstName} ${response.data.data.user.lastName}`);
         console.log(`   🎭 Rol: ${response.data.data.user.role}`);
+        console.log(`   🔑 Token obtenido: ${this.adminToken.substring(0, 20)}...`);
+      } else {
+        throw new Error('Respuesta de login inválida');
       }
     } catch (error) {
+      if (error.response?.status === 401) {
+        throw new Error(`Credenciales incorrectas. Verifica email y contraseña.`);
+      } else if (error.response?.status === 404) {
+        throw new Error(`Endpoint de login no encontrado. Verifica que /api/auth/login esté disponible.`);
+      } else if (error.code === 'ECONNREFUSED') {
+        throw new Error(`No se puede conectar al servidor en ${this.baseURL}. ¿Está ejecutándose?`);
+      }
       throw new Error(`Autenticación falló: ${error.message}`);
     }
   }
 
-  async showExistingData() {
-    console.log('\n2. 📊 Verificando datos existentes en la tienda...');
+  async loadExistingData() {
+    console.log('\n2. 📊 Cargando datos existentes de la tienda...');
     
     try {
-      // Obtener categorías existentes
+      // Cargar categorías existentes
+      console.log('   📂 Cargando categorías...');
       const categoriesResponse = await axios.get(`${this.baseURL}/api/store/categories`);
-      const existingCategories = categoriesResponse.data.success ? categoriesResponse.data.data.categories : [];
+      this.existingCategories = categoriesResponse.data.success ? categoriesResponse.data.data.categories : [];
+      console.log(`   ✅ ${this.existingCategories.length} categorías cargadas`);
       
-      // Obtener marcas existentes
+      // Cargar marcas existentes
+      console.log('   🏷️ Cargando marcas...');
       const brandsResponse = await axios.get(`${this.baseURL}/api/store/brands`);
-      const existingBrands = brandsResponse.data.success ? brandsResponse.data.data.brands : [];
+      this.existingBrands = brandsResponse.data.success ? brandsResponse.data.data.brands : [];
+      console.log(`   ✅ ${this.existingBrands.length} marcas cargadas`);
       
-      // Obtener productos existentes
+      // Cargar productos existentes para estadísticas
+      console.log('   📦 Cargando productos...');
       const productsResponse = await axios.get(`${this.baseURL}/api/store/products`, {
         params: { limit: 100 }
       });
       const existingProducts = productsResponse.data.success ? productsResponse.data.data.products : [];
+      console.log(`   ✅ ${existingProducts.length} productos existentes`);
       
-      console.log('   📊 DATOS ACTUALES DE LA TIENDA:');
-      console.log(`   📂 Categorías: ${existingCategories.length} registradas`);
-      console.log(`   🏷️  Marcas: ${existingBrands.length} registradas`);
-      console.log(`   📦 Productos: ${existingProducts.length} registrados`);
-      
-      if (existingCategories.length > 0) {
-        console.log(`   📂 Categorías existentes: ${existingCategories.map(c => c.name).join(', ')}`);
+      // Mostrar resumen
+      console.log('\n   📊 RESUMEN DE DATOS EXISTENTES:');
+      if (this.existingCategories.length > 0) {
+        console.log(`   📂 Categorías: ${this.existingCategories.map(c => c.name).join(', ')}`);
       }
-      
-      if (existingBrands.length > 0) {
-        console.log(`   🏷️  Marcas existentes: ${existingBrands.map(b => b.name).join(', ')}`);
+      if (this.existingBrands.length > 0) {
+        console.log(`   🏷️ Marcas: ${this.existingBrands.map(b => b.name).join(', ')}`);
       }
-      
-      console.log('   ✅ Verificación completada');
       
     } catch (error) {
-      console.log('   ⚠️ No se pudieron obtener datos existentes, continuando...');
+      console.log(`   ⚠️ Error cargando datos existentes: ${error.message}`);
+      console.log('   📋 Continuando con datos vacíos...');
+      this.existingCategories = [];
+      this.existingBrands = [];
     }
   }
 
-  async createCategories() {
-    console.log('\n3. 📂 Creando/Verificando categorías necesarias...');
+  async ensureCategories() {
+    console.log('\n3. 📂 Asegurando que las categorías necesarias existan...');
     
-    const categoriesToCreate = [
+    const requiredCategories = [
       {
         name: 'Suplementos',
         description: 'Suplementos deportivos, proteínas, vitaminas y nutrición deportiva',
         slug: 'suplementos',
-        isActive: true,
-        displayOrder: 1,
-        metaTitle: 'Suplementos Deportivos - Elite Fitness Club',
-        metaDescription: 'Los mejores suplementos deportivos para tu entrenamiento'
+        iconName: 'package',
+        displayOrder: 1
       },
       {
         name: 'Ropa Deportiva',
         description: 'Ropa y vestimenta para entrenamientos, casual wear deportivo',
         slug: 'ropa-deportiva',
-        isActive: true,
-        displayOrder: 2,
-        metaTitle: 'Ropa Deportiva - Elite Fitness Club',
-        metaDescription: 'Ropa deportiva de calidad para hombres y mujeres'
+        iconName: 'shirt',
+        displayOrder: 2
       }
     ];
 
-    for (const categoryData of categoriesToCreate) {
-      try {
-        console.log(`\n   📂 Creando categoría: "${categoryData.name}"`);
-        
-        const response = await axios.post(`${this.baseURL}/api/admin/store/categories`, categoryData, {
-          headers: { 'Authorization': `Bearer ${this.adminToken}` }
-        });
-        
-        if (response.data.success) {
-          this.registeredCategories.push(response.data.data.category);
-          console.log(`   ✅ Categoría "${categoryData.name}" creada exitosamente`);
-          console.log(`   🆔 ID: ${response.data.data.category.id}`);
-          console.log(`   🔗 Slug: ${response.data.data.category.slug}`);
-        }
-        
-      } catch (error) {
-        if (error.response?.status === 400 && error.response.data.message?.includes('ya existe')) {
-          console.log(`   ⚠️ Categoría "${categoryData.name}" ya existe, obteniendo datos...`);
+    for (const categoryData of requiredCategories) {
+      console.log(`\n   📂 Procesando categoría: "${categoryData.name}"`);
+      
+      // Buscar si ya existe (comparación más flexible)
+      const existingCategory = this.existingCategories.find(c => {
+        const existingName = c.name.toLowerCase().trim();
+        const requiredName = categoryData.name.toLowerCase().trim();
+        return existingName === requiredName || 
+               existingName.includes(requiredName) || 
+               requiredName.includes(existingName);
+      });
+      
+      if (existingCategory) {
+        console.log(`   ✅ Categoría encontrada: "${existingCategory.name}" (ID: ${existingCategory.id})`);
+        this.registeredCategories.push(existingCategory);
+      } else {
+        // Intentar crear nueva categoría
+        try {
+          console.log(`   🔨 Creando nueva categoría: "${categoryData.name}"`);
           
-          try {
-            const existingResponse = await axios.get(`${this.baseURL}/api/store/categories`);
-            const existingCategory = existingResponse.data.data.categories.find(c => c.name === categoryData.name);
-            if (existingCategory) {
-              this.registeredCategories.push(existingCategory);
-              console.log(`   ✅ Usando categoría existente: ${existingCategory.id}`);
-            }
-          } catch (getError) {
-            console.log(`   ❌ No se pudo obtener la categoría existente`);
+          const response = await axios.post(`${this.baseURL}/api/store/management/categories`, categoryData, {
+            headers: { 'Authorization': `Bearer ${this.adminToken}` }
+          });
+          
+          if (response.data.success) {
+            this.registeredCategories.push(response.data.data.category);
+            console.log(`   ✅ Categoría creada: "${categoryData.name}" (ID: ${response.data.data.category.id})`);
           }
-        } else {
-          console.error(`   ❌ Error creando categoría "${categoryData.name}": ${error.response?.data?.message || error.message}`);
+          
+        } catch (error) {
+          console.error(`   ❌ Error creando categoría "${categoryData.name}":`, {
+            status: error.response?.status,
+            message: error.response?.data?.message || error.message
+          });
+          
+          // Última oportunidad: buscar por nombre similar
+          const similarCategory = this.existingCategories.find(c => 
+            c.name.toLowerCase().includes(categoryData.name.toLowerCase().split(' ')[0])
+          );
+          
+          if (similarCategory) {
+            console.log(`   🔄 Usando categoría similar: "${similarCategory.name}" (ID: ${similarCategory.id})`);
+            this.registeredCategories.push(similarCategory);
+          }
         }
       }
     }
     
     console.log(`\n   🎯 CATEGORÍAS DISPONIBLES: ${this.registeredCategories.length} listas para usar`);
+    this.registeredCategories.forEach(cat => {
+      console.log(`      📂 ${cat.name} (ID: ${cat.id})`);
+    });
   }
 
-  async createBrands() {
-    console.log('\n4. 🏷️ Creando/Verificando marcas necesarias...');
+  async ensureBrands() {
+    console.log('\n4. 🏷️ Asegurando que las marcas necesarias existan...');
     
-    const brandsToCreate = [
+    const requiredBrands = [
       {
         name: 'Universal Nutrition',
-        description: 'Líder mundial en suplementos deportivos y nutrición',
-        website: 'https://www.universalnutrition.com',
-        country: 'USA',
-        isActive: true,
-        displayOrder: 1
+        description: 'Líder mundial en suplementos deportivos y nutrición'
       },
       {
         name: 'Nike',
-        description: 'Marca líder mundial en ropa y calzado deportivo',
-        website: 'https://www.nike.com',
-        country: 'USA',
-        isActive: true,
-        displayOrder: 2
+        description: 'Marca líder mundial en ropa y calzado deportivo'
       }
     ];
 
-    for (const brandData of brandsToCreate) {
-      try {
-        console.log(`\n   🏷️ Creando marca: "${brandData.name}"`);
-        
-        const response = await axios.post(`${this.baseURL}/api/admin/store/brands`, brandData, {
-          headers: { 'Authorization': `Bearer ${this.adminToken}` }
-        });
-        
-        if (response.data.success) {
-          this.registeredBrands.push(response.data.data.brand);
-          console.log(`   ✅ Marca "${brandData.name}" creada exitosamente`);
-          console.log(`   🆔 ID: ${response.data.data.brand.id}`);
-          console.log(`   🌐 Website: ${response.data.data.brand.website}`);
-        }
-        
-      } catch (error) {
-        if (error.response?.status === 400 && error.response.data.message?.includes('ya existe')) {
-          console.log(`   ⚠️ Marca "${brandData.name}" ya existe, obteniendo datos...`);
+    for (const brandData of requiredBrands) {
+      console.log(`\n   🏷️ Procesando marca: "${brandData.name}"`);
+      
+      // Buscar si ya existe
+      const existingBrand = this.existingBrands.find(b => {
+        const existingName = b.name.toLowerCase().trim();
+        const requiredName = brandData.name.toLowerCase().trim();
+        return existingName === requiredName;
+      });
+      
+      if (existingBrand) {
+        console.log(`   ✅ Marca encontrada: "${existingBrand.name}" (ID: ${existingBrand.id})`);
+        this.registeredBrands.push(existingBrand);
+      } else {
+        // Intentar crear nueva marca
+        try {
+          console.log(`   🔨 Creando nueva marca: "${brandData.name}"`);
           
-          try {
-            const existingResponse = await axios.get(`${this.baseURL}/api/store/brands`);
-            const existingBrand = existingResponse.data.data.brands.find(b => b.name === brandData.name);
-            if (existingBrand) {
-              this.registeredBrands.push(existingBrand);
-              console.log(`   ✅ Usando marca existente: ${existingBrand.id}`);
-            }
-          } catch (getError) {
-            console.log(`   ❌ No se pudo obtener la marca existente`);
+          const response = await axios.post(`${this.baseURL}/api/store/management/brands`, brandData, {
+            headers: { 'Authorization': `Bearer ${this.adminToken}` }
+          });
+          
+          if (response.data.success) {
+            this.registeredBrands.push(response.data.data.brand);
+            console.log(`   ✅ Marca creada: "${brandData.name}" (ID: ${response.data.data.brand.id})`);
           }
-        } else {
-          console.error(`   ❌ Error creando marca "${brandData.name}": ${error.response?.data?.message || error.message}`);
+          
+        } catch (error) {
+          console.error(`   ❌ Error creando marca "${brandData.name}":`, {
+            status: error.response?.status,
+            message: error.response?.data?.message || error.message
+          });
         }
       }
     }
     
     console.log(`\n   🎯 MARCAS DISPONIBLES: ${this.registeredBrands.length} listas para usar`);
+    this.registeredBrands.forEach(brand => {
+      console.log(`      🏷️ ${brand.name} (ID: ${brand.id})`);
+    });
   }
 
   async createProducts() {
-    console.log('\n5. 📦 Creando productos completos...');
+    console.log('\n5. 📦 Creando nuevos productos...');
+    
+    if (this.registeredCategories.length === 0) {
+      throw new Error('No hay categorías disponibles para crear productos');
+    }
+    
+    if (this.registeredBrands.length === 0) {
+      throw new Error('No hay marcas disponibles para crear productos');
+    }
     
     for (let i = 0; i < this.productsData.length; i++) {
       const productData = this.productsData[i];
       console.log(`\n   📦 CREANDO PRODUCTO ${i + 1}/${this.productsData.length}: "${productData.name}"`);
-      console.log('   ' + '-'.repeat(60));
+      console.log('   ' + '-'.repeat(70));
       
       try {
         // Buscar la categoría y marca correspondientes
-        const category = this.registeredCategories.find(c => c.name === productData.categoryName);
-        const brand = this.registeredBrands.find(b => b.name === productData.brandName);
+        const category = this.registeredCategories.find(c => {
+          const categoryName = c.name.toLowerCase().trim();
+          const requiredName = productData.categoryName.toLowerCase().trim();
+          return categoryName === requiredName || categoryName.includes(requiredName);
+        });
+        
+        const brand = this.registeredBrands.find(b => {
+          const brandName = b.name.toLowerCase().trim();
+          const requiredName = productData.brandName.toLowerCase().trim();
+          return brandName === requiredName;
+        });
         
         if (!category) {
-          throw new Error(`Categoría "${productData.categoryName}" no encontrada`);
+          console.error(`   ❌ Categoría "${productData.categoryName}" no encontrada`);
+          console.log('   📋 Categorías disponibles:');
+          this.registeredCategories.forEach(c => console.log(`      • ${c.name}`));
+          continue;
         }
         
         if (!brand) {
-          throw new Error(`Marca "${productData.brandName}" no encontrada`);
+          console.error(`   ❌ Marca "${productData.brandName}" no encontrada`);
+          console.log('   📋 Marcas disponibles:');
+          this.registeredBrands.forEach(b => console.log(`      • ${b.name}`));
+          continue;
+        }
+        
+        // Verificar si el producto ya existe (por SKU)
+        try {
+          const existingProductResponse = await axios.get(`${this.baseURL}/api/store/products`, {
+            params: { search: productData.sku, limit: 1 }
+          });
+          
+          const existingProducts = existingProductResponse.data.data?.products || [];
+          const existingProduct = existingProducts.find(p => p.sku === productData.sku);
+          
+          if (existingProduct) {
+            console.log(`   ⚠️ Producto con SKU "${productData.sku}" ya existe (ID: ${existingProduct.id})`);
+            console.log(`   🔄 Saltando creación...`);
+            continue;
+          }
+        } catch (checkError) {
+          console.log(`   ⚠️ No se pudo verificar producto existente, continuando...`);
         }
         
         // Preparar datos del producto
@@ -309,7 +373,7 @@ class ProductsRegister {
           name: productData.name,
           description: productData.description,
           price: productData.price,
-          comparePrice: productData.comparePrice,
+          originalPrice: productData.originalPrice,
           sku: productData.sku,
           stockQuantity: productData.stockQuantity,
           minStock: productData.minStock,
@@ -318,23 +382,23 @@ class ProductsRegister {
           categoryId: category.id,
           brandId: brand.id,
           isFeatured: productData.isFeatured,
-          isActive: productData.isActive,
-          tags: productData.tags,
-          variants: productData.variants,
-          nutritionalInfo: productData.nutritionalInfo,
-          materialInfo: productData.materialInfo
+          allowOnlinePayment: productData.allowOnlinePayment,
+          allowCardPayment: productData.allowCardPayment,
+          allowCashOnDelivery: productData.allowCashOnDelivery,
+          deliveryTime: productData.deliveryTime
         };
         
-        console.log(`   📊 Datos del producto preparados:`);
-        console.log(`      💰 Precio: $${productPayload.price} (compare: $${productPayload.comparePrice})`);
+        console.log(`   📊 Datos del nuevo producto:`);
+        console.log(`      💰 Precio: $${productPayload.price} (original: $${productPayload.originalPrice})`);
         console.log(`      📦 Stock: ${productPayload.stockQuantity} unidades`);
         console.log(`      📂 Categoría: ${category.name} (ID: ${category.id})`);
         console.log(`      🏷️ Marca: ${brand.name} (ID: ${brand.id})`);
         console.log(`      🏷️ SKU: ${productPayload.sku}`);
         console.log(`      ⭐ Destacado: ${productPayload.isFeatured ? 'Sí' : 'No'}`);
+        console.log(`      📏 Dimensiones: ${productPayload.dimensions.length}x${productPayload.dimensions.width}x${productPayload.dimensions.height} ${productPayload.dimensions.unit}`);
         
         // Crear el producto
-        const response = await axios.post(`${this.baseURL}/api/admin/store/products`, productPayload, {
+        const response = await axios.post(`${this.baseURL}/api/store/management/products`, productPayload, {
           headers: { 
             'Authorization': `Bearer ${this.adminToken}`,
             'Content-Type': 'application/json'
@@ -348,20 +412,21 @@ class ProductsRegister {
           });
           
           console.log(`   ✅ PRODUCTO CREADO EXITOSAMENTE`);
-          console.log(`      🆔 ID del producto: ${response.data.data.product.id}`);
+          console.log(`      🆔 ID: ${response.data.data.product.id}`);
           console.log(`      📦 Nombre: ${response.data.data.product.name}`);
           console.log(`      💰 Precio: $${response.data.data.product.price}`);
-          console.log(`      📊 Stock inicial: ${response.data.data.product.stockQuantity}`);
+          console.log(`      🔄 Descuento: ${((productData.originalPrice - productData.price) / productData.originalPrice * 100).toFixed(1)}%`);
         }
         
       } catch (error) {
         console.error(`   ❌ Error creando producto "${productData.name}":`);
-        console.error(`      💥 ${error.response?.data?.message || error.message}`);
+        console.error(`      💥 Status: ${error.response?.status}`);
+        console.error(`      💥 Message: ${error.response?.data?.message || error.message}`);
         
         if (error.response?.data?.errors) {
           console.error('      📋 Errores de validación:');
-          Object.entries(error.response.data.errors).forEach(([field, message]) => {
-            console.error(`         • ${field}: ${message}`);
+          error.response.data.errors.forEach(err => {
+            console.error(`         • ${err.path || err.param}: ${err.message || err.msg}`);
           });
         }
       }
@@ -371,42 +436,50 @@ class ProductsRegister {
   }
 
   async uploadProductImages() {
-    console.log('\n6. 🖼️ Subiendo imágenes de productos...');
+    console.log('\n6. ☁️ Subiendo imágenes a Cloudinary...');
     
     if (this.registeredProducts.length === 0) {
       console.log('   ⚠️ No hay productos registrados para subir imágenes');
       return;
     }
     
+    console.log('   📤 Las imágenes se subirán a Cloudinary para acceso global');
+    console.log('   🌐 URLs serán accesibles desde cualquier ubicación');
+    
     for (let i = 0; i < this.registeredProducts.length; i++) {
       const product = this.registeredProducts[i];
-      console.log(`\n   🖼️ SUBIENDO IMAGEN ${i + 1}/${this.registeredProducts.length}: "${product.name}"`);
-      console.log('   ' + '-'.repeat(50));
+      console.log(`\n   ☁️ SUBIENDO IMAGEN ${i + 1}/${this.registeredProducts.length}: "${product.name}"`);
+      console.log('   ' + '-'.repeat(60));
       
       try {
         const imagePath = product.imagePath;
-        console.log(`   📁 Ruta de imagen: ${imagePath}`);
+        console.log(`   📁 Ruta local: ${imagePath}`);
         
         // Verificar que el archivo existe
         if (!fs.existsSync(imagePath)) {
-          throw new Error(`Archivo de imagen no encontrado: ${imagePath}`);
+          console.error(`   ❌ Archivo no encontrado: ${imagePath}`);
+          continue;
         }
         
         const stats = fs.statSync(imagePath);
-        console.log(`   📏 Tamaño del archivo: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+        const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
+        console.log(`   📏 Tamaño: ${fileSizeMB} MB`);
         
-        // Crear FormData para subir la imagen
+        // Verificar límite de tamaño
+        if (stats.size > 10 * 1024 * 1024) {
+          console.error(`   ❌ Archivo demasiado grande: ${fileSizeMB} MB (máximo 10MB para Cloudinary)`);
+          continue;
+        }
+        
+        // Crear FormData
         const formData = new FormData();
         formData.append('image', fs.createReadStream(imagePath));
-        formData.append('productId', product.id);
-        formData.append('isPrimary', 'true');
-        formData.append('displayOrder', '1');
-        formData.append('altText', `${product.name} - Imagen principal`);
         
-        console.log(`   📤 Subiendo imagen para producto ID: ${product.id}...`);
+        console.log(`   ☁️ Subiendo a Cloudinary...`);
         
+        // Subir imagen (ahora va directo a Cloudinary)
         const response = await axios.post(
-          `${this.baseURL}/api/admin/store/products/${product.id}/images`, 
+          `${this.baseURL}/api/store/management/products/${product.id}/images?isPrimary=true&altText=${encodeURIComponent(product.name + ' - Imagen principal')}&displayOrder=1`, 
           formData,
           {
             headers: { 
@@ -414,73 +487,75 @@ class ProductsRegister {
               ...formData.getHeaders()
             },
             maxContentLength: Infinity,
-            maxBodyLength: Infinity
+            maxBodyLength: Infinity,
+            timeout: 45000 // 45 segundos para Cloudinary
           }
         );
         
         if (response.data.success) {
           this.uploadedImages.push(response.data.data.image);
-          console.log(`   ✅ IMAGEN SUBIDA EXITOSAMENTE`);
-          console.log(`      🆔 ID de imagen: ${response.data.data.image.id}`);
+          console.log(`   ✅ IMAGEN SUBIDA EXITOSAMENTE A CLOUDINARY`);
+          console.log(`      🆔 ID: ${response.data.data.image.id}`);
           console.log(`      🔗 URL: ${response.data.data.image.imageUrl}`);
           console.log(`      ⭐ Imagen principal: ${response.data.data.image.isPrimary ? 'Sí' : 'No'}`);
+          
+          // Mostrar información de Cloudinary si está disponible
+          if (response.data.data.image.cloudinaryInfo) {
+            const cloudinaryInfo = response.data.data.image.cloudinaryInfo;
+            console.log(`      ☁️ Cloudinary ID: ${cloudinaryInfo.publicId}`);
+            console.log(`      📏 Dimensiones: ${cloudinaryInfo.width}x${cloudinaryInfo.height}`);
+            console.log(`      📁 Formato: ${cloudinaryInfo.format}`);
+            console.log(`      💾 Tamaño: ${(cloudinaryInfo.size / 1024).toFixed(2)} KB`);
+            console.log(`      🚀 CDN: Accesible globalmente`);
+          }
+          
+          // Verificar que la URL es de Cloudinary
+          if (response.data.data.image.imageUrl.includes('cloudinary.com')) {
+            console.log(`      ✅ Confirmado: Imagen en Cloudinary CDN`);
+          }
         }
         
       } catch (error) {
         console.error(`   ❌ Error subiendo imagen para "${product.name}":`);
         console.error(`      💥 ${error.response?.data?.message || error.message}`);
         
-        if (error.code === 'ENOENT') {
-          console.error('      📁 Verifica que la ruta del archivo sea correcta');
+        if (error.code === 'ECONNABORTED') {
+          console.error('      ⏰ Timeout - Cloudinary puede tardar más en procesar imágenes grandes');
         } else if (error.response?.status === 413) {
-          console.error('      📏 El archivo es demasiado grande');
+          console.error('      📏 Archivo demasiado grande para el servidor');
         }
       }
     }
     
-    console.log(`\n   🎯 IMÁGENES SUBIDAS: ${this.uploadedImages.length} de ${this.registeredProducts.length} completadas`);
+    console.log(`\n   🎯 IMÁGENES PROCESADAS: ${this.uploadedImages.length} de ${this.registeredProducts.length} subidas a Cloudinary`);
+    
+    if (this.uploadedImages.length > 0) {
+      console.log(`   ☁️ ✅ Todas las imágenes están en Cloudinary CDN`);
+      console.log(`   🌐 ✅ Accesibles desde cualquier ubicación mundial`);
+      console.log(`   🚀 ✅ Optimizadas automáticamente para web`);
+    }
   }
 
   async showFinalSummary() {
     console.log('\n7. 📊 RESUMEN FINAL DEL REGISTRO');
-    console.log('=' .repeat(60));
+    console.log('=' .repeat(70));
     
-    // Resumen general
-    console.log('🎯 RESUMEN DE REGISTRO COMPLETADO:');
-    console.log(`   📂 Categorías: ${this.registeredCategories.length} preparadas`);
-    console.log(`   🏷️ Marcas: ${this.registeredBrands.length} preparadas`);
+    console.log('🎯 RESUMEN COMPLETADO:');
+    console.log(`   📂 Categorías: ${this.registeredCategories.length} disponibles`);
+    console.log(`   🏷️ Marcas: ${this.registeredBrands.length} disponibles`);
     console.log(`   📦 Productos: ${this.registeredProducts.length} creados`);
-    console.log(`   🖼️ Imágenes: ${this.uploadedImages.length} subidas`);
+    console.log(`   ☁️ Imágenes: ${this.uploadedImages.length} subidas a Cloudinary`);
     
-    // Detalles de categorías
-    if (this.registeredCategories.length > 0) {
-      console.log('\n📂 CATEGORÍAS REGISTRADAS:');
-      this.registeredCategories.forEach((category, index) => {
-        console.log(`   ${index + 1}. ${category.name} (ID: ${category.id})`);
-        console.log(`      🔗 Slug: ${category.slug}`);
-      });
-    }
-    
-    // Detalles de marcas
-    if (this.registeredBrands.length > 0) {
-      console.log('\n🏷️ MARCAS REGISTRADAS:');
-      this.registeredBrands.forEach((brand, index) => {
-        console.log(`   ${index + 1}. ${brand.name} (ID: ${brand.id})`);
-        if (brand.website) {
-          console.log(`      🌐 Website: ${brand.website}`);
-        }
-      });
-    }
-    
-    // Detalles de productos
+    // Detalles de productos creados
     if (this.registeredProducts.length > 0) {
-      console.log('\n📦 PRODUCTOS REGISTRADOS:');
+      console.log('\n📦 NUEVOS PRODUCTOS CREADOS:');
       this.registeredProducts.forEach((product, index) => {
         const hasImage = this.uploadedImages.some(img => img.productId === product.id);
+        const discount = ((product.originalPrice - product.price) / product.originalPrice * 100).toFixed(1);
         
         console.log(`\n   ${index + 1}. "${product.name}"`);
         console.log(`      🆔 ID: ${product.id}`);
-        console.log(`      💰 Precio: $${product.price} ${product.comparePrice ? `(antes: $${product.comparePrice})` : ''}`);
+        console.log(`      💰 Precio: $${product.price} (original: $${product.originalPrice}) - ${discount}% desc.`);
         console.log(`      📦 Stock: ${product.stockQuantity} unidades`);
         console.log(`      🏷️ SKU: ${product.sku}`);
         console.log(`      ⭐ Destacado: ${product.isFeatured ? 'Sí' : 'No'}`);
@@ -490,111 +565,192 @@ class ProductsRegister {
         const productImage = this.uploadedImages.find(img => img.productId === product.id);
         if (productImage) {
           console.log(`         🔗 URL: ${productImage.imageUrl}`);
+          
+          // Mostrar si es de Cloudinary
+          if (productImage.imageUrl.includes('cloudinary.com')) {
+            console.log(`         ☁️ Almacenado en Cloudinary CDN`);
+            
+            if (productImage.cloudinaryInfo) {
+              console.log(`         📏 ${productImage.cloudinaryInfo.width}x${productImage.cloudinaryInfo.height} (${productImage.cloudinaryInfo.format})`);
+            }
+          }
         }
       });
-    }
-    
-    // Cálculos financieros
-    if (this.registeredProducts.length > 0) {
+      
+      // Cálculos financieros
       const totalValue = this.registeredProducts.reduce((sum, product) => 
         sum + (parseFloat(product.price) * product.stockQuantity), 0
+      );
+      const totalOriginalValue = this.registeredProducts.reduce((sum, product) => 
+        sum + (parseFloat(product.originalPrice) * product.stockQuantity), 0
       );
       const totalStock = this.registeredProducts.reduce((sum, product) => 
         sum + product.stockQuantity, 0
       );
+      const totalSavings = totalOriginalValue - totalValue;
       
-      console.log('\n💰 VALOR TOTAL DEL INVENTARIO REGISTRADO:');
-      console.log(`   📦 Total de unidades: ${totalStock}`);
-      console.log(`   💰 Valor total: $${totalValue.toFixed(2)}`);
-      console.log(`   📊 Precio promedio: $${(totalValue / totalStock).toFixed(2)} por unidad`);
+      console.log('\n💰 VALOR DEL NUEVO INVENTARIO:');
+      console.log(`   📦 Total unidades: ${totalStock}`);
+      console.log(`   💰 Valor actual: $${totalValue.toFixed(2)}`);
+      console.log(`   💸 Valor original: $${totalOriginalValue.toFixed(2)}`);
+      console.log(`   🎯 Ahorro total: $${totalSavings.toFixed(2)} (${((totalSavings/totalOriginalValue)*100).toFixed(1)}%)`);
+      console.log(`   📊 Precio promedio: $${(totalValue / totalStock).toFixed(2)}`);
     }
     
     // URLs de acceso
-    console.log('\n🌐 ACCESO A LOS PRODUCTOS:');
-    console.log(`   🛒 Tienda: ${this.baseURL}/store`);
-    console.log(`   📱 API Productos: ${this.baseURL}/api/store/products`);
+    console.log('\n🌐 ACCESO A LOS NUEVOS PRODUCTOS:');
+    console.log(`   🛒 Tienda: ${this.baseURL}/api/store/products`);
     console.log(`   ⭐ Destacados: ${this.baseURL}/api/store/products/featured`);
+    console.log(`   🔧 Gestión: ${this.baseURL}/api/store/management/products`);
+    
+    // Ejemplos de URLs específicas si hay productos
+    if (this.registeredProducts.length > 0) {
+      console.log('\n🔗 URLs ESPECÍFICAS DE PRODUCTOS NUEVOS:');
+      this.registeredProducts.forEach(product => {
+        console.log(`   • ${product.name}: ${this.baseURL}/api/store/products/${product.id}`);
+      });
+    }
     
     // Estado final
     console.log('\n✅ ESTADO FINAL:');
     if (this.registeredProducts.length === this.productsData.length) {
       console.log('   🎉 ¡TODOS LOS PRODUCTOS REGISTRADOS EXITOSAMENTE!');
-      console.log('   ✅ Los productos ya están disponibles para la venta');
-      console.log('   🛒 Los clientes pueden ver y comprar estos productos');
+      console.log('   ✅ Los productos están disponibles para la venta');
       
       if (this.uploadedImages.length === this.registeredProducts.length) {
         console.log('   🖼️ ✅ Todas las imágenes subidas correctamente');
+        
+        // Verificar si las imágenes están en Cloudinary
+        const cloudinaryImages = this.uploadedImages.filter(img => 
+          img.imageUrl && img.imageUrl.includes('cloudinary.com')
+        );
+        
+        if (cloudinaryImages.length > 0) {
+          console.log(`   ☁️ ✅ ${cloudinaryImages.length} imágenes almacenadas en Cloudinary`);
+          console.log('   🌐 ✅ Imágenes accesibles desde cualquier ubicación');
+          console.log('   🌐 ✅ listo para produccion');
+          console.log('   📱 ✅ Optimización automática por dispositivo');
+          console.log('   ⚡ ✅ Carga rápida vía CDN global');
+        } else {
+          console.log('   ⚠️ Imágenes en almacenamiento local (no recomendado para producción)');
+        }
       } else {
-        console.log('   🖼️ ⚠️ Algunas imágenes no se subieron');
+        console.log(`   🖼️ ⚠️ ${this.uploadedImages.length}/${this.registeredProducts.length} imágenes subidas`);
       }
     } else {
-      console.log('   ⚠️ No todos los productos se registraron correctamente');
-      console.log('   📋 Revisa los errores anteriores para más detalles');
+      console.log(`   ⚠️ ${this.registeredProducts.length}/${this.productsData.length} productos registrados`);
+      console.log('   📋 Revisa los errores para más detalles');
+    }
+    
+    // Información de Cloudinary
+    if (this.uploadedImages.length > 0) {
+      console.log('\n☁️ INFORMACIÓN DE CLOUDINARY:');
+      console.log('   ✅ Imágenes almacenadas en CDN global');
+      console.log('   ✅ Redimensionamiento automático bajo demanda');
+      console.log('   ✅ Optimización de formato (WebP/AVIF)');
+      console.log('   ✅ Compresión inteligente de calidad');
+      console.log('   ✅ HTTPS seguro por defecto');
+      console.log('   ✅ Respaldo automático en la nube');
     }
   }
 
   async showCleanupInstructions() {
-    console.log('\n🧹 INSTRUCCIONES DE LIMPIEZA (EN CASO DE ERROR)');
+    console.log('\n🧹 INSTRUCCIONES DE LIMPIEZA');
     console.log('=' .repeat(60));
     
     if (this.registeredProducts.length > 0) {
-      console.log('📦 PRODUCTOS CREADOS (para eliminar si es necesario):');
+      console.log('📦 PRODUCTOS CREADOS (para eliminar si necesario):');
       this.registeredProducts.forEach(product => {
-        console.log(`   • ID: ${product.id} - "${product.name}"`);
+        console.log(`   • ID: ${product.id} - "${product.name}" (SKU: ${product.sku})`);
+        console.log(`     DELETE ${this.baseURL}/api/store/management/products/${product.id}`);
       });
     }
     
-    if (this.registeredCategories.length > 0) {
-      console.log('\n📂 CATEGORÍAS CREADAS:');
-      this.registeredCategories.forEach(category => {
-        console.log(`   • ID: ${category.id} - "${category.name}"`);
+    if (this.uploadedImages.length > 0) {
+      console.log('\n☁️ IMÁGENES EN CLOUDINARY:');
+      this.uploadedImages.forEach(image => {
+        console.log(`   • ID: ${image.id} - Producto: ${image.productId}`);
+        console.log(`     URL: ${image.imageUrl}`);
       });
+      console.log('\n💡 Las imágenes en Cloudinary se eliminarán automáticamente al eliminar productos');
     }
     
-    if (this.registeredBrands.length > 0) {
-      console.log('\n🏷️ MARCAS CREADAS:');
-      this.registeredBrands.forEach(brand => {
-        console.log(`   • ID: ${brand.id} - "${brand.name}"`);
-      });
-    }
+    console.log('\n💡 Usa el panel de administración para gestionar productos y imágenes');
+  }
+
+  // Método para verificar conectividad
+  async testConnectivity() {
+    console.log('🔍 Verificando conectividad y configuración...');
     
-    console.log('\n💡 Para limpiar datos de prueba:');
-    console.log('   1. Elimina productos desde el panel de admin');
-    console.log('   2. Elimina categorías no utilizadas');
-    console.log('   3. Elimina marcas no utilizadas');
+    try {
+      // Test conexión básica
+      const response = await axios.get(`${this.baseURL}/api/store/products`, { timeout: 5000 });
+      console.log('   ✅ Conexión con API exitosa');
+      
+      // Test rutas protegidas
+      try {
+        await axios.get(`${this.baseURL}/api/store/management/products`, { timeout: 5000 });
+      } catch (error) {
+        if (error.response?.status === 401) {
+          console.log('   ✅ Rutas de gestión protegidas correctamente');
+        }
+      }
+      
+      console.log('   ☁️ Cloudinary se verificará al subir primera imagen');
+      
+      return true;
+    } catch (error) {
+      console.log(`   ❌ Error de conectividad: ${error.message}`);
+      return false;
+    }
   }
 }
 
-// ✅ FUNCIÓN DE AYUDA
+// ✅ FUNCIÓN DE AYUDA ACTUALIZADA
 function showHelp() {
-  console.log('\n🏪 Elite Fitness Club - Registrador de Productos v1.0\n');
-  console.log('🎯 REGISTRO COMPLETO DE PRODUCTOS:');
-  console.log('  📂 Crea categorías necesarias (Suplementos, Ropa Deportiva)');
-  console.log('  🏷️ Crea marcas necesarias (Universal Nutrition, Nike)');
-  console.log('  📦 Registra productos completos con todos sus datos');
-  console.log('  🖼️ Sube imágenes reales de los productos');
-  console.log('  📊 Genera inventario listo para la venta\n');
+  console.log('\n🏪 Elite Fitness Club - Registrador de Productos v3.0 (CLOUDINARY)\n');
+  console.log('🎯 FUNCIONALIDADES:');
+  console.log('  📂 Verifica/crea categorías (Suplementos, Ropa Deportiva)');
+  console.log('  🏷️ Verifica/crea marcas (Universal Nutrition, Nike)');
+  console.log('  📦 Registra NUEVOS productos con datos únicos');
+  console.log('  ☁️ Sube imágenes a Cloudinary para producción');
+  console.log('  🌐 URLs accesibles globalmente vía CDN');
+  console.log('  🔄 Maneja datos existentes automáticamente\n');
   
-  console.log('✨ PRODUCTOS A REGISTRAR:');
-  console.log('  🥤 Nitro Tech Whey Protein (Suplemento)');
-  console.log('     • Precio: $89.99, Stock: 25 unidades');
-  console.log('     • Imagen: suplementos-universalfitness.png');
-  console.log('  👕 Conjunto Deportivo Hombre (Ropa)');
-  console.log('     • Precio: $45.99, Stock: 15 unidades');
-  console.log('     • Imagen: 51NhX5fdSEL.jpg\n');
+  console.log('☁️ VENTAJAS DE CLOUDINARY:');
+  console.log('  🚀 CDN global para carga rápida');
+  console.log('  📱 Optimización automática por dispositivo');
+  console.log('  🔧 Redimensionamiento bajo demanda');
+  console.log('  💾 Respaldo seguro en la nube');
+  console.log('  🌐 HTTPS por defecto\n');
+  
+  console.log('✨ NUEVOS PRODUCTOS A REGISTRAR:');
+  console.log('  🥤 Proteína Isolate Premium Gold ($75.99, 18 unidades)');
+  console.log('     • SKU: PROT-ISO-GOLD-VAN');
+  console.log('     • Descuento: 21% (antes $95.99)');
+  console.log('  🎽 Kit Entrenamiento Elite Pro ($65.99, 12 unidades)');
+  console.log('     • SKU: KIT-ELITE-PRO-XL');
+  console.log('     • Descuento: 27% (antes $89.99)\n');
   
   console.log('🚀 USO:');
-  console.log('  node test-products-register.js        # Registrar productos');
-  console.log('  node test-products-register.js --help # Mostrar esta ayuda\n');
+  console.log('  node test-products-register.js          # Registro completo');
+  console.log('  node test-products-register.js --help   # Esta ayuda');
+  console.log('  node test-products-register.js --test   # Solo test conexión\n');
   
   console.log('📋 REQUISITOS:');
-  console.log('  • Servidor backend ejecutándose (npm start)');
-  console.log('  • Usuario admin creado (admin@gym.com)');
-  console.log('  • Imágenes en las rutas especificadas');
-  console.log('  • Endpoints de admin configurados\n');
+  console.log('  • Servidor corriendo en puerto 5000');
+  console.log('  • Usuario admin: admin@gym.com / Admin123!');
+  console.log('  • Cloudinary configurado en variables de entorno');
+  console.log('  • Imágenes en rutas especificadas');
+  console.log('  • Rutas de gestión configuradas\n');
+  
+  console.log('🔧 CONFIGURACIÓN CLOUDINARY (.env):');
+  console.log('  CLOUDINARY_CLOUD_NAME=tu_cloud_name');
+  console.log('  CLOUDINARY_API_KEY=tu_api_key');
+  console.log('  CLOUDINARY_API_SECRET=tu_api_secret\n');
 }
 
-// ✅ FUNCIÓN PRINCIPAL
+// ✅ FUNCIÓN PRINCIPAL ACTUALIZADA
 async function main() {
   const args = process.argv.slice(2);
   
@@ -605,6 +761,17 @@ async function main() {
   
   const register = new ProductsRegister();
   
+  if (args.includes('--test') || args.includes('-t')) {
+    console.log('🧪 MODO TEST - Solo verificando conectividad y configuración\n');
+    const isConnected = await register.testConnectivity();
+    if (isConnected) {
+      console.log('\n✅ Backend accesible - Listo para registrar productos con Cloudinary');
+    } else {
+      console.log('\n❌ Problemas de conectividad - Verifica el servidor');
+    }
+    return;
+  }
+  
   try {
     await register.registerAllProducts();
     
@@ -614,25 +781,36 @@ async function main() {
     
     console.error('💡 POSIBLES SOLUCIONES:');
     
-    if (error.message.includes('ECONNREFUSED') || error.message.includes('Network Error')) {
-      console.error('   1. ✅ Verifica que tu servidor esté ejecutándose: npm start');
-      console.error('   2. ✅ Verifica que el puerto sea el correcto (5000)');
-    } else if (error.message.includes('Autenticación falló')) {
-      console.error('   1. ✅ Verifica que el usuario admin existe: admin@gym.com');
-      console.error('   2. ✅ Verifica la contraseña: Admin123!');
-    } else if (error.message.includes('404') || error.message.includes('endpoint')) {
-      console.error('   1. ✅ Verifica que las rutas de admin estén configuradas');
-      console.error('   2. ✅ Verifica que el middleware requireStaff funcione');
-    } else if (error.message.includes('archivo no encontrado')) {
-      console.error('   1. ✅ Verifica las rutas de las imágenes');
-      console.error('   2. ✅ Asegúrate de que los archivos existan');
+    if (error.message.includes('ECONNREFUSED')) {
+      console.error('   1. ✅ Verifica que el servidor esté corriendo: npm start');
+      console.error('   2. ✅ Verifica que el puerto sea correcto (5000)');
+    } else if (error.message.includes('Credenciales incorrectas')) {
+      console.error('   1. ✅ Verifica usuario: admin@gym.com');
+      console.error('   2. ✅ Verifica contraseña: Admin123!');
+      console.error('   3. ✅ Verifica que el usuario tenga rol admin');
+    } else if (error.message.includes('401')) {
+      console.error('   1. ✅ Verifica el middleware de autenticación');
+      console.error('   2. ✅ Verifica permisos de staff');
+    } else if (error.message.includes('404')) {
+      console.error('   1. ✅ Verifica rutas de gestión configuradas');
+      console.error('   2. ✅ Verifica que storeAdminRoutes esté importado');
+    } else if (error.message.includes('Cloudinary')) {
+      console.error('   1. ✅ Verifica configuración de Cloudinary en .env');
+      console.error('   2. ✅ Verifica CLOUDINARY_CLOUD_NAME, API_KEY, API_SECRET');
+      console.error('   3. ✅ Verifica que multer-storage-cloudinary esté instalado');
     }
+    
+    console.error('\n🔍 PARA DIAGNOSTICAR:');
+    console.error('   • node test-products-register.js --test');
+    console.error('   • Revisar logs del servidor');
+    console.error('   • Verificar configuración de Cloudinary');
+    console.error('   • Probar rutas con Postman');
     
     process.exit(1);
   }
 }
 
-// ✅ EJECUTAR SI SE LLAMA DIRECTAMENTE
+// ✅ EJECUTAR
 if (require.main === module) {
   main();
 }
