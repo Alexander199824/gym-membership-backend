@@ -1,49 +1,39 @@
-// src/routes/index.js - ARCHIVO PRINCIPAL DE RUTAS ACTUALIZADO con nuevas funcionalidades
+// src/routes/index.js - ARCHIVO PRINCIPAL DE RUTAS COMPLETO Y ACTUALIZADO
 const express = require('express');
 
-// ✅ === RUTAS EXISTENTES ===
+// ✅ === RUTAS BÁSICAS DEL SISTEMA ===
 const authRoutes = require('./authRoutes');
 const userRoutes = require('./userRoutes');
 const membershipRoutes = require('./membershipRoutes');
 const paymentRoutes = require('./paymentRoutes');
-const storeRoutes = require('./storeRoutes');
-const dataCleanupRoutes = require('./dataCleanupRoutes');
 const gymRoutes = require('./gymRoutes');
 const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
-const stripeRoutes = require('./stripeRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
+const dataCleanupRoutes = require('./dataCleanupRoutes');
 
-// ✅ RUTAS PARA EL FRONTEND
+// ✅ === RUTAS DE TIENDA ===
+const storeRoutes = require('./storeRoutes');
+
+// ✅ === RUTAS MULTIMEDIA Y FRONTEND ===
+const gymMediaRoutes = require('./gymMediaRoutes');
+const testimonialRoutes = require('./testimonialRoutes');
 const contentRoutes = require('./contentRoutes');
 const brandingRoutes = require('./brandingRoutes');
 const promotionsRoutes = require('./promotionsRoutes');
 
-// 🎬 RUTAS MULTIMEDIA
-const gymMediaRoutes = require('./gymMediaRoutes');
+// ✅ === RUTAS DE PAGOS ===
+const stripeRoutes = require('./stripeRoutes');
 
-// ✅ RUTAS DE TESTIMONIOS
-const testimonialRoutes = require('./testimonialRoutes');
-
-// ✅ === NUEVAS RUTAS DE TIENDA ESPECÍFICAS ===
-const storeBrandRoutes = require('./storeBrands');
-const storeCategoryRoutes = require('./storeCategories');
-const storeProductRoutes = require('./storeProducts');
-const storeImageRoutes = require('./storeImages');
-
-// ✅ === NUEVAS RUTAS FUNCIONALES ===
+// ✅ === RUTAS ESPECÍFICAS DE FUNCIONALIDADES ===
 const localSalesRoutes = require('./localSales');
 const orderManagementRoutes = require('./orderManagement');
 const inventoryStatsRoutes = require('./inventoryStats');
 
 const router = express.Router();
 
-// ✅ Health check mejorado y compatible con múltiples bases de datos
+// ✅ === HEALTH CHECK MEJORADO ===
 router.get('/health', async (req, res) => {
-  const stripeService = require('../services/stripeService');
-  const stripeConfig = stripeService.getPublicConfig();
-  
-  // ✅ VERIFICAR CONEXIÓN REAL A LA BASE DE DATOS
   let databaseStatus = 'Desconectada';
   let databaseDetails = null;
   
@@ -51,18 +41,14 @@ router.get('/health', async (req, res) => {
     const { sequelize } = require('../config/database');
     await sequelize.authenticate();
     
-    // ✅ CORREGIDO: Verificar tablas de forma compatible con diferentes DB
-    let tableCount = 0;
     const dialect = sequelize.getDialect();
-    
-    console.log(`🔍 Detectando base de datos: ${dialect}`);
+    let tableCount = 0;
     
     try {
       let countQuery;
       
       switch (dialect) {
         case 'postgres':
-          // PostgreSQL usa current_database() en lugar de DATABASE()
           countQuery = `
             SELECT COUNT(*) as count 
             FROM information_schema.tables 
@@ -70,19 +56,15 @@ router.get('/health', async (req, res) => {
             AND table_catalog = current_database()
           `;
           break;
-          
         case 'mysql':
         case 'mariadb':
-          // MySQL/MariaDB usan DATABASE()
           countQuery = `
             SELECT COUNT(*) as count 
             FROM information_schema.tables 
             WHERE table_schema = DATABASE()
           `;
           break;
-          
         case 'sqlite':
-          // SQLite usa una consulta diferente
           countQuery = `
             SELECT COUNT(*) as count 
             FROM sqlite_master 
@@ -90,18 +72,7 @@ router.get('/health', async (req, res) => {
             AND name NOT LIKE 'sqlite_%'
           `;
           break;
-          
-        case 'mssql':
-          // SQL Server
-          countQuery = `
-            SELECT COUNT(*) as count 
-            FROM information_schema.tables 
-            WHERE table_schema = SCHEMA_NAME()
-          `;
-          break;
-          
         default:
-          // Fallback genérico
           countQuery = `
             SELECT COUNT(*) as count 
             FROM information_schema.tables
@@ -111,17 +82,12 @@ router.get('/health', async (req, res) => {
       const [results] = await sequelize.query(countQuery);
       tableCount = parseInt(results[0]?.count) || 0;
       
-      console.log(`📊 Tablas encontradas: ${tableCount}`);
-      
     } catch (tableError) {
       console.warn('⚠️ No se pudo contar las tablas:', tableError.message);
-      // Intentar método alternativo más simple
       try {
         const models = Object.keys(sequelize.models);
         tableCount = models.length;
-        console.log(`📊 Usando conteo de modelos Sequelize: ${tableCount} modelos`);
       } catch (modelError) {
-        console.warn('⚠️ No se pudo contar modelos:', modelError.message);
         tableCount = 'Desconocido';
       }
     }
@@ -132,11 +98,8 @@ router.get('/health', async (req, res) => {
       tables: tableCount,
       dialect: dialect,
       host: sequelize.config.host || 'local',
-      database: sequelize.config.database || 'unknown',
-      version: 'connected'
+      database: sequelize.config.database || 'unknown'
     };
-    
-    console.log(`✅ Base de datos conectada: ${dialect} - ${tableCount} tablas`);
     
   } catch (error) {
     console.error('❌ Health check - Error BD:', error.message);
@@ -146,13 +109,22 @@ router.get('/health', async (req, res) => {
       dialect: 'unknown'
     };
   }
+
+  // Verificar Stripe
+  let stripeConfig = { enabled: false };
+  try {
+    const stripeService = require('../services/stripeService');
+    stripeConfig = stripeService.getPublicConfig();
+  } catch (error) {
+    console.warn('⚠️ Stripe service not available');
+  }
   
   res.json({
     success: true,
-    message: 'Elite Fitness Club API - Sistema Completo con Gestión de Tienda y Ventas Locales',
+    message: 'Elite Fitness Club API - Sistema Completo de Gestión',
     timestamp: new Date().toISOString(),
-    version: '2.5.0', // ✅ Actualizada versión
-    database: databaseStatus, // ✅ ESTO ES LO QUE LEE EL TEST
+    version: '3.0.0',
+    database: databaseStatus,
     databaseDetails,
     services: {
       core: 'Active',
@@ -160,249 +132,294 @@ router.get('/health', async (req, res) => {
       gym: 'Active',
       store: 'Active',
       storeManagement: 'Active',
-      localSales: 'Active', // ✅ NUEVO
-      orderManagement: 'Active', // ✅ NUEVO
-      inventoryStats: 'Active', // ✅ NUEVO
+      localSales: 'Active',
+      orderManagement: 'Active',
+      inventoryStats: 'Active',
       financial: 'Active',
       schedule: 'Active',
-      frontend_integration: 'Active',
       multimedia: 'Active',
       testimonials: 'Active',
+      frontend: 'Active',
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     endpoints: {
-      responding: 6, // ✅ Actualizado con nuevos endpoints
-      total: 6
+      total: 12,
+      responding: 12
     }
   });
 });
 
-// ✅ ACTUALIZAR endpoints disponibles con las nuevas rutas
+// ✅ === ENDPOINTS DISPONIBLES ===
 router.get('/endpoints', (req, res) => {
-  const stripeService = require('../services/stripeService');
-  const stripeConfig = stripeService.getPublicConfig();
+  let stripeConfig = { enabled: false, mode: 'unknown' };
+  try {
+    const stripeService = require('../services/stripeService');
+    stripeConfig = stripeService.getPublicConfig();
+  } catch (error) {
+    // Stripe no disponible
+  }
   
   res.json({
     success: true,
-    message: 'Elite Fitness Club API - Endpoints Disponibles',
-    version: '2.5.0',
-    endpoints: {
-      core: {
-        health: 'GET /api/health',
-        auth: 'POST /api/auth/login, /register, /profile',
-        users: 'GET,POST,PUT /api/users',
-        memberships: 'GET,POST,PUT /api/memberships',
-        payments: 'GET,POST /api/payments'
+    message: 'Elite Fitness Club API - Documentación de Endpoints',
+    version: '3.0.0',
+    categories: {
+      // === AUTENTICACIÓN Y USUARIOS ===
+      auth: {
+        login: 'POST /api/auth/login',
+        register: 'POST /api/auth/register',
+        profile: 'GET /api/auth/profile',
+        refresh: 'POST /api/auth/refresh-token',
+        logout: 'POST /api/auth/logout'
       },
+      users: {
+        list: 'GET /api/users (admin)',
+        create: 'POST /api/users (admin)',
+        update: 'PUT /api/users/:id',
+        delete: 'DELETE /api/users/:id (admin)',
+        profile: 'GET /api/users/profile'
+      },
+      
+      // === GIMNASIO ===
       gym: {
         info: 'GET /api/gym/info (público)',
-        config: 'GET /api/gym/config (específico frontend)',
-        services: 'GET /api/gym/services (específico frontend)',
-        testimonials: 'GET /api/gym/testimonials (específico frontend)',
-        stats: 'GET /api/gym/stats (específico frontend)',
+        config: 'GET /api/gym/config (frontend)',
+        services: 'GET /api/gym/services (frontend)',
+        testimonials: 'GET /api/gym/testimonials (frontend)',
+        stats: 'GET /api/gym/stats (frontend)',
         plans: 'GET /api/gym/plans',
         contact: 'GET /api/gym/contact',
         hours: 'GET /api/gym/hours'
       },
-      // ✅ Endpoints de testimonios
-      testimonials: {
-        create: 'POST /api/testimonials (clientes)',
-        myTestimonials: 'GET /api/testimonials/my-testimonials (clientes)',
-        update: 'PATCH /api/testimonials/:id (clientes)',
-        pending: 'GET /api/testimonials/pending (admin)',
-        approve: 'POST /api/testimonials/:id/approve (admin)',
-        markNotPublic: 'POST /api/testimonials/:id/mark-not-public (admin)',
-        analysis: 'GET /api/testimonials/analysis (admin)',
-        stats: 'GET /api/testimonials/stats (admin)'
+      
+      // === MEMBRESÍAS ===
+      memberships: {
+        list: 'GET /api/memberships',
+        create: 'POST /api/memberships (admin)',
+        update: 'PUT /api/memberships/:id (admin)',
+        userMembership: 'GET /api/memberships/my-membership'
       },
-      'gym-media': {
-        uploadLogo: 'POST /api/gym-media/upload-logo (admin)',
-        uploadHeroVideo: 'POST /api/gym-media/upload-hero-video (admin)',
-        uploadHeroImage: 'POST /api/gym-media/upload-hero-image (admin)',
-        uploadServiceImage: 'POST /api/gym-media/upload-service-image/:serviceId (admin)',
-        uploadTestimonialImage: 'POST /api/gym-media/upload-testimonial-image/:testimonialId (admin)',
-        uploadProductImage: 'POST /api/gym-media/upload-product-image/:productId (staff)',
-        uploadUserProfile: 'POST /api/gym-media/upload-user-profile/:userId (staff)',
-        deleteMedia: 'DELETE /api/gym-media/delete/:type/:id?/:imageId? (admin)',
-        mediaInfo: 'GET /api/gym-media/media-info (staff)',
-        status: 'GET /api/gym-media/status (público)'
+      
+      // === PAGOS ===
+      payments: {
+        list: 'GET /api/payments',
+        create: 'POST /api/payments',
+        myPayments: 'GET /api/payments/my-payments'
       },
-      content: {
-        landing: 'GET /api/content/landing (específico frontend)'
-      },
-      branding: {
-        theme: 'GET /api/branding/theme (específico frontend)'
-      },
-      promotions: {
-        active: 'GET /api/promotions/active (específico frontend)'
-      },
-      store_public: {
+      
+      // === TIENDA PÚBLICA ===
+      store: {
         products: 'GET /api/store/products',
-        featured: 'GET /api/store/featured-products (específico frontend)',
+        featured: 'GET /api/store/featured-products',
         categories: 'GET /api/store/categories',
         brands: 'GET /api/store/brands',
         search: 'GET /api/store/search',
+        productDetails: 'GET /api/store/products/:id',
         categoryProducts: 'GET /api/store/category/:slug/products',
         relatedProducts: 'GET /api/store/products/:id/related',
         cart: 'GET,POST,PUT,DELETE /api/store/cart',
         orders: 'POST /api/store/orders',
         myOrders: 'GET /api/store/my-orders',
+        orderDetails: 'GET /api/store/orders/:id',
         checkStock: 'POST /api/store/check-stock',
         stats: 'GET /api/store/stats'
       },
-      store_management: {
-        brands: 'CRUD /api/store/brands/*',
-        categories: 'CRUD /api/store/categories/*',
-        products: 'CRUD /api/store/products/*',
-        inventory: 'PUT /api/store/products/*/stock',
-        bulkStock: 'PUT /api/store/products/bulk-stock',
-        images: 'POST,PUT,DELETE /api/store/images/*',
-        orders: 'GET,PUT /api/store/management/*',
+      
+      // === GESTIÓN DE TIENDA (STAFF) ===
+      storeManagement: {
+        brands: 'CRUD /api/store/management/brands/*',
+        categories: 'CRUD /api/store/management/categories/*',
+        products: 'CRUD /api/store/management/products/*',
+        images: 'POST,PUT,DELETE /api/store/management/products/*/images',
+        inventory: 'PUT /api/store/management/products/*/stock',
+        bulkStock: 'PUT /api/store/management/products/bulk-stock',
+        orders: 'GET,PUT /api/store/management/orders/*',
         dashboard: 'GET /api/store/management/dashboard',
-        reports: 'GET /api/store/management/reports/*',
-        config: 'GET /api/store/management/config',
-        health: 'GET /api/store/management/health'
+        reports: 'GET /api/store/management/reports/*'
       },
-      // ✅ NUEVOS ENDPOINTS DE VENTAS LOCALES
-      local_sales: {
-        create: 'POST /api/local-sales (staff)',
-        list: 'GET /api/local-sales (staff)',
-        details: 'GET /api/local-sales/:id (staff)',
-        update: 'PATCH /api/local-sales/:id (staff)',
-        cancel: 'DELETE /api/local-sales/:id (staff)',
-        dailyReport: 'GET /api/local-sales/reports/daily (staff)',
-        stats: 'GET /api/local-sales/stats (staff)',
-        topProducts: 'GET /api/local-sales/top-products (staff)'
+      
+      // === VENTAS LOCALES (STAFF) ===
+      localSales: {
+        createCash: 'POST /api/local-sales/cash',
+        createTransfer: 'POST /api/local-sales/transfer',
+        confirmTransfer: 'POST /api/local-sales/:id/confirm-transfer (admin)',
+        list: 'GET /api/local-sales',
+        details: 'GET /api/local-sales/:id',
+        pendingTransfers: 'GET /api/local-sales/pending-transfers',
+        searchProducts: 'GET /api/local-sales/products/search',
+        dailyReport: 'GET /api/local-sales/reports/daily',
+        myStats: 'GET /api/local-sales/my-stats (colaborador)'
       },
-      // ✅ NUEVOS ENDPOINTS DE GESTIÓN DE ÓRDENES
-      order_management: {
-        list: 'GET /api/store/management/orders (staff)',
-        details: 'GET /api/store/management/orders/:id (staff)',
-        updateStatus: 'PATCH /api/store/management/orders/:id/status (staff)',
-        assignStaff: 'PATCH /api/store/management/orders/:id/assign (staff)',
-        addNotes: 'PATCH /api/store/management/orders/:id/notes (staff)',
-        stats: 'GET /api/store/management/orders/stats (staff)',
-        reports: 'GET /api/store/management/orders/reports (staff)'
+      
+      // === GESTIÓN DE ÓRDENES (STAFF) ===
+      orderManagement: {
+        confirmOrder: 'POST /api/order-management/:id/confirm',
+        confirmTransfer: 'POST /api/order-management/:id/confirm-transfer (admin)',
+        pendingTransfers: 'GET /api/order-management/pending-transfers',
+        dashboard: 'GET /api/order-management/dashboard',
+        byDeliveryType: 'GET /api/order-management/by-delivery-type',
+        updateStatus: 'PATCH /api/order-management/:id/status',
+        stats: 'GET /api/order-management/stats'
       },
-      // ✅ NUEVOS ENDPOINTS DE ESTADÍSTICAS DE INVENTARIO
-      inventory_stats: {
-        overview: 'GET /api/inventory/overview (staff)',
-        lowStock: 'GET /api/inventory/low-stock (staff)',
-        movements: 'GET /api/inventory/movements (staff)',
-        topProducts: 'GET /api/inventory/top-products (staff)',
-        forecasting: 'GET /api/inventory/forecasting (staff)',
-        alerts: 'GET /api/inventory/alerts (staff)'
+      
+      // === ESTADÍSTICAS DE INVENTARIO (STAFF) ===
+      inventory: {
+        stats: 'GET /api/inventory/stats',
+        dashboard: 'GET /api/inventory/dashboard',
+        financialReport: 'GET /api/inventory/financial-report',
+        lowStockReport: 'GET /api/inventory/low-stock',
+        employeePerformance: 'GET /api/inventory/employee-performance (admin)'
       },
+      
+      // === TESTIMONIOS ===
+      testimonials: {
+        create: 'POST /api/testimonials (clientes)',
+        myTestimonials: 'GET /api/testimonials/my-testimonials',
+        update: 'PATCH /api/testimonials/:id',
+        pending: 'GET /api/testimonials/pending (admin)',
+        approve: 'POST /api/testimonials/:id/approve (admin)',
+        stats: 'GET /api/testimonials/stats (admin)'
+      },
+      
+      // === MULTIMEDIA ===
+      gymMedia: {
+        uploadLogo: 'POST /api/gym-media/upload-logo (admin)',
+        uploadHeroVideo: 'POST /api/gym-media/upload-hero-video (admin)',
+        uploadHeroImage: 'POST /api/gym-media/upload-hero-image (admin)',
+        uploadServiceImage: 'POST /api/gym-media/upload-service-image/:id (admin)',
+        uploadTestimonialImage: 'POST /api/gym-media/upload-testimonial-image/:id (admin)',
+        uploadProductImage: 'POST /api/gym-media/upload-product-image/:id (staff)',
+        uploadUserProfile: 'POST /api/gym-media/upload-user-profile/:id (staff)',
+        deleteMedia: 'DELETE /api/gym-media/delete/:type/:id (admin)',
+        mediaInfo: 'GET /api/gym-media/media-info (staff)',
+        status: 'GET /api/gym-media/status (público)'
+      },
+      
+      // === FRONTEND ESPECÍFICO ===
+      frontend: {
+        landing: 'GET /api/content/landing',
+        theme: 'GET /api/branding/theme',
+        promotions: 'GET /api/promotions/active'
+      },
+      
+      // === FINANZAS ===
       financial: {
         movements: 'GET,POST /api/financial/movements',
         reports: 'GET /api/financial/reports',
         dashboard: 'GET /api/financial/dashboard'
       },
+      
+      // === HORARIOS ===
       schedule: {
         mySchedule: 'GET,PUT,POST /api/schedule/my-schedule',
         analytics: 'GET /api/schedule/popular-times'
       },
+      
+      // === STRIPE ===
       stripe: {
         enabled: stripeConfig.enabled,
         mode: stripeConfig.mode,
-        config: 'GET /api/stripe/config (público)',
+        config: 'GET /api/stripe/config',
         membershipPayment: 'POST /api/stripe/create-membership-intent',
         dailyPayment: 'POST /api/stripe/create-daily-intent',
         storePayment: 'POST /api/stripe/create-store-intent',
         confirmPayment: 'POST /api/stripe/confirm-payment',
         webhook: 'POST /api/stripe/webhook',
-        admin: 'POST /api/stripe/refund, GET /api/stripe/payments (staff only)'
+        refund: 'POST /api/stripe/refund (admin)',
+        payments: 'GET /api/stripe/payments (admin)'
       },
+      
+      // === DASHBOARD ===
       dashboard: {
         unified: 'GET /api/dashboard/unified',
         metrics: 'GET /api/dashboard/metrics'
       },
+      
+      // === ADMINISTRACIÓN ===
       admin: {
-        upload: 'POST /api/admin/upload',
-        systemInfo: 'GET /api/admin/system-info',
-        dataCleanup: 'GET,DELETE,POST /api/data-cleanup/* (admin only)'
+        dataCleanup: 'GET,DELETE,POST /api/data-cleanup/* (admin)',
+        systemInfo: 'GET /api/admin/system-info (admin)'
       }
+    },
+    permissions: {
+      public: 'No requiere autenticación',
+      cliente: 'Requiere token de cliente',
+      colaborador: 'Requiere token de colaborador o admin',
+      admin: 'Requiere token de admin'
     }
   });
 });
 
-// ✅ === CONFIGURACIÓN DE RUTAS EXISTENTES ===
+// ✅ === CONFIGURACIÓN DE RUTAS ===
+
+// Rutas básicas del sistema
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/memberships', membershipRoutes);
 router.use('/payments', paymentRoutes);
-router.use('/store', storeRoutes);
-router.use('/data-cleanup', dataCleanupRoutes);
 router.use('/gym', gymRoutes);
 router.use('/financial', financialRoutes);
 router.use('/schedule', scheduleRoutes);
-router.use('/stripe', stripeRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/data-cleanup', dataCleanupRoutes);
 
-// ✅ RUTAS ESPECÍFICAS PARA EL FRONTEND
-router.use('/content', contentRoutes);       // /api/content/*
-router.use('/branding', brandingRoutes);     // /api/branding/*
-router.use('/promotions', promotionsRoutes); // /api/promotions/*
+// Rutas de tienda (incluye gestión en /management)
+router.use('/store', storeRoutes);
 
-// 🎬 Rutas multimedia
-router.use('/gym-media', gymMediaRoutes);    // /api/gym-media/*
+// Rutas multimedia y frontend
+router.use('/gym-media', gymMediaRoutes);
+router.use('/testimonials', testimonialRoutes);
+router.use('/content', contentRoutes);
+router.use('/branding', brandingRoutes);
+router.use('/promotions', promotionsRoutes);
 
-// ✅ Rutas de testimonios
-router.use('/testimonials', testimonialRoutes); // /api/testimonials/*
+// Rutas de pagos
+router.use('/stripe', stripeRoutes);
 
-// ✅ === NUEVAS RUTAS DE TIENDA ESPECÍFICAS ===
-// Estas rutas van DESPUÉS de /store para que no interfieran con las rutas generales
-router.use('/store/brands', storeBrandRoutes);        // /api/store/brands/*
-router.use('/store/categories', storeCategoryRoutes); // /api/store/categories/*
-router.use('/store/products', storeProductRoutes);    // /api/store/products/*
-router.use('/store/images', storeImageRoutes);        // /api/store/images/*
+// ✅ === NUEVAS RUTAS ESPECÍFICAS ===
 
-// ✅ === NUEVAS RUTAS FUNCIONALES ===
-router.use('/local-sales', localSalesRoutes);         // /api/local-sales/*
-router.use('/store/management', orderManagementRoutes); // /api/store/management/*
-router.use('/inventory', inventoryStatsRoutes);       // /api/inventory/*
+// Ventas locales (efectivo y transferencias)
+router.use('/local-sales', localSalesRoutes);
 
-// ✅ Manejo de rutas no encontradas (ACTUALIZADO)
+// Gestión avanzada de órdenes online
+router.use('/order-management', orderManagementRoutes);
+
+// Estadísticas e inventario
+router.use('/inventory', inventoryStatsRoutes);
+
+console.log('✅ Sistema de rutas cargado completamente:');
+console.log('   🔐 Autenticación y usuarios');
+console.log('   🏋️ Gimnasio y membresías');
+console.log('   🛒 Tienda online completa');
+console.log('   🏪 Ventas locales (efectivo/transferencia)');
+console.log('   📦 Gestión avanzada de órdenes');
+console.log('   📊 Estadísticas e inventario');
+console.log('   💳 Pagos (Stripe + locales)');
+console.log('   🎬 Multimedia (Cloudinary)');
+console.log('   💬 Testimonios');
+console.log('   🎨 Frontend (branding/contenido)');
+console.log('   💰 Finanzas y reportes');
+
+// ✅ === MANEJO DE RUTAS NO ENCONTRADAS ===
 router.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     message: 'Endpoint no encontrado',
     path: req.originalUrl,
     method: req.method,
-    suggestion: 'Consulta GET /api/endpoints para ver rutas disponibles',
-    public_endpoints: [
-      'GET /api/store/products',
-      'GET /api/store/categories',
-      'GET /api/store/search',
-      'POST /api/store/cart',
-      'POST /api/store/orders'
-    ],
-    management_endpoints: [
-      'GET /api/store/management/products (requiere staff)',
-      'POST /api/store/brands (requiere staff)',
-      'GET /api/store/management/dashboard (requiere staff)',
-      'GET /api/inventory/overview (requiere staff)',
-      'POST /api/local-sales (requiere staff)'
-    ],
-    frontend_specific_endpoints: [
-      'GET /api/gym/config',
-      'GET /api/content/landing', 
-      'GET /api/branding/theme',
-      'GET /api/promotions/active',
-      'GET /api/store/featured-products',
-      'POST /api/testimonials',
-      'GET /api/testimonials/my-testimonials'
-    ],
-    multimedia_endpoints: [
-      'POST /api/gym-media/upload-logo',
-      'POST /api/gym-media/upload-hero-video',
-      'GET /api/gym-media/status'
-    ],
-    new_endpoints: [
-      'POST /api/local-sales (ventas locales)',
-      'GET /api/inventory/overview (estadísticas inventario)',
-      'GET /api/store/management/orders (gestión órdenes)',
-      'GET /api/local-sales/reports/daily (reportes ventas)'
+    suggestion: 'Consulta GET /api/endpoints para ver todas las rutas disponibles',
+    quickLinks: {
+      documentation: 'GET /api/endpoints',
+      health: 'GET /api/health',
+      storeProducts: 'GET /api/store/products',
+      gymInfo: 'GET /api/gym/info',
+      auth: 'POST /api/auth/login'
+    },
+    categories: [
+      'Públicas: /api/store/*, /api/gym/info, /api/content/*',
+      'Clientes: /api/auth/*, /api/testimonials/*, /api/store/cart',
+      'Staff: /api/local-sales/*, /api/store/management/*, /api/inventory/*',
+      'Admin: /api/users/*, /api/gym-media/*, /api/data-cleanup/*'
     ]
   });
 });
