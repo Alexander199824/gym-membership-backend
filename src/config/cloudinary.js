@@ -335,6 +335,8 @@ const uploadFromUrl = async (imageUrl, folder = 'gym/general') => {
     console.error('Error al subir desde URL:', error);
     return { success: false, error: error.message };
   }
+
+  
 };
 
 // ✅ EXPORTACIONES

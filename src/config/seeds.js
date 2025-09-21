@@ -10,39 +10,243 @@ const {
   UserSchedulePreferences
 } = require('../models');
 
+// ✅ FUNCIÓN MEJORADA: createInitialAdmin con mejor debugging
 const createInitialAdmin = async () => {
   try {
     console.log('🔍 Verificando usuario administrador...');
     
-    const adminExists = await User.findOne({ where: { role: 'admin' } });
+    // ✅ Verificar que el modelo User esté disponible
+    if (!User) {
+      throw new Error('Modelo User no está disponible en seeds');
+    }
     
-    if (!adminExists) {
-      console.log('👤 Creando usuario administrador inicial...');
+    console.log('✅ Modelo User disponible');
+    
+    // ✅ Buscar admin existente
+    console.log('🔍 Buscando administrador existente...');
+    const adminExists = await User.findOne({ 
+      where: { role: 'admin' }
+    });
+    
+    if (adminExists) {
+      console.log('✅ Usuario administrador ya existe:');
+      console.log(`   📧 Email: ${adminExists.email}`);
+      console.log(`   👤 Nombre: ${adminExists.firstName} ${adminExists.lastName}`);
+      console.log(`   🆔 ID: ${adminExists.id}`);
+      console.log(`   📊 Estado: ${adminExists.isActive ? 'Activo' : 'Inactivo'}`);
       
-      const adminData = {
-        firstName: process.env.ADMIN_FIRST_NAME || 'Admin',
-        lastName: process.env.ADMIN_LAST_NAME || 'Sistema',
-        email: process.env.ADMIN_EMAIL || 'admin@gym.com',
-        password: process.env.ADMIN_PASSWORD || 'Admin123!',
-        role: 'admin',
-        emailVerified: true,
-        isActive: true
-      };
+      // ✅ Asegurar que el admin existente tenga datos correctos
+      if (adminExists.email !== 'admin@gym.com' || !adminExists.isActive) {
+        console.log('🔄 Actualizando datos del administrador...');
+        await adminExists.update({
+          email: 'admin@gym.com',
+          isActive: true,
+          emailVerified: true
+        });
+        console.log('✅ Datos del administrador actualizados');
+      }
       
-      const admin = await User.create(adminData);
-      
-      console.log('✅ Usuario administrador creado exitosamente:');
-      console.log(`   Email: ${admin.email}`);
-      console.log(`   Nombre: ${admin.getFullName()}`);
-      console.log(`   ID: ${admin.id}`);
-      
-      return admin;
-    } else {
-      console.log('✅ Usuario administrador ya existe:', adminExists.email);
       return adminExists;
     }
+    
+    // ✅ Crear nuevo administrador
+    console.log('👤 Creando usuario administrador inicial...');
+    
+    const adminData = {
+      firstName: process.env.ADMIN_FIRST_NAME || 'Administrador',
+      lastName: process.env.ADMIN_LAST_NAME || 'Sistema',
+      email: process.env.ADMIN_EMAIL || 'admin@gym.com',
+      password: process.env.ADMIN_PASSWORD || 'Admin123!',
+      phone: '+502 0000-0000',
+      role: 'admin',
+      emailVerified: true,
+      isActive: true
+    };
+    
+    console.log('📝 Datos del administrador a crear:');
+    console.log(`   👤 Nombre: ${adminData.firstName} ${adminData.lastName}`);
+    console.log(`   📧 Email: ${adminData.email}`);
+    console.log(`   🏷️ Rol: ${adminData.role}`);
+    console.log(`   📞 Teléfono: ${adminData.phone}`);
+    
+    // ✅ Verificar si el email ya está en uso
+    const emailExists = await User.findOne({ 
+      where: { email: adminData.email }
+    });
+    
+    if (emailExists) {
+      console.log('⚠️ Email ya existe pero no es admin, actualizando rol...');
+      await emailExists.update({ 
+        role: 'admin',
+        isActive: true,
+        emailVerified: true 
+      });
+      console.log('✅ Usuario existente convertido a administrador');
+      return emailExists;
+    }
+    
+    // ✅ Crear el usuario administrador
+    console.log('🔄 Ejecutando User.create()...');
+    const admin = await User.create(adminData);
+    
+    console.log('🎉 ¡Usuario administrador creado exitosamente!');
+    console.log(`   📧 Email: ${admin.email}`);
+    console.log(`   👤 Nombre: ${admin.getFullName()}`);
+    console.log(`   🆔 ID: ${admin.id}`);
+    console.log(`   🏷️ Rol: ${admin.role}`);
+    console.log(`   📊 Estado: ${admin.isActive ? 'Activo' : 'Inactivo'}`);
+    
+    // ✅ Verificar que se puede hacer login
+    console.log('🧪 Verificando password...');
+    const passwordWorks = await admin.comparePassword(adminData.password);
+    if (passwordWorks) {
+      console.log('✅ Password verificado correctamente');
+    } else {
+      console.warn('⚠️ Problema con el password - revisar configuración');
+    }
+    
+    // ✅ Mostrar credenciales para el usuario
+    console.log('\n🔐 CREDENCIALES DE ADMINISTRADOR:');
+    console.log('================================');
+    console.log(`📧 Email: ${admin.email}`);
+    console.log(`🔑 Password: ${adminData.password}`);
+    console.log('================================');
+    
+    return admin;
+    
   } catch (error) {
-    console.error('❌ Error al crear usuario administrador:', error.message);
+    console.error('❌ ERROR DETALLADO al crear usuario administrador:');
+    console.error('📝 Mensaje:', error.message);
+    console.error('📝 Código:', error.code || 'N/A');
+    console.error('📝 Stack:', error.stack);
+    
+    // ✅ Información adicional para debugging
+    if (error.name === 'SequelizeValidationError') {
+      console.error('📝 Errores de validación:');
+      error.errors?.forEach(err => {
+        console.error(`   - ${err.path}: ${err.message}`);
+      });
+    }
+    
+    if (error.name === 'SequelizeUniqueConstraintError') {
+      console.error('📝 Error de constraint único:');
+      console.error(`   - Campo: ${error.errors?.[0]?.path}`);
+      console.error(`   - Valor: ${error.errors?.[0]?.value}`);
+    }
+    
+    if (error.name === 'SequelizeDatabaseError') {
+      console.error('📝 Error de base de datos:');
+      console.error(`   - SQL: ${error.sql || 'N/A'}`);
+    }
+    
+    throw error;
+  }
+};
+
+// ✅ FUNCIÓN MEJORADA: runSeeds con mejor orden y manejo de errores
+const runSeeds = async () => {
+  try {
+    console.log('🌱 Iniciando proceso de seeding completo...');
+    console.log('🕐 Timestamp:', new Date().toISOString());
+    
+    // ✅ PASO 1: Verificar que todos los modelos necesarios estén disponibles
+    console.log('\n📦 Verificando modelos disponibles...');
+    const requiredModels = {
+      User: !!User,
+      GymConfiguration: !!GymConfiguration,
+      GymContactInfo: !!GymContactInfo,
+      GymHours: !!GymHours,
+      GymStatistics: !!GymStatistics,
+      GymServices: !!GymServices,
+      MembershipPlans: !!MembershipPlans
+    };
+    
+    const availableModels = Object.entries(requiredModels)
+      .filter(([name, available]) => available)
+      .map(([name]) => name);
+    
+    const missingModels = Object.entries(requiredModels)
+      .filter(([name, available]) => !available)
+      .map(([name]) => name);
+    
+    console.log(`✅ Modelos disponibles (${availableModels.length}): ${availableModels.join(', ')}`);
+    
+    if (missingModels.length > 0) {
+      console.warn(`⚠️ Modelos faltantes (${missingModels.length}): ${missingModels.join(', ')}`);
+    }
+    
+    if (!User) {
+      throw new Error('Modelo User es crítico y no está disponible - no se pueden ejecutar seeds');
+    }
+    
+    // ✅ PASO 2: Crear administrador PRIMERO (crítico)
+    console.log('\n👤 PASO 1: Creando usuario administrador...');
+    await createInitialAdmin();
+    console.log('✅ Usuario administrador listo');
+    
+    // ✅ PASO 3: Configuración del gimnasio
+    console.log('\n🏢 PASO 2: Configuración del gimnasio...');
+    await createGymConfiguration();
+    console.log('✅ Configuración del gimnasio lista');
+    
+    // ✅ PASO 4: Datos de tienda
+    console.log('\n🛍️ PASO 3: Datos de tienda...');
+    await createStoreData();
+    console.log('✅ Datos de tienda listos');
+    
+    // ✅ PASO 5: Datos de ejemplo (opcional)
+    if (process.env.CREATE_SAMPLE_DATA !== 'false') {
+      console.log('\n📊 PASO 4: Datos de ejemplo...');
+      await createSampleData();
+      console.log('✅ Datos de ejemplo listos');
+    } else {
+      console.log('\n⏭️ PASO 4: Datos de ejemplo omitidos (CREATE_SAMPLE_DATA=false)');
+    }
+    
+    // ✅ VERIFICACIÓN FINAL
+    console.log('\n🔍 VERIFICACIÓN FINAL...');
+    const finalAdmin = await User.findOne({ where: { role: 'admin' } });
+    
+    if (finalAdmin) {
+      console.log('✅ Usuario administrador verificado al final de seeds');
+      console.log(`   📧 ${finalAdmin.email}`);
+      console.log(`   🆔 ${finalAdmin.id}`);
+    } else {
+      throw new Error('Usuario administrador no existe después de seeds - esto es un error crítico');
+    }
+    
+    console.log('\n🎉 ¡PROCESO DE SEEDING COMPLETADO EXITOSAMENTE!');
+    console.log('🕐 Completado en:', new Date().toISOString());
+    
+    console.log('\n🎯 SISTEMA ELITE FITNESS CLUB LISTO:');
+    console.log('   🔐 Usuario administrador: ✅');
+    console.log('   🏢 Configuración del gimnasio: ✅');
+    console.log('   🛍️ Sistema de tienda: ✅');
+    console.log('   📊 Datos de ejemplo: ✅');
+    console.log('   🎨 Personalización: ✅');
+    
+    console.log('\n🔐 ACCESO DE ADMINISTRADOR:');
+    console.log('   📧 Email: admin@gym.com');
+    console.log('   🔑 Password: Admin123!');
+    console.log('   🌐 Endpoint: POST /api/auth/login');
+    
+  } catch (error) {
+    console.error('\n❌ ERROR CRÍTICO EN PROCESO DE SEEDING:');
+    console.error('🕐 Timestamp:', new Date().toISOString());
+    console.error('📝 Mensaje:', error.message);
+    console.error('📝 Stack completo:', error.stack);
+    
+    // ✅ Información de contexto adicional
+    try {
+      const userCount = await User.count();
+      const adminCount = await User.count({ where: { role: 'admin' } });
+      console.error('📊 Estado actual de usuarios:');
+      console.error(`   👥 Total usuarios: ${userCount}`);
+      console.error(`   👤 Administradores: ${adminCount}`);
+    } catch (contextError) {
+      console.error('❌ No se pudo obtener información de contexto:', contextError.message);
+    }
+    
     throw error;
   }
 };
@@ -304,40 +508,6 @@ const createStoreData = async () => {
   }
 };
 
-// ✅ MODIFICAR la función runSeeds existente:
-const runSeeds = async () => {
-  try {
-    console.log('🌱 Iniciando proceso de seeding completo...');
-    
-    // ✅ 1. Crear configuración del gimnasio (crítico)
-    await createGymConfiguration();
-    
-    // ✅ 2. Crear admin (crítico)
-    await createInitialAdmin();
-    
-    // ✅ 3. Crear datos de tienda (nuevo)
-    await createStoreData();
-    
-    // ✅ 4. Crear datos de ejemplo (opcional)
-    if (process.env.CREATE_SAMPLE_DATA !== 'false') {
-      await createSampleData();
-    }
-    
-    console.log('✅ Proceso de seeding completado exitosamente');
-    console.log('\n🎯 Sistema Elite Fitness Club listo para usar:');
-    console.log('   🏢 Configuración del gimnasio: ✅');
-    console.log('   👤 Usuario administrador: ✅');
-    console.log('   🛍️ Sistema de tienda: ✅');
-    console.log('   📊 Datos de ejemplo: ✅');
-    console.log('   🎨 Tema personalizable: ✅');
-    console.log('   📅 Sistema de horarios: ✅');
-    console.log('   💰 Sistema financiero: ✅');
-    
-  } catch (error) {
-    console.error('❌ Error en el proceso de seeding:', error.message);
-    throw error;
-  }
-};
 
 
 

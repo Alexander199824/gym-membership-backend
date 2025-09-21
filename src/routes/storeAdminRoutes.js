@@ -27,21 +27,32 @@ router.use((req, res, next) => {
   next();
 });
 
-// ✅ MIDDLEWARE DE VALIDACIÓN
+// ✅ MIDDLEWARE DE VALIDACIÓN CORREGIDO
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.error('❌ Errores de validación:', errors.array());
+    
+    // ✅ Formatear errores correctamente
+    const formattedErrors = errors.array().map(error => {
+      return {
+        field: error.path || error.param || 'unknown',
+        message: error.msg || 'Error de validación',
+        value: error.value
+      };
+    });
+
     return res.status(400).json({
       success: false,
       message: 'Errores de validación en gestión de tienda',
-      errors: errors.array()
+      errors: formattedErrors
     });
   }
   next();
 };
 
 // ===================================================================
-// 🏷️ GESTIÓN DE MARCAS (/api/store/management/brands/*)
+// 🏷️ VALIDACIONES PARA MARCAS - CORREGIDAS
 // ===================================================================
 
 const validateCreateBrand = [
@@ -52,15 +63,24 @@ const validateCreateBrand = [
     .withMessage('El nombre debe tener entre 2 y 100 caracteres')
     .trim(),
   body('description')
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .isLength({ max: 500 })
     .withMessage('La descripción no puede exceder 500 caracteres')
     .trim(),
   body('logoUrl')
-    .optional()
-    .isURL()
-    .withMessage('La URL del logo debe ser válida')
-    .trim(),
+    .optional({ nullable: true, checkFalsy: true })
+    .custom((value) => {
+      // ✅ Solo validar si realmente hay contenido
+      if (value && typeof value === 'string' && value.trim().length > 0) {
+        try {
+          new URL(value.trim());
+          return true;
+        } catch {
+          throw new Error('La URL del logo debe ser válida');
+        }
+      }
+      return true; // Permitir vacío/null/undefined
+    }),
   handleValidationErrors
 ];
 
@@ -71,15 +91,23 @@ const validateUpdateBrand = [
     .withMessage('El nombre debe tener entre 2 y 100 caracteres')
     .trim(),
   body('description')
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .isLength({ max: 500 })
     .withMessage('La descripción no puede exceder 500 caracteres')
     .trim(),
   body('logoUrl')
-    .optional()
-    .isURL()
-    .withMessage('La URL del logo debe ser válida')
-    .trim(),
+    .optional({ nullable: true, checkFalsy: true })
+    .custom((value) => {
+      if (value && typeof value === 'string' && value.trim().length > 0) {
+        try {
+          new URL(value.trim());
+          return true;
+        } catch {
+          throw new Error('La URL del logo debe ser válida');
+        }
+      }
+      return true;
+    }),
   body('isActive')
     .optional()
     .isBoolean()
@@ -89,7 +117,7 @@ const validateUpdateBrand = [
 
 const validateSearchBrand = [
   query('q')
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .isLength({ min: 2, max: 100 })
     .withMessage('El término de búsqueda debe tener entre 2 y 100 caracteres')
     .trim(),
@@ -106,7 +134,7 @@ const validatePaginationBrand = [
     .isInt({ min: 1, max: 100 })
     .withMessage('El límite debe ser un número entre 1 y 100'),
   query('search')
-    .optional()
+    .optional({ nullable: true, checkFalsy: true })
     .isLength({ max: 100 })
     .withMessage('El término de búsqueda no puede exceder 100 caracteres')
     .trim(),
@@ -116,6 +144,134 @@ const validatePaginationBrand = [
     .withMessage('El estado debe ser: active, inactive o all'),
   handleValidationErrors
 ];
+
+// ===================================================================
+// 📂 VALIDACIONES PARA CATEGORÍAS - CORREGIDAS
+// ===================================================================
+
+const validateCreateCategory = [
+  body('name')
+    .notEmpty()
+    .withMessage('El nombre es requerido')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('El nombre debe tener entre 2 y 100 caracteres')
+    .trim(),
+  body('slug')
+    .optional({ nullable: true, checkFalsy: true })
+    .custom((value) => {
+      if (value && typeof value === 'string' && value.trim().length > 0) {
+        if (!/^[a-z0-9-]+$/.test(value.trim())) {
+          throw new Error('El slug solo puede contener letras minúsculas, números y guiones');
+        }
+        if (value.trim().length < 2 || value.trim().length > 100) {
+          throw new Error('El slug debe tener entre 2 y 100 caracteres');
+        }
+      }
+      return true;
+    }),
+  body('description')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ max: 500 })
+    .withMessage('La descripción no puede exceder 500 caracteres')
+    .trim(),
+  body('iconName')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ min: 1, max: 50 })
+    .withMessage('El icono debe tener entre 1 y 50 caracteres')
+    .trim(),
+  body('displayOrder')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('El orden debe ser un número entero positivo'),
+  handleValidationErrors
+];
+
+const validateUpdateCategory = [
+  body('name')
+    .optional()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('El nombre debe tener entre 2 y 100 caracteres')
+    .trim(),
+  body('slug')
+    .optional({ nullable: true, checkFalsy: true })
+    .custom((value) => {
+      if (value && typeof value === 'string' && value.trim().length > 0) {
+        if (!/^[a-z0-9-]+$/.test(value.trim())) {
+          throw new Error('El slug solo puede contener letras minúsculas, números y guiones');
+        }
+        if (value.trim().length < 2 || value.trim().length > 100) {
+          throw new Error('El slug debe tener entre 2 y 100 caracteres');
+        }
+      }
+      return true;
+    }),
+  body('description')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ max: 500 })
+    .withMessage('La descripción no puede exceder 500 caracteres')
+    .trim(),
+  body('iconName')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ min: 1, max: 50 })
+    .withMessage('El icono debe tener entre 1 y 50 caracteres')
+    .trim(),
+  body('displayOrder')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('El orden debe ser un número entero positivo'),
+  body('isActive')
+    .optional()
+    .isBoolean()
+    .withMessage('isActive debe ser true o false'),
+  handleValidationErrors
+];
+
+const validateSearchCategory = [
+  query('q')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ min: 2, max: 100 })
+    .withMessage('El término de búsqueda debe tener entre 2 y 100 caracteres')
+    .trim(),
+  handleValidationErrors
+];
+
+const validatePaginationCategory = [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('La página debe ser un número entero mayor a 0'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('El límite debe ser un número entre 1 y 100'),
+  query('search')
+    .optional({ nullable: true, checkFalsy: true })
+    .isLength({ max: 100 })
+    .withMessage('El término de búsqueda no puede exceder 100 caracteres')
+    .trim(),
+  query('status')
+    .optional()
+    .isIn(['active', 'inactive', 'all'])
+    .withMessage('El estado debe ser: active, inactive o all'),
+  handleValidationErrors
+];
+
+const validateReorderCategories = [
+  body('categoryOrders')
+    .isArray({ min: 1 })
+    .withMessage('Se requiere un array de órdenes de categorías'),
+  body('categoryOrders.*.id')
+    .isInt({ min: 1 })
+    .withMessage('Cada elemento debe tener un ID válido'),
+  body('categoryOrders.*.displayOrder')
+    .isInt({ min: 0 })
+    .withMessage('Cada elemento debe tener un displayOrder válido'),
+  handleValidationErrors
+];
+
+// ===================================================================
+// 🏷️ GESTIÓN DE MARCAS (/api/store/management/brands/*)
+// ===================================================================
 
 // Rutas de marcas
 router.get('/brands', validatePaginationBrand, storeBrandController.getAllBrands);
@@ -142,114 +298,6 @@ router.put('/brands/:id/activate', [
 // ===================================================================
 // 📂 GESTIÓN DE CATEGORÍAS (/api/store/management/categories/*)
 // ===================================================================
-
-const validateCreateCategory = [
-  body('name')
-    .notEmpty()
-    .withMessage('El nombre es requerido')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('El nombre debe tener entre 2 y 100 caracteres')
-    .trim(),
-  body('slug')
-    .optional()
-    .matches(/^[a-z0-9-]+$/)
-    .withMessage('El slug solo puede contener letras minúsculas, números y guiones')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('El slug debe tener entre 2 y 100 caracteres')
-    .trim(),
-  body('description')
-    .optional()
-    .isLength({ max: 500 })
-    .withMessage('La descripción no puede exceder 500 caracteres')
-    .trim(),
-  body('iconName')
-    .optional()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('El icono debe tener entre 1 y 50 caracteres')
-    .trim(),
-  body('displayOrder')
-    .optional()
-    .isInt({ min: 0 })
-    .withMessage('El orden debe ser un número entero positivo'),
-  handleValidationErrors
-];
-
-const validateUpdateCategory = [
-  body('name')
-    .optional()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('El nombre debe tener entre 2 y 100 caracteres')
-    .trim(),
-  body('slug')
-    .optional()
-    .matches(/^[a-z0-9-]+$/)
-    .withMessage('El slug solo puede contener letras minúsculas, números y guiones')
-    .isLength({ min: 2, max: 100 })
-    .withMessage('El slug debe tener entre 2 y 100 caracteres')
-    .trim(),
-  body('description')
-    .optional()
-    .isLength({ max: 500 })
-    .withMessage('La descripción no puede exceder 500 caracteres')
-    .trim(),
-  body('iconName')
-    .optional()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('El icono debe tener entre 1 y 50 caracteres')
-    .trim(),
-  body('displayOrder')
-    .optional()
-    .isInt({ min: 0 })
-    .withMessage('El orden debe ser un número entero positivo'),
-  body('isActive')
-    .optional()
-    .isBoolean()
-    .withMessage('isActive debe ser true o false'),
-  handleValidationErrors
-];
-
-const validateSearchCategory = [
-  query('q')
-    .optional()
-    .isLength({ min: 2, max: 100 })
-    .withMessage('El término de búsqueda debe tener entre 2 y 100 caracteres')
-    .trim(),
-  handleValidationErrors
-];
-
-const validatePaginationCategory = [
-  query('page')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('La página debe ser un número entero mayor a 0'),
-  query('limit')
-    .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('El límite debe ser un número entre 1 y 100'),
-  query('search')
-    .optional()
-    .isLength({ max: 100 })
-    .withMessage('El término de búsqueda no puede exceder 100 caracteres')
-    .trim(),
-  query('status')
-    .optional()
-    .isIn(['active', 'inactive', 'all'])
-    .withMessage('El estado debe ser: active, inactive o all'),
-  handleValidationErrors
-];
-
-const validateReorderCategories = [
-  body('categoryOrders')
-    .isArray({ min: 1 })
-    .withMessage('Se requiere un array de órdenes de categorías'),
-  body('categoryOrders.*.id')
-    .isInt({ min: 1 })
-    .withMessage('Cada elemento debe tener un ID válido'),
-  body('categoryOrders.*.displayOrder')
-    .isInt({ min: 0 })
-    .withMessage('Cada elemento debe tener un displayOrder válido'),
-  handleValidationErrors
-];
 
 // Rutas de categorías
 router.get('/categories', validatePaginationCategory, storeCategoryController.getAllCategories);

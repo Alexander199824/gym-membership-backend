@@ -1,15 +1,17 @@
-// src/controllers/StoreBrandController.js
+// src/controllers/StoreBrandController.js - COMPLETO CORREGIDO
 const { StoreBrand, StoreProduct } = require('../models');
 const { Op } = require('sequelize');
 
 class StoreBrandController {
 
-  // ✅ Obtener todas las marcas (admin view - incluye inactivas)
+  // ✅ CORREGIDO: Obtener todas las marcas (admin view - incluye inactivas)
   async getAllBrands(req, res) {
     try {
       const { page = 1, limit = 20, search, status } = req.query;
       const offset = (page - 1) * limit;
       const where = {};
+
+      console.log('🏷️ Obteniendo marcas con filtros:', { page, limit, search, status });
 
       // Filtro por búsqueda
       if (search) {
@@ -20,49 +22,65 @@ class StoreBrandController {
       }
 
       // Filtro por estado
-      if (status) {
+      if (status && status !== 'all') {
         where.isActive = status === 'active';
       }
 
+      // ✅ SOLUCION 1: Obtener marcas sin el conteo primero
       const { count, rows } = await StoreBrand.findAndCountAll({
         where,
-        include: [{
-          model: StoreProduct,
-          as: 'products',
-          attributes: [],
-          required: false
-        }],
         attributes: [
-          'id', 'name', 'logoUrl', 'description', 'isActive', 'createdAt', 'updatedAt',
-          [StoreBrand.sequelize.fn('COUNT', StoreBrand.sequelize.col('products.id')), 'productCount']
+          'id', 'name', 'logoUrl', 'description', 'isActive', 'createdAt', 'updatedAt'
         ],
-        group: ['StoreBrand.id'],
         order: [['name', 'ASC']],
         limit: parseInt(limit),
         offset,
         distinct: true
       });
 
-      // Procesar resultados para incluir conteo de productos
-      const brandsWithCount = rows.map(brand => ({
-        ...brand.toJSON(),
-        productCount: parseInt(brand.dataValues.productCount || 0)
-      }));
+      console.log(`✅ Marcas obtenidas: ${rows.length} de ${count} total`);
+
+      // ✅ SOLUCION 2: Obtener el conteo de productos para cada marca por separado
+      const brandsWithCount = await Promise.all(
+        rows.map(async (brand) => {
+          try {
+            const productCount = await StoreProduct.count({
+              where: { 
+                brandId: brand.id,
+                isActive: true
+              }
+            });
+
+            return {
+              ...brand.toJSON(),
+              productCount
+            };
+          } catch (error) {
+            console.warn(`⚠️ Error contando productos para marca ${brand.id}:`, error.message);
+            return {
+              ...brand.toJSON(),
+              productCount: 0
+            };
+          }
+        })
+      );
+
+      console.log('✅ Conteo de productos agregado a las marcas');
 
       res.json({
         success: true,
         data: {
           brands: brandsWithCount,
           pagination: {
-            total: count.length, // count es array cuando usamos group
+            total: count,
             page: parseInt(page),
-            pages: Math.ceil(count.length / limit),
+            pages: Math.ceil(count / limit),
             limit: parseInt(limit)
           }
         }
       });
     } catch (error) {
-      console.error('Error al obtener marcas:', error);
+      console.error('❌ Error al obtener marcas:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener marcas',
@@ -76,10 +94,14 @@ class StoreBrandController {
     try {
       const { id } = req.params;
 
+      console.log(`🔍 Obteniendo marca ID: ${id}`);
+
       const brand = await StoreBrand.findByPk(id, {
         include: [{
           model: StoreProduct,
           as: 'products',
+          where: { isActive: true },
+          required: false,
           attributes: ['id', 'name', 'sku', 'price', 'stockQuantity', 'isActive'],
           order: [['name', 'ASC']]
         }]
@@ -92,12 +114,14 @@ class StoreBrandController {
         });
       }
 
+      console.log(`✅ Marca encontrada: ${brand.name}`);
+
       res.json({
         success: true,
         data: { brand }
       });
     } catch (error) {
-      console.error('Error al obtener marca:', error);
+      console.error('❌ Error al obtener marca:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener marca',
@@ -106,13 +130,21 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Crear nueva marca
+  // ✅ CORREGIDO: Crear nueva marca
   async createBrand(req, res) {
     try {
       const { name, description, logoUrl } = req.body;
 
-      // Validaciones
-      if (!name) {
+      console.log('➕ Creando nueva marca:', { 
+        name, 
+        description, 
+        logoUrl: logoUrl || 'null/empty',
+        body: req.body 
+      });
+
+      // Validaciones básicas
+      if (!name || name.trim().length === 0) {
+        console.log('❌ Nombre de marca vacío');
         return res.status(400).json({
           success: false,
           message: 'El nombre de la marca es requerido'
@@ -125,21 +157,27 @@ class StoreBrandController {
       });
 
       if (existingBrand) {
+        console.log('❌ Marca duplicada encontrada');
         return res.status(400).json({
           success: false,
           message: 'Ya existe una marca con ese nombre'
         });
       }
 
-      // Crear marca
-      const brand = await StoreBrand.create({
+      // ✅ Preparar datos para crear la marca
+      const brandData = {
         name: name.trim(),
-        description: description?.trim() || null,
-        logoUrl: logoUrl?.trim() || null,
+        description: description && description.trim() ? description.trim() : null,
+        logoUrl: logoUrl && logoUrl.trim() ? logoUrl.trim() : null,
         isActive: true
-      });
+      };
 
-      console.log(`✅ Marca creada: ${brand.name} (ID: ${brand.id})`);
+      console.log('📋 Datos de marca a crear:', brandData);
+
+      // Crear marca
+      const brand = await StoreBrand.create(brandData);
+
+      console.log(`✅ Marca creada exitosamente: ${brand.name} (ID: ${brand.id})`);
 
       res.status(201).json({
         success: true,
@@ -147,12 +185,25 @@ class StoreBrandController {
         data: { brand }
       });
     } catch (error) {
-      console.error('Error al crear marca:', error);
+      console.error('❌ Error al crear marca:', error);
       
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({
           success: false,
           message: 'Ya existe una marca con ese nombre'
+        });
+      }
+
+      if (error.name === 'SequelizeValidationError') {
+        const validationErrors = error.errors.map(err => ({
+          field: err.path,
+          message: err.message
+        }));
+        
+        return res.status(400).json({
+          success: false,
+          message: 'Error de validación en base de datos',
+          errors: validationErrors
         });
       }
 
@@ -169,6 +220,8 @@ class StoreBrandController {
     try {
       const { id } = req.params;
       const { name, description, logoUrl, isActive } = req.body;
+
+      console.log(`✏️ Actualizando marca ID: ${id}`);
 
       const brand = await StoreBrand.findByPk(id);
       if (!brand) {
@@ -228,7 +281,7 @@ class StoreBrandController {
         data: { brand }
       });
     } catch (error) {
-      console.error('Error al actualizar marca:', error);
+      console.error('❌ Error al actualizar marca:', error);
       res.status(500).json({
         success: false,
         message: 'Error al actualizar marca',
@@ -241,6 +294,8 @@ class StoreBrandController {
   async deleteBrand(req, res) {
     try {
       const { id } = req.params;
+
+      console.log(`🗑️ Desactivando marca ID: ${id}`);
 
       const brand = await StoreBrand.findByPk(id);
       if (!brand) {
@@ -269,14 +324,14 @@ class StoreBrandController {
       brand.isActive = false;
       await brand.save();
 
-      console.log(`🗑️ Marca desactivada: ${brand.name} (ID: ${brand.id})`);
+      console.log(`✅ Marca desactivada: ${brand.name} (ID: ${brand.id})`);
 
       res.json({
         success: true,
         message: 'Marca desactivada exitosamente'
       });
     } catch (error) {
-      console.error('Error al eliminar marca:', error);
+      console.error('❌ Error al eliminar marca:', error);
       res.status(500).json({
         success: false,
         message: 'Error al eliminar marca',
@@ -289,6 +344,8 @@ class StoreBrandController {
   async activateBrand(req, res) {
     try {
       const { id } = req.params;
+
+      console.log(`🔄 Reactivando marca ID: ${id}`);
 
       const brand = await StoreBrand.findByPk(id);
       if (!brand) {
@@ -309,7 +366,7 @@ class StoreBrandController {
         data: { brand }
       });
     } catch (error) {
-      console.error('Error al reactivar marca:', error);
+      console.error('❌ Error al reactivar marca:', error);
       res.status(500).json({
         success: false,
         message: 'Error al reactivar marca',
@@ -330,6 +387,8 @@ class StoreBrandController {
         });
       }
 
+      console.log(`🔍 Buscando marcas: "${q}"`);
+
       const brands = await StoreBrand.findAll({
         where: {
           name: { [Op.iLike]: `%${q.trim()}%` },
@@ -340,12 +399,14 @@ class StoreBrandController {
         limit: 10
       });
 
+      console.log(`✅ ${brands.length} marcas encontradas`);
+
       res.json({
         success: true,
         data: { brands }
       });
     } catch (error) {
-      console.error('Error al buscar marcas:', error);
+      console.error('❌ Error al buscar marcas:', error);
       res.status(500).json({
         success: false,
         message: 'Error al buscar marcas',
@@ -354,27 +415,34 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Estadísticas de marca
+  // ✅ CORREGIDO: Estadísticas de marca
   async getBrandStats(req, res) {
     try {
-      const stats = await StoreBrand.findOne({
-        attributes: [
-          [StoreBrand.sequelize.fn('COUNT', StoreBrand.sequelize.col('StoreBrand.id')), 'totalBrands'],
-          [StoreBrand.sequelize.fn('COUNT', StoreBrand.sequelize.literal('CASE WHEN "StoreBrand"."is_active" = true THEN 1 END')), 'activeBrands'],
-          [StoreBrand.sequelize.fn('COUNT', StoreBrand.sequelize.literal('CASE WHEN "StoreBrand"."is_active" = false THEN 1 END')), 'inactiveBrands']
-        ]
+      console.log('📊 Obteniendo estadísticas de marcas...');
+
+      // ✅ Método más simple y confiable
+      const [totalBrands, activeBrands, inactiveBrands] = await Promise.all([
+        StoreBrand.count(),
+        StoreBrand.count({ where: { isActive: true } }),
+        StoreBrand.count({ where: { isActive: false } })
+      ]);
+
+      console.log('✅ Estadísticas calculadas:', {
+        total: totalBrands,
+        activas: activeBrands,
+        inactivas: inactiveBrands
       });
 
       res.json({
         success: true,
         data: {
-          totalBrands: parseInt(stats?.dataValues?.totalBrands || 0),
-          activeBrands: parseInt(stats?.dataValues?.activeBrands || 0),
-          inactiveBrands: parseInt(stats?.dataValues?.inactiveBrands || 0)
+          totalBrands,
+          activeBrands,
+          inactiveBrands
         }
       });
     } catch (error) {
-      console.error('Error al obtener estadísticas de marcas:', error);
+      console.error('❌ Error al obtener estadísticas de marcas:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener estadísticas',

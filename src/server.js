@@ -1,4 +1,4 @@
-// src/server.js - INTEGRADO: HTTP server + Servicios de Membresías
+// src/server.js - INTEGRADO: HTTP server + Servicios de Membresías + Garantía de Admin
 const app = require('./app');
 const { 
   testConnection, 
@@ -95,13 +95,18 @@ class Server {
       require('./models');
       console.log('✅ Modelos cargados');
 
+      // ✅ CRÍTICO: Garantizar que el admin exista ANTES de seeds
+      console.log('🔄 Garantizando usuario administrador...');
+      await this.ensureAdminExists();
+      console.log('✅ Usuario administrador garantizado');
+
       // ✅ Verificar e inicializar datos del gimnasio
       await this.initializeGymData();
 
       // ✅ NUEVO: Inicializar servicios de membresías
       await this.initializeMembershipServices();
 
-      // ✅ Ejecutar seeds (opcional y sin fallar)
+      // ✅ Ejecutar seeds (opcional y sin fallar) - pero el admin ya está garantizado
       await this.runSeedsWithErrorHandling();
 
       // ✅ Mostrar estado final de la base de datos
@@ -118,22 +123,263 @@ class Server {
       // ✅ Configurar graceful shutdown
       this.setupGracefulShutdown();
 
+      // ✅ VERIFICACIÓN FINAL DEL ADMIN
+      console.log('\n🔍 VERIFICACIÓN FINAL DEL SISTEMA...');
+      const models = require('./models');
+      const finalAdmin = await models.User.findOne({ where: { role: 'admin' } });
+      
+      if (finalAdmin) {
+        console.log('✅ Usuario administrador verificado al final de la inicialización');
+        console.log(`   📧 ${finalAdmin.email}`);
+        console.log(`   🆔 ${finalAdmin.id}`);
+      } else {
+        console.error('❌ ADVERTENCIA: Usuario administrador no existe al final');
+      }
+
       console.log('\n🎉 ¡INICIALIZACIÓN COMPLETA! Sistema listo para usar');
       console.log('\n💡 Para testing completo ejecuta:');
       console.log('   GET /api/health (verificar estado)');
-      console.log('   GET /api/endpoints (ver todos los endpoints)');
-      console.log('   GET /api/admin/membership-service/status (servicios de membresías)');
+      console.log('   POST /api/auth/login (login admin)');
+      console.log('   GET /api/admin/stats (panel admin)');
 
     } catch (error) {
       console.error('❌ Error en inicialización en segundo plano:', error.message);
       console.log('⚠️ El servidor HTTP sigue funcionando, pero algunas funciones pueden estar limitadas');
+      
+      // ✅ Intentar crear admin como último recurso
+      try {
+        console.log('🔄 Último intento de crear admin...');
+        await this.createAdminDirectly();
+        console.log('✅ Admin creado en último intento');
+      } catch (lastError) {
+        console.error('❌ Último intento falló:', lastError.message);
+      }
       
       // No terminar el proceso, solo logear el error
       console.log('💡 El servidor continuará funcionando con funcionalidad básica');
     }
   }
 
-  // ✅ NUEVA FUNCIÓN: Inicializar servicios de membresías
+  // ✅ NUEVA FUNCIÓN: Garantizar que el admin esté creado
+  async ensureAdminExists() {
+    try {
+      console.log('\n🔐 VERIFICACIÓN CRÍTICA: Usuario Administrador...');
+      
+      // ✅ Cargar modelos
+      const models = require('./models');
+      
+      if (!models.User) {
+        throw new Error('Modelo User no disponible - no se puede verificar admin');
+      }
+      
+      // ✅ Buscar admin existente
+      let admin = await models.User.findOne({ 
+        where: { role: 'admin' }
+      });
+      
+      if (admin) {
+        console.log('✅ Usuario administrador encontrado:');
+        console.log(`   📧 Email: ${admin.email}`);
+        console.log(`   👤 Nombre: ${admin.firstName} ${admin.lastName}`);
+        console.log(`   📊 Estado: ${admin.isActive ? 'Activo' : 'Inactivo'}`);
+        
+        // ✅ Verificar que tenga el email correcto
+        if (admin.email !== 'admin@gym.com') {
+          console.log('🔄 Corrigiendo email del administrador...');
+          await admin.update({ email: 'admin@gym.com' });
+          console.log('✅ Email corregido a admin@gym.com');
+        }
+        
+        // ✅ Mostrar credenciales
+        this.showAdminCredentials();
+        return admin;
+      }
+      
+      // ✅ Si no existe, crear uno nuevo
+      console.log('⚠️ Usuario administrador NO existe - creando automáticamente...');
+      
+      const adminData = {
+        firstName: 'Administrador',
+        lastName: 'Sistema',
+        email: 'admin@gym.com',
+        password: 'Admin123!',
+        phone: '+502 0000-0000',
+        role: 'admin',
+        isActive: true,
+        emailVerified: true
+      };
+      
+      console.log('🔄 Creando usuario administrador...');
+      admin = await models.User.create(adminData);
+      
+      console.log('🎉 ¡Usuario administrador creado exitosamente!');
+      console.log(`   📧 Email: ${admin.email}`);
+      console.log(`   👤 Nombre: ${admin.firstName} ${admin.lastName}`);
+      console.log(`   🆔 ID: ${admin.id}`);
+      
+      this.showAdminCredentials();
+      return admin;
+      
+    } catch (error) {
+      console.error('❌ ERROR CRÍTICO: No se pudo asegurar la existencia del admin');
+      console.error('📝 Error:', error.message);
+      console.error('📝 Stack:', error.stack);
+      
+      // ✅ Este es un error crítico, pero no detener el servidor
+      console.log('🚨 ADVERTENCIA: El sistema funcionará con funcionalidad limitada');
+      console.log('💡 Soluciones:');
+      console.log('   1. Ejecuta: node create-admin-user.js');
+      console.log('   2. Verifica la conexión a la base de datos');
+      console.log('   3. Verifica que las tablas estén creadas');
+      
+      throw error;
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Mostrar credenciales del admin
+  showAdminCredentials() {
+    console.log('\n🎯 CREDENCIALES DE ADMINISTRADOR LISTAS:');
+    console.log('=' .repeat(50));
+    console.log('   📧 Email: admin@gym.com');
+    console.log('   🔑 Password: Admin123!');
+    console.log('=' .repeat(50));
+    console.log('   🌐 Login: POST /api/auth/login');
+    console.log('   📊 Panel: GET /api/admin/stats');
+    console.log('   👥 Usuarios: GET /api/users');
+    console.log('=' .repeat(50));
+  }
+
+  // ✅ FUNCIÓN MEJORADA: Seeds con mejor manejo de errores
+  async runSeedsWithErrorHandling() {
+    try {
+      console.log('\n🌱 Ejecutando seeds...');
+      
+      // ✅ CRÍTICO: Asegurar que los modelos estén cargados
+      console.log('🔄 Verificando que los modelos estén cargados...');
+      const models = require('./models');
+      
+      if (!models.User) {
+        throw new Error('Modelo User no está disponible - no se pueden ejecutar seeds');
+      }
+      
+      console.log('✅ Modelos verificados correctamente');
+      
+      // ✅ Ejecutar seeds con debugging mejorado
+      await runSeeds();
+      console.log('✅ Seeds ejecutados correctamente');
+      
+      // ✅ VERIFICACIÓN POSTERIOR: Confirmar que el admin fue creado
+      await this.verifyAdminCreation();
+      
+    } catch (error) {
+      // ✅ MOSTRAR ERROR COMPLETO para debugging
+      console.error('\n❌ ERROR COMPLETO EN SEEDS:');
+      console.error('📝 Mensaje:', error.message);
+      console.error('📝 Stack:', error.stack);
+      
+      // ✅ Intentos de recuperación automática
+      console.log('\n🔄 Intentando recuperación automática...');
+      
+      try {
+        // Intento 1: Crear solo el admin
+        await this.createAdminDirectly();
+        console.log('✅ Usuario admin creado en recuperación automática');
+        
+      } catch (recoveryError) {
+        console.error('❌ Error en recuperación automática:', recoveryError.message);
+        console.log('\n💡 SOLUCIONES SUGERIDAS:');
+        console.log('   1. Verifica que la base de datos esté funcionando');
+        console.log('   2. Ejecuta: node create-admin-user.js');
+        console.log('   3. Verifica las variables de entorno');
+        console.log('   4. Revisa los logs de la base de datos');
+        
+        // ✅ No terminar el servidor, solo continuar con advertencia
+        console.warn('⚠️ El servidor continuará sin seeds - funcionalidad limitada');
+      }
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Verificar que el admin fue creado correctamente
+  async verifyAdminCreation() {
+    try {
+      console.log('\n🔍 Verificando creación del usuario administrador...');
+      
+      const models = require('./models');
+      const admin = await models.User.findOne({ where: { role: 'admin' } });
+      
+      if (admin) {
+        console.log('✅ Usuario administrador verificado:');
+        console.log(`   📧 Email: ${admin.email}`);
+        console.log(`   👤 Nombre: ${admin.firstName} ${admin.lastName}`);
+        console.log(`   🆔 ID: ${admin.id}`);
+        console.log(`   📊 Estado: ${admin.isActive ? 'Activo' : 'Inactivo'}`);
+        
+        // ✅ Mostrar credenciales para login
+        console.log('\n🔐 CREDENCIALES DE ADMINISTRADOR:');
+        console.log('   📧 Email: admin@gym.com');
+        console.log('   🔑 Password: Admin123!');
+        
+        return true;
+      } else {
+        console.error('❌ Usuario administrador NO existe después de seeds');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error verificando admin:', error.message);
+      return false;
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Crear admin directamente (recuperación)
+  async createAdminDirectly() {
+    try {
+      console.log('🔧 Creando usuario administrador directamente...');
+      
+      const models = require('./models');
+      
+      if (!models.User) {
+        throw new Error('Modelo User no disponible');
+      }
+      
+      // Verificar si ya existe
+      const existingAdmin = await models.User.findOne({
+        where: { email: 'admin@gym.com' }
+      });
+      
+      if (existingAdmin) {
+        console.log('✅ Usuario admin ya existe');
+        return existingAdmin;
+      }
+      
+      // Crear nuevo admin
+      const adminData = {
+        firstName: process.env.ADMIN_FIRST_NAME || 'Administrador',
+        lastName: process.env.ADMIN_LAST_NAME || 'Sistema',
+        email: process.env.ADMIN_EMAIL || 'admin@gym.com',
+        password: process.env.ADMIN_PASSWORD || 'Admin123!',
+        phone: '+502 0000-0000',
+        role: 'admin',
+        isActive: true,
+        emailVerified: true
+      };
+      
+      const admin = await models.User.create(adminData);
+      
+      console.log('✅ Usuario administrador creado directamente:');
+      console.log(`   📧 Email: ${admin.email}`);
+      console.log(`   🔑 Password: ${adminData.password}`);
+      console.log(`   🏷️ Rol: ${admin.role}`);
+      console.log(`   🆔 ID: ${admin.id}`);
+      
+      return admin;
+      
+    } catch (error) {
+      throw new Error(`Error creando admin directamente: ${error.message}`);
+    }
+  }
+
+  // ✅ FUNCIÓN EXISTENTE: Inicializar servicios de membresías
   async initializeMembershipServices() {
     console.log('\n🎫 INICIALIZANDO SERVICIOS DE MEMBRESÍAS...');
     
@@ -176,6 +422,7 @@ class Server {
     }
   }
 
+  // ✅ FUNCIÓN EXISTENTE: Mostrar estado de la BD
   async showDatabaseStatus() {
     try {
       console.log('\n📊 Estado actual de la base de datos:');
@@ -204,6 +451,7 @@ class Server {
     }
   }
 
+  // ✅ FUNCIÓN EXISTENTE: Mostrar estado final de la BD
   async showFinalDatabaseStatus() {
     try {
       console.log('\n📊 Estado final de la base de datos:');
@@ -222,7 +470,7 @@ class Server {
     }
   }
 
-  // ✅ FUNCIÓN CORREGIDA para server.js - initializeGymData
+  // ✅ FUNCIÓN EXISTENTE: Inicializar datos del gimnasio
   async initializeGymData() {
     try {
       console.log('🏢 Verificando configuración del gimnasio...');
@@ -383,17 +631,6 @@ class Server {
     }
   }
 
-  async runSeedsWithErrorHandling() {
-    try {
-      console.log('\n🌱 Ejecutando seeds...');
-      await runSeeds();
-      console.log('✅ Seeds ejecutados correctamente');
-    } catch (error) {
-      console.warn('⚠️ Error en seeds (no crítico):', error.message.split('\n')[0]);
-      console.log('💡 El servidor continuará sin datos de ejemplo');
-    }
-  }
-
   // ✅ Verificar servicios de notificación con Gmail
   async checkNotificationServices() {
     try {
@@ -433,6 +670,7 @@ class Server {
     }
   }
 
+  // ✅ FUNCIÓN EXISTENTE: Iniciar programador de notificaciones
   startNotificationScheduler() {
     try {
       notificationScheduler.start();
@@ -443,7 +681,7 @@ class Server {
     }
   }
 
-  // ✅ ACTUALIZADO: Verificación de variables de entorno para Gmail (sin process.exit)
+  // ✅ FUNCIÓN EXISTENTE: Verificar variables de entorno (mejorada)
   checkEnvironmentVariables() {
     const required = [
       'DB_HOST',
@@ -496,7 +734,7 @@ class Server {
     return true;
   }
 
-  // ✅ ACTUALIZADO: Graceful shutdown con servicios de membresías
+  // ✅ FUNCIÓN EXISTENTE: Graceful shutdown (actualizada)
   setupGracefulShutdown() {
     ['SIGTERM', 'SIGINT'].forEach(signal => {
       process.on(signal, async () => {

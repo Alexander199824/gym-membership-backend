@@ -1,4 +1,4 @@
-// src/controllers/StoreCategoryController.js
+// src/controllers/StoreCategoryController.js - COMPLETO CORREGIDO
 const { StoreCategory, StoreProduct } = require('../models');
 const { Op } = require('sequelize');
 
@@ -21,12 +21,14 @@ class StoreCategoryController {
       .replace(/^-|-$/g, '');
   }
 
-  // ✅ Obtener todas las categorías (admin view - incluye inactivas)
+  // ✅ CORREGIDO: Obtener todas las categorías (admin view - incluye inactivas)
   async getAllCategories(req, res) {
     try {
       const { page = 1, limit = 20, search, status } = req.query;
       const offset = (page - 1) * limit;
       const where = {};
+
+      console.log('📂 Obteniendo categorías con filtros:', { page, limit, search, status });
 
       // Filtro por búsqueda
       if (search) {
@@ -38,50 +40,66 @@ class StoreCategoryController {
       }
 
       // Filtro por estado
-      if (status) {
+      if (status && status !== 'all') {
         where.isActive = status === 'active';
       }
 
+      // ✅ SOLUCION 1: Obtener categorías sin el conteo primero
       const { count, rows } = await StoreCategory.findAndCountAll({
         where,
-        include: [{
-          model: StoreProduct,
-          as: 'products',
-          attributes: [],
-          required: false
-        }],
         attributes: [
           'id', 'name', 'slug', 'description', 'iconName', 'displayOrder', 
-          'isActive', 'createdAt', 'updatedAt',
-          [StoreCategory.sequelize.fn('COUNT', StoreCategory.sequelize.col('products.id')), 'productCount']
+          'isActive', 'createdAt', 'updatedAt'
         ],
-        group: ['StoreCategory.id'],
         order: [['displayOrder', 'ASC'], ['name', 'ASC']],
         limit: parseInt(limit),
         offset,
         distinct: true
       });
 
-      // Procesar resultados para incluir conteo de productos
-      const categoriesWithCount = rows.map(category => ({
-        ...category.toJSON(),
-        productCount: parseInt(category.dataValues.productCount || 0)
-      }));
+      console.log(`✅ Categorías obtenidas: ${rows.length} de ${count} total`);
+
+      // ✅ SOLUCION 2: Obtener el conteo de productos para cada categoría por separado
+      const categoriesWithCount = await Promise.all(
+        rows.map(async (category) => {
+          try {
+            const productCount = await StoreProduct.count({
+              where: { 
+                categoryId: category.id,
+                isActive: true
+              }
+            });
+
+            return {
+              ...category.toJSON(),
+              productCount
+            };
+          } catch (error) {
+            console.warn(`⚠️ Error contando productos para categoría ${category.id}:`, error.message);
+            return {
+              ...category.toJSON(),
+              productCount: 0
+            };
+          }
+        })
+      );
+
+      console.log('✅ Conteo de productos agregado a las categorías');
 
       res.json({
         success: true,
         data: {
           categories: categoriesWithCount,
           pagination: {
-            total: count.length, // count es array cuando usamos group
+            total: count,
             page: parseInt(page),
-            pages: Math.ceil(count.length / limit),
+            pages: Math.ceil(count / limit),
             limit: parseInt(limit)
           }
         }
       });
     } catch (error) {
-      console.error('Error al obtener categorías:', error);
+      console.error('❌ Error al obtener categorías:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener categorías',
@@ -95,10 +113,14 @@ class StoreCategoryController {
     try {
       const { id } = req.params;
 
+      console.log(`🔍 Obteniendo categoría ID: ${id}`);
+
       const category = await StoreCategory.findByPk(id, {
         include: [{
           model: StoreProduct,
           as: 'products',
+          where: { isActive: true },
+          required: false,
           attributes: ['id', 'name', 'sku', 'price', 'stockQuantity', 'isActive'],
           order: [['name', 'ASC']]
         }]
@@ -111,12 +133,14 @@ class StoreCategoryController {
         });
       }
 
+      console.log(`✅ Categoría encontrada: ${category.name}`);
+
       res.json({
         success: true,
         data: { category }
       });
     } catch (error) {
-      console.error('Error al obtener categoría:', error);
+      console.error('❌ Error al obtener categoría:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener categoría',
@@ -130,6 +154,8 @@ class StoreCategoryController {
     try {
       const { name, description, iconName, displayOrder, slug } = req.body;
 
+      console.log('➕ Creando nueva categoría:', { name, slug });
+
       // Validaciones
       if (!name) {
         return res.status(400).json({
@@ -140,6 +166,7 @@ class StoreCategoryController {
 
       // Generar slug si no se proporciona
       const finalSlug = slug ? slug.trim() : this.generateSlug(name);
+      console.log(`🔗 Slug generado/usado: ${finalSlug}`);
 
       // Verificar que no exista una categoría con el mismo nombre o slug
       const existingCategory = await StoreCategory.findOne({
@@ -152,6 +179,7 @@ class StoreCategoryController {
       });
 
       if (existingCategory) {
+        console.log('❌ Categoría duplicada encontrada');
         return res.status(400).json({
           success: false,
           message: 'Ya existe una categoría con ese nombre o slug'
@@ -165,6 +193,8 @@ class StoreCategoryController {
         finalDisplayOrder = (maxOrder || 0) + 1;
       }
 
+      console.log(`📊 Display order asignado: ${finalDisplayOrder}`);
+
       // Crear categoría
       const category = await StoreCategory.create({
         name: name.trim(),
@@ -175,7 +205,7 @@ class StoreCategoryController {
         isActive: true
       });
 
-      console.log(`✅ Categoría creada: ${category.name} (ID: ${category.id})`);
+      console.log(`✅ Categoría creada exitosamente: ${category.name} (ID: ${category.id})`);
 
       res.status(201).json({
         success: true,
@@ -183,7 +213,7 @@ class StoreCategoryController {
         data: { category }
       });
     } catch (error) {
-      console.error('Error al crear categoría:', error);
+      console.error('❌ Error al crear categoría:', error);
       
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({
@@ -205,6 +235,8 @@ class StoreCategoryController {
     try {
       const { id } = req.params;
       const { name, description, iconName, displayOrder, slug, isActive } = req.body;
+
+      console.log(`✏️ Actualizando categoría ID: ${id}`);
 
       const category = await StoreCategory.findByPk(id);
       if (!category) {
@@ -277,7 +309,7 @@ class StoreCategoryController {
         data: { category }
       });
     } catch (error) {
-      console.error('Error al actualizar categoría:', error);
+      console.error('❌ Error al actualizar categoría:', error);
       
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({
@@ -298,6 +330,8 @@ class StoreCategoryController {
   async deleteCategory(req, res) {
     try {
       const { id } = req.params;
+
+      console.log(`🗑️ Desactivando categoría ID: ${id}`);
 
       const category = await StoreCategory.findByPk(id);
       if (!category) {
@@ -326,14 +360,14 @@ class StoreCategoryController {
       category.isActive = false;
       await category.save();
 
-      console.log(`🗑️ Categoría desactivada: ${category.name} (ID: ${category.id})`);
+      console.log(`✅ Categoría desactivada: ${category.name} (ID: ${category.id})`);
 
       res.json({
         success: true,
         message: 'Categoría desactivada exitosamente'
       });
     } catch (error) {
-      console.error('Error al eliminar categoría:', error);
+      console.error('❌ Error al eliminar categoría:', error);
       res.status(500).json({
         success: false,
         message: 'Error al eliminar categoría',
@@ -346,6 +380,8 @@ class StoreCategoryController {
   async activateCategory(req, res) {
     try {
       const { id } = req.params;
+
+      console.log(`🔄 Reactivando categoría ID: ${id}`);
 
       const category = await StoreCategory.findByPk(id);
       if (!category) {
@@ -366,7 +402,7 @@ class StoreCategoryController {
         data: { category }
       });
     } catch (error) {
-      console.error('Error al reactivar categoría:', error);
+      console.error('❌ Error al reactivar categoría:', error);
       res.status(500).json({
         success: false,
         message: 'Error al reactivar categoría',
@@ -387,6 +423,8 @@ class StoreCategoryController {
         });
       }
 
+      console.log(`🔍 Buscando categorías: "${q}"`);
+
       const categories = await StoreCategory.findAll({
         where: {
           [Op.or]: [
@@ -400,12 +438,14 @@ class StoreCategoryController {
         limit: 10
       });
 
+      console.log(`✅ ${categories.length} categorías encontradas`);
+
       res.json({
         success: true,
         data: { categories }
       });
     } catch (error) {
-      console.error('Error al buscar categorías:', error);
+      console.error('❌ Error al buscar categorías:', error);
       res.status(500).json({
         success: false,
         message: 'Error al buscar categorías',
@@ -426,6 +466,8 @@ class StoreCategoryController {
         });
       }
 
+      console.log(`🔄 Reordenando ${categoryOrders.length} categorías`);
+
       // Actualizar en una transacción
       await StoreCategory.sequelize.transaction(async (transaction) => {
         for (const item of categoryOrders) {
@@ -439,14 +481,14 @@ class StoreCategoryController {
         }
       });
 
-      console.log(`✅ ${categoryOrders.length} categorías reordenadas`);
+      console.log(`✅ ${categoryOrders.length} categorías reordenadas exitosamente`);
 
       res.json({
         success: true,
         message: 'Categorías reordenadas exitosamente'
       });
     } catch (error) {
-      console.error('Error al reordenar categorías:', error);
+      console.error('❌ Error al reordenar categorías:', error);
       res.status(500).json({
         success: false,
         message: 'Error al reordenar categorías',
@@ -459,6 +501,8 @@ class StoreCategoryController {
   async getCategoryBySlug(req, res) {
     try {
       const { slug } = req.params;
+
+      console.log(`🔍 Buscando categoría por slug: ${slug}`);
 
       const category = await StoreCategory.findOne({
         where: { 
@@ -482,12 +526,14 @@ class StoreCategoryController {
         });
       }
 
+      console.log(`✅ Categoría encontrada: ${category.name}`);
+
       res.json({
         success: true,
         data: { category }
       });
     } catch (error) {
-      console.error('Error al obtener categoría por slug:', error);
+      console.error('❌ Error al obtener categoría por slug:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener categoría',
@@ -496,27 +542,34 @@ class StoreCategoryController {
     }
   }
 
-  // ✅ Estadísticas de categorías
+  // ✅ CORREGIDO: Estadísticas de categorías
   async getCategoryStats(req, res) {
     try {
-      const stats = await StoreCategory.findOne({
-        attributes: [
-          [StoreCategory.sequelize.fn('COUNT', StoreCategory.sequelize.col('StoreCategory.id')), 'totalCategories'],
-          [StoreCategory.sequelize.fn('COUNT', StoreCategory.sequelize.literal('CASE WHEN "StoreCategory"."is_active" = true THEN 1 END')), 'activeCategories'],
-          [StoreCategory.sequelize.fn('COUNT', StoreCategory.sequelize.literal('CASE WHEN "StoreCategory"."is_active" = false THEN 1 END')), 'inactiveCategories']
-        ]
+      console.log('📊 Obteniendo estadísticas de categorías...');
+
+      // ✅ Método más simple y confiable
+      const [totalCategories, activeCategories, inactiveCategories] = await Promise.all([
+        StoreCategory.count(),
+        StoreCategory.count({ where: { isActive: true } }),
+        StoreCategory.count({ where: { isActive: false } })
+      ]);
+
+      console.log('✅ Estadísticas calculadas:', {
+        total: totalCategories,
+        activas: activeCategories,
+        inactivas: inactiveCategories
       });
 
       res.json({
         success: true,
         data: {
-          totalCategories: parseInt(stats?.dataValues?.totalCategories || 0),
-          activeCategories: parseInt(stats?.dataValues?.activeCategories || 0),
-          inactiveCategories: parseInt(stats?.dataValues?.inactiveCategories || 0)
+          totalCategories,
+          activeCategories,
+          inactiveCategories
         }
       });
     } catch (error) {
-      console.error('Error al obtener estadísticas de categorías:', error);
+      console.error('❌ Error al obtener estadísticas de categorías:', error);
       res.status(500).json({
         success: false,
         message: 'Error al obtener estadísticas',
