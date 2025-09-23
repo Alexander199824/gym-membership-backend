@@ -210,6 +210,40 @@ const uploadTestimonialImage = multer({
   }
 });
 
+
+// ✅ STORAGE PARA LOGOS DE MARCAS - NUEVO
+const brandLogoStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'gym/brand-logos',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'svg'],
+    transformation: [
+      { 
+        width: 300, 
+        height: 300, 
+        crop: 'fit',
+        quality: 'auto:good',
+        background: 'transparent'
+      }
+    ]
+  }
+});
+
+const uploadBrandLogo = multer({
+  storage: brandLogoStorage,
+  limits: {
+    fileSize: 3 * 1024 * 1024 // 3MB para logos
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes (JPG, PNG, WebP, SVG)'), false);
+    }
+  }
+});
+
 // ✅ FUNCIÓN PARA ELIMINAR ARCHIVOS
 const deleteFile = async (publicId) => {
   try {
@@ -351,6 +385,7 @@ module.exports = {
   uploadProductImage,
   uploadHeroVideo,
   uploadTestimonialImage,
+  uploadBrandLogo,
   
   // Funciones utilitarias
   deleteFile,

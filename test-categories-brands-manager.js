@@ -222,6 +222,14 @@ class CategoriesBrandsManager {
         console.log(`      🖼️ Logo: ${brand.logoUrl || 'Sin logo'}`);
         console.log(`      📦 Productos: ${brand.productCount || 0}`);
         console.log(`      📅 Creada: ${new Date(brand.createdAt).toLocaleDateString()}`);
+
+      if (brand.logoUrl) {
+        const isCloudinary = brand.logoUrl.includes('cloudinary.com');
+        console.log(`      🖼️ Logo: ${brand.logoUrl}`);
+        console.log(`      📍 Fuente: ${isCloudinary ? '☁️ Cloudinary' : '🔗 URL externa'}`);
+      } else {
+        console.log(`      🖼️ Logo: Sin logo`);
+      }
       });
     }
     

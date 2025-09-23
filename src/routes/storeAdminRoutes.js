@@ -12,8 +12,8 @@ const storeController = require('../controllers/storeController');
 // Importar validaciones
 const { body, param, query, validationResult } = require('express-validator');
 
-// ✅ IMPORTAR CONFIGURACIÓN DE CLOUDINARY (NO REDEFINIR)
-const { uploadProductImage } = require('../config/cloudinary');
+// ✅ IMPORTAR CONFIGURACIÓN DE CLOUDINARY (ACTUALIZADO PARA MARCAS)
+const { uploadProductImage, uploadBrandLogo } = require('../config/cloudinary');
 const multer = require('multer');
 
 const router = express.Router();
@@ -52,8 +52,41 @@ const handleValidationErrors = (req, res, next) => {
 };
 
 // ===================================================================
-// 🏷️ VALIDACIONES PARA MARCAS - CORREGIDAS
+// 🏷️ VALIDACIONES PARA MARCAS - ACTUALIZADAS PARA UPLOAD
 // ===================================================================
+
+// ✅ MIDDLEWARE PARA MANEJAR ERRORES DE UPLOAD DE MARCAS
+const handleBrandLogoUploadError = (error, req, res, next) => {
+  console.error('🔥 Error de Upload de Logo de Marca:', error);
+  
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'El logo es demasiado grande. Máximo 3MB'
+      });
+    }
+    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Campo de archivo inesperado para logo'
+      });
+    }
+  }
+  
+  if (error.message && error.message.includes('Solo se permiten imágenes')) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+  
+  return res.status(500).json({
+    success: false,
+    message: 'Error al subir logo de marca',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Error interno'
+  });
+};
 
 const validateCreateBrand = [
   body('name')
@@ -69,9 +102,9 @@ const validateCreateBrand = [
     .trim(),
   body('logoUrl')
     .optional({ nullable: true, checkFalsy: true })
-    .custom((value) => {
-      // ✅ Solo validar si realmente hay contenido
-      if (value && typeof value === 'string' && value.trim().length > 0) {
+    .custom((value, { req }) => {
+      // Solo validar URL si no se subió archivo y se proporcionó URL
+      if (!req.file && value && typeof value === 'string' && value.trim().length > 0) {
         try {
           new URL(value.trim());
           return true;
@@ -79,7 +112,7 @@ const validateCreateBrand = [
           throw new Error('La URL del logo debe ser válida');
         }
       }
-      return true; // Permitir vacío/null/undefined
+      return true; // Permitir vacío si hay archivo o no hay nada
     }),
   handleValidationErrors
 ];
@@ -97,8 +130,9 @@ const validateUpdateBrand = [
     .trim(),
   body('logoUrl')
     .optional({ nullable: true, checkFalsy: true })
-    .custom((value) => {
-      if (value && typeof value === 'string' && value.trim().length > 0) {
+    .custom((value, { req }) => {
+      // Solo validar URL si no se subió archivo y se proporcionó URL
+      if (!req.file && value && typeof value === 'string' && value.trim().length > 0) {
         try {
           new URL(value.trim());
           return true;
@@ -270,26 +304,93 @@ const validateReorderCategories = [
 ];
 
 // ===================================================================
-// 🏷️ GESTIÓN DE MARCAS (/api/store/management/brands/*)
+// 🏷️ GESTIÓN DE MARCAS (/api/store/management/brands/*) - ACTUALIZADO
 // ===================================================================
 
-// Rutas de marcas
+// Obtener todas las marcas
 router.get('/brands', validatePaginationBrand, storeBrandController.getAllBrands);
+
+// Obtener estadísticas
 router.get('/brands/stats', storeBrandController.getBrandStats);
+
+// Buscar marcas
 router.get('/brands/search', validateSearchBrand, storeBrandController.searchBrands);
+
+// Obtener marca por ID
 router.get('/brands/:id', [
   param('id').isInt({ min: 1 }).withMessage('El ID debe ser un número entero positivo'),
   handleValidationErrors
 ], storeBrandController.getBrandById);
-router.post('/brands', validateCreateBrand, storeBrandController.createBrand);
+
+// ✅ CREAR MARCA CON UPLOAD OPCIONAL
+router.post('/brands', 
+  (req, res, next) => {
+    console.log('🏷️ Iniciando creación de marca...');
+    console.log('📋 Body recibido:', req.body);
+    
+    // Usar middleware de Cloudinary para logo (opcional)
+    uploadBrandLogo.single('logo')(req, res, (error) => {
+      if (error) {
+        console.error('❌ Error en middleware de logo:', error);
+        return handleBrandLogoUploadError(error, req, res, next);
+      }
+      
+      if (req.file) {
+        console.log('📸 Logo subido exitosamente:', {
+          originalname: req.file.originalname,
+          size: req.file.size,
+          public_id: req.file.public_id,
+          secure_url: req.file.secure_url
+        });
+      } else {
+        console.log('📝 Creando marca sin logo o con URL manual');
+      }
+      
+      next();
+    });
+  },
+  validateCreateBrand,
+  storeBrandController.createBrand
+);
+
+// ✅ ACTUALIZAR MARCA CON UPLOAD OPCIONAL
 router.put('/brands/:id', [
   param('id').isInt({ min: 1 }).withMessage('El ID debe ser un número entero positivo'),
+  (req, res, next) => {
+    console.log(`🏷️ Iniciando actualización de marca ID: ${req.params.id}...`);
+    console.log('📋 Body recibido:', req.body);
+    
+    // Usar middleware de Cloudinary para logo (opcional)
+    uploadBrandLogo.single('logo')(req, res, (error) => {
+      if (error) {
+        console.error('❌ Error en middleware de logo:', error);
+        return handleBrandLogoUploadError(error, req, res, next);
+      }
+      
+      if (req.file) {
+        console.log('📸 Nuevo logo subido exitosamente:', {
+          originalname: req.file.originalname,
+          size: req.file.size,
+          public_id: req.file.public_id,
+          secure_url: req.file.secure_url
+        });
+      } else {
+        console.log('📝 Actualizando marca sin cambio de logo o con URL manual');
+      }
+      
+      next();
+    });
+  },
   ...validateUpdateBrand
 ], storeBrandController.updateBrand);
+
+// Eliminar marca
 router.delete('/brands/:id', [
   param('id').isInt({ min: 1 }).withMessage('El ID debe ser un número entero positivo'),
   handleValidationErrors
 ], storeBrandController.deleteBrand);
+
+// Reactivar marca
 router.put('/brands/:id/activate', [
   param('id').isInt({ min: 1 }).withMessage('El ID debe ser un número entero positivo'),
   handleValidationErrors
@@ -891,12 +992,18 @@ router.get('/config', (req, res) => {
         transformations: 'On-the-fly',
         storage: 'Cloud CDN'
       },
+      brands: {
+        logoUpload: true,
+        maxLogoSize: '3MB',
+        allowedFormats: ['JPEG', 'PNG', 'WebP', 'SVG']
+      },
       features: {
         bulkOperations: true,
         imageManagement: true,
         inventoryTracking: true,
         salesReports: true,
-        cloudinaryIntegration: true
+        cloudinaryIntegration: true,
+        brandLogoUpload: true
       }
     }
   });
@@ -909,7 +1016,7 @@ router.get('/health', (req, res) => {
     manager: req.user?.email,
     timestamp: new Date().toISOString(),
     modules: {
-      brands: 'Active',
+      brands: 'Active (with Cloudinary upload)',
       categories: 'Active', 
       products: 'Active',
       images: 'Active (Cloudinary)',

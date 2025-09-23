@@ -1,10 +1,11 @@
-// src/controllers/StoreBrandController.js - COMPLETO CORREGIDO
+// src/controllers/StoreBrandController.js - CON UPLOAD DE IMÁGENES
 const { StoreBrand, StoreProduct } = require('../models');
 const { Op } = require('sequelize');
+const { deleteFile } = require('../config/cloudinary'); // ✅ IMPORTAR FUNCIÓN DE ELIMINACIÓN
 
 class StoreBrandController {
 
-  // ✅ CORREGIDO: Obtener todas las marcas (admin view - incluye inactivas)
+  // ✅ OBTENER TODAS LAS MARCAS (sin cambios)
   async getAllBrands(req, res) {
     try {
       const { page = 1, limit = 20, search, status } = req.query;
@@ -13,7 +14,6 @@ class StoreBrandController {
 
       console.log('🏷️ Obteniendo marcas con filtros:', { page, limit, search, status });
 
-      // Filtro por búsqueda
       if (search) {
         where[Op.or] = [
           { name: { [Op.iLike]: `%${search}%` } },
@@ -21,12 +21,10 @@ class StoreBrandController {
         ];
       }
 
-      // Filtro por estado
       if (status && status !== 'all') {
         where.isActive = status === 'active';
       }
 
-      // ✅ SOLUCION 1: Obtener marcas sin el conteo primero
       const { count, rows } = await StoreBrand.findAndCountAll({
         where,
         attributes: [
@@ -40,7 +38,6 @@ class StoreBrandController {
 
       console.log(`✅ Marcas obtenidas: ${rows.length} de ${count} total`);
 
-      // ✅ SOLUCION 2: Obtener el conteo de productos para cada marca por separado
       const brandsWithCount = await Promise.all(
         rows.map(async (brand) => {
           try {
@@ -89,7 +86,7 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Obtener marca por ID
+  // ✅ OBTENER MARCA POR ID (sin cambios)
   async getBrandById(req, res) {
     try {
       const { id } = req.params;
@@ -130,7 +127,7 @@ class StoreBrandController {
     }
   }
 
-  // ✅ CORREGIDO: Crear nueva marca
+  // ✅ CREAR NUEVA MARCA - ACTUALIZADO PARA MANEJAR UPLOAD
   async createBrand(req, res) {
     try {
       const { name, description, logoUrl } = req.body;
@@ -139,7 +136,12 @@ class StoreBrandController {
         name, 
         description, 
         logoUrl: logoUrl || 'null/empty',
-        body: req.body 
+        hasUploadedFile: !!req.file,
+        fileInfo: req.file ? {
+          originalName: req.file.originalname,
+          cloudinaryUrl: req.file.secure_url,
+          publicId: req.file.public_id
+        } : null
       });
 
       // Validaciones básicas
@@ -164,11 +166,24 @@ class StoreBrandController {
         });
       }
 
+      // ✅ DETERMINAR LOGO URL - PRIORIDAD: archivo subido > URL manual > null
+      let finalLogoUrl = null;
+      
+      if (req.file && req.file.secure_url) {
+        // Si se subió un archivo a Cloudinary, usar esa URL
+        finalLogoUrl = req.file.secure_url;
+        console.log('📸 Usando logo subido a Cloudinary:', finalLogoUrl);
+      } else if (logoUrl && logoUrl.trim()) {
+        // Si no hay archivo pero hay URL manual, usar esa
+        finalLogoUrl = logoUrl.trim();
+        console.log('🔗 Usando URL manual:', finalLogoUrl);
+      }
+
       // ✅ Preparar datos para crear la marca
       const brandData = {
         name: name.trim(),
         description: description && description.trim() ? description.trim() : null,
-        logoUrl: logoUrl && logoUrl.trim() ? logoUrl.trim() : null,
+        logoUrl: finalLogoUrl,
         isActive: true
       };
 
@@ -182,10 +197,28 @@ class StoreBrandController {
       res.status(201).json({
         success: true,
         message: 'Marca creada exitosamente',
-        data: { brand }
+        data: { 
+          brand,
+          uploadInfo: req.file ? {
+            uploadedToCloudinary: true,
+            originalName: req.file.originalname,
+            cloudinaryPublicId: req.file.public_id
+          } : null
+        }
       });
     } catch (error) {
       console.error('❌ Error al crear marca:', error);
+      
+      // ✅ Si hay error y se subió archivo, intentar limpiarlo de Cloudinary
+      if (req.file && req.file.public_id) {
+        console.log('🧹 Limpiando archivo de Cloudinary debido a error...');
+        try {
+          await deleteFile(req.file.public_id);
+          console.log('✅ Archivo limpiado de Cloudinary');
+        } catch (cleanupError) {
+          console.warn('⚠️ No se pudo limpiar archivo de Cloudinary:', cleanupError.message);
+        }
+      }
       
       if (error.name === 'SequelizeUniqueConstraintError') {
         return res.status(400).json({
@@ -215,13 +248,20 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Actualizar marca
+  // ✅ ACTUALIZAR MARCA - ACTUALIZADO PARA MANEJAR UPLOAD
   async updateBrand(req, res) {
     try {
       const { id } = req.params;
       const { name, description, logoUrl, isActive } = req.body;
 
-      console.log(`✏️ Actualizando marca ID: ${id}`);
+      console.log(`✏️ Actualizando marca ID: ${id}`, {
+        hasUploadedFile: !!req.file,
+        fileInfo: req.file ? {
+          originalName: req.file.originalname,
+          cloudinaryUrl: req.file.secure_url,
+          publicId: req.file.public_id
+        } : null
+      });
 
       const brand = await StoreBrand.findByPk(id);
       if (!brand) {
@@ -265,23 +305,86 @@ class StoreBrandController {
         }
       }
 
-      // Actualizar campos
+      // ✅ MANEJAR LOGO - GUARDAR REFERENCIA AL LOGO ANTERIOR
+      const oldLogoUrl = brand.logoUrl;
+      let oldCloudinaryPublicId = null;
+
+      // Extraer public_id del logo anterior si es de Cloudinary
+      if (oldLogoUrl && oldLogoUrl.includes('cloudinary.com')) {
+        try {
+          // Formato típico: https://res.cloudinary.com/cloud_name/image/upload/v1234567890/gym/brand-logos/filename.jpg
+          const matches = oldLogoUrl.match(/\/gym\/brand-logos\/([^/]+)\./);
+          if (matches) {
+            oldCloudinaryPublicId = `gym/brand-logos/${matches[1]}`;
+          }
+        } catch (error) {
+          console.warn('⚠️ No se pudo extraer public_id del logo anterior:', error.message);
+        }
+      }
+
+      // ✅ ACTUALIZAR CAMPOS
       if (name) brand.name = name.trim();
       if (description !== undefined) brand.description = description?.trim() || null;
-      if (logoUrl !== undefined) brand.logoUrl = logoUrl?.trim() || null;
       if (isActive !== undefined) brand.isActive = isActive;
 
+      // ✅ ACTUALIZAR LOGO - PRIORIDAD: archivo subido > URL manual > mantener actual
+      if (req.file && req.file.secure_url) {
+        // Se subió un nuevo archivo
+        brand.logoUrl = req.file.secure_url;
+        console.log('📸 Logo actualizado con archivo subido:', req.file.secure_url);
+      } else if (logoUrl !== undefined) {
+        // Se proporcionó URL manual (puede ser vacía para eliminar)
+        brand.logoUrl = logoUrl?.trim() || null;
+        console.log('🔗 Logo actualizado con URL manual:', brand.logoUrl);
+      }
+      // Si no hay ni archivo ni logoUrl en el body, mantener el actual
+
       await brand.save();
+
+      // ✅ LIMPIAR LOGO ANTERIOR DE CLOUDINARY SI SE CAMBIÓ
+      if (oldCloudinaryPublicId && brand.logoUrl !== oldLogoUrl) {
+        console.log('🧹 Limpiando logo anterior de Cloudinary:', oldCloudinaryPublicId);
+        try {
+          const deleteResult = await deleteFile(oldCloudinaryPublicId);
+          if (deleteResult.success) {
+            console.log('✅ Logo anterior eliminado de Cloudinary');
+          } else {
+            console.warn('⚠️ No se pudo eliminar logo anterior:', deleteResult.error);
+          }
+        } catch (cleanupError) {
+          console.warn('⚠️ Error limpiando logo anterior:', cleanupError.message);
+        }
+      }
 
       console.log(`✅ Marca actualizada: ${brand.name} (ID: ${brand.id})`);
 
       res.json({
         success: true,
         message: 'Marca actualizada exitosamente',
-        data: { brand }
+        data: { 
+          brand,
+          uploadInfo: req.file ? {
+            uploadedToCloudinary: true,
+            originalName: req.file.originalname,
+            cloudinaryPublicId: req.file.public_id,
+            replacedPreviousLogo: !!oldCloudinaryPublicId
+          } : null
+        }
       });
     } catch (error) {
       console.error('❌ Error al actualizar marca:', error);
+      
+      // ✅ Si hay error y se subió archivo, intentar limpiarlo
+      if (req.file && req.file.public_id) {
+        console.log('🧹 Limpiando archivo nuevo de Cloudinary debido a error...');
+        try {
+          await deleteFile(req.file.public_id);
+          console.log('✅ Archivo nuevo limpiado de Cloudinary');
+        } catch (cleanupError) {
+          console.warn('⚠️ No se pudo limpiar archivo nuevo:', cleanupError.message);
+        }
+      }
+      
       res.status(500).json({
         success: false,
         message: 'Error al actualizar marca',
@@ -290,7 +393,7 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Eliminar marca (soft delete)
+  // ✅ ELIMINAR MARCA - ACTUALIZADO PARA LIMPIAR CLOUDINARY
   async deleteBrand(req, res) {
     try {
       const { id } = req.params;
@@ -320,9 +423,40 @@ class StoreBrandController {
         });
       }
 
+      // ✅ EXTRAER PUBLIC_ID ANTES DE DESACTIVAR
+      let cloudinaryPublicId = null;
+      if (brand.logoUrl && brand.logoUrl.includes('cloudinary.com')) {
+        try {
+          const matches = brand.logoUrl.match(/\/gym\/brand-logos\/([^/]+)\./);
+          if (matches) {
+            cloudinaryPublicId = `gym/brand-logos/${matches[1]}`;
+          }
+        } catch (error) {
+          console.warn('⚠️ No se pudo extraer public_id:', error.message);
+        }
+      }
+
       // Soft delete
       brand.isActive = false;
       await brand.save();
+
+      // ✅ LIMPIAR LOGO DE CLOUDINARY (OPCIONAL)
+      if (cloudinaryPublicId) {
+        console.log('🧹 Limpiando logo de Cloudinary:', cloudinaryPublicId);
+        try {
+          const deleteResult = await deleteFile(cloudinaryPublicId);
+          if (deleteResult.success) {
+            console.log('✅ Logo eliminado de Cloudinary');
+            // Limpiar URL de la base de datos también
+            brand.logoUrl = null;
+            await brand.save();
+          } else {
+            console.warn('⚠️ No se pudo eliminar logo de Cloudinary:', deleteResult.error);
+          }
+        } catch (cleanupError) {
+          console.warn('⚠️ Error limpiando logo:', cleanupError.message);
+        }
+      }
 
       console.log(`✅ Marca desactivada: ${brand.name} (ID: ${brand.id})`);
 
@@ -340,7 +474,7 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Reactivar marca
+  // ✅ REACTIVAR MARCA (sin cambios)
   async activateBrand(req, res) {
     try {
       const { id } = req.params;
@@ -375,7 +509,7 @@ class StoreBrandController {
     }
   }
 
-  // ✅ Buscar marcas (autocomplete)
+  // ✅ BUSCAR MARCAS (sin cambios)
   async searchBrands(req, res) {
     try {
       const { q } = req.query;
@@ -415,12 +549,11 @@ class StoreBrandController {
     }
   }
 
-  // ✅ CORREGIDO: Estadísticas de marca
+  // ✅ ESTADÍSTICAS DE MARCA (sin cambios)
   async getBrandStats(req, res) {
     try {
       console.log('📊 Obteniendo estadísticas de marcas...');
 
-      // ✅ Método más simple y confiable
       const [totalBrands, activeBrands, inactiveBrands] = await Promise.all([
         StoreBrand.count(),
         StoreBrand.count({ where: { isActive: true } }),
