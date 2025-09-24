@@ -1,4 +1,4 @@
-// src/models/LocalSale.js - MODELO NUEVO PARA VENTAS LOCALES
+// src/models/LocalSale.js - CORREGIDO: Asociaciones consistentes
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -358,7 +358,7 @@ LocalSale.getStats = async function(startDate, endDate, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES
+// ✅ ASOCIACIONES CORREGIDAS
 LocalSale.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSale...');
   

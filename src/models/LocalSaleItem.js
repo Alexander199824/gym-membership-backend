@@ -1,4 +1,4 @@
-// src/models/LocalSaleItem.js - MODELO NUEVO PARA ITEMS DE VENTAS LOCALES
+// src/models/LocalSaleItem.js - CORREGIDO: Consistencia de foreign keys
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -277,7 +277,7 @@ LocalSaleItem.getDailySalesItems = async function(date, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES
+// ✅ ASOCIACIONES CORREGIDAS
 LocalSaleItem.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSaleItem...');
   
