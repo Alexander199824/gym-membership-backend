@@ -121,7 +121,10 @@ class App {
           'GET /api/auth/google',
           'GET /api/gym/config',
           'GET /api/gym/services',
-          'GET /api/store/products'
+          'GET /api/store/products',
+          'GET /api/inventory/stats', // ✅ AGREGADO
+          'GET /api/inventory/dashboard', // ✅ AGREGADO
+          'GET /api/local-sales/' // ✅ AGREGADO
         ]
       });
     });

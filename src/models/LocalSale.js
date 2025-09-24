@@ -378,9 +378,9 @@ LocalSale.associate = function(models) {
   }
   
   if (models.LocalSaleItem) {
-    // ✅ CORREGIR: usar 'localSaleId' como foreign key
+    // ✅ CORREGIR: usar 'saleId' como foreign key
     LocalSale.hasMany(models.LocalSaleItem, {
-      foreignKey: 'localSaleId',
+      foreignKey: 'saleId', // ✅ CAMBIADO de localSaleId a saleId
       as: 'items'
     });
     console.log('   ✅ LocalSale -> LocalSaleItem (items)');

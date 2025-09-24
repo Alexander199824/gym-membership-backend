@@ -1,4 +1,4 @@
-// src/controllers/InventoryStatsController.js - COMPLETAMENTE CORREGIDO
+// src/controllers/InventoryStatsController.js - CORREGIDO: literal() issue
 const { 
   StoreProduct, 
   StoreCategory, 
@@ -34,12 +34,12 @@ class InventoryStatsController {
         // Total de productos activos
         StoreProduct.count({ where: { isActive: true } }),
         
-        // ✅ CORREGIDO: Usar min_stock correctamente
+        // ✅ CORREGIDO: Usar raw query para evitar el error de literal
         StoreProduct.count({
           where: {
             isActive: true,
             [Op.and]: [
-              literal('stock_quantity <= min_stock')
+              literal('"StoreProduct"."stock_quantity" <= "StoreProduct"."min_stock"')
             ]
           }
         }),
@@ -49,11 +49,13 @@ class InventoryStatsController {
           where: { isActive: true, stockQuantity: 0 }
         }),
         
-        // ✅ CORREGIDO: Valor total del inventario
-        StoreProduct.sum(
-          literal('CAST(price AS DECIMAL) * CAST(stock_quantity AS DECIMAL)'),
-          { where: { isActive: true } }
-        ),
+        // ✅ CORREGIDO: Valor total del inventario usando raw
+        StoreProduct.findOne({
+          attributes: [
+            [literal('COALESCE(SUM(CAST("price" AS DECIMAL) * CAST("stock_quantity" AS DECIMAL)), 0)'), 'totalValue']
+          ],
+          where: { isActive: true }
+        }).then(result => result ? parseFloat(result.dataValues.totalValue) : 0),
         
         // ✅ CORREGIDO: Llamar método estático
         InventoryStatsController.getSalesDataByPeriod(period),
@@ -105,6 +107,191 @@ class InventoryStatsController {
     }
   }
 
+  // ✅ MÉTODO ESTÁTICO CORREGIDO - Estadísticas por categoría
+  static async getCategoryStats() {
+    try {
+      const categories = await StoreCategory.findAll({
+        where: { isActive: true },
+        include: [{
+          model: StoreProduct,
+          as: 'products',
+          where: { isActive: true },
+          required: false,
+          attributes: []
+        }],
+        attributes: [
+          'id', 'name', 'slug',
+          [fn('COUNT', col('products.id')), 'productCount'],
+          [literal('COALESCE(SUM("products"."price" * "products"."stock_quantity"), 0)'), 'categoryValue'],
+          [fn('AVG', col('products.price')), 'averagePrice']
+        ],
+        group: ['StoreCategory.id'],
+        order: [['name', 'ASC']]
+      });
+
+      return categories.map(category => ({
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        productCount: parseInt(category.dataValues.productCount || 0),
+        categoryValue: parseFloat(category.dataValues.categoryValue || 0),
+        averagePrice: parseFloat(category.dataValues.averagePrice || 0)
+      }));
+    } catch (error) {
+      console.error('Error obteniendo estadísticas por categoría:', error);
+      return [];
+    }
+  }
+
+  // ✅ CORREGIDO - Reporte financiero con nombres de columna correctos
+  async getFinancialReport(req, res) {
+    try {
+      const { 
+        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        endDate = new Date().toISOString().split('T')[0]
+      } = req.query;
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      console.log(`📊 Generando reporte financiero: ${startDate} a ${endDate}`);
+
+      const [
+        onlineRevenue,
+        localRevenue,
+        financialMovements,
+        paymentMethods
+      ] = await Promise.all([
+        StoreOrder.sum('total_amount', {
+          where: {
+            createdAt: { [Op.between]: [start, end] },
+            status: { [Op.in]: ['delivered', 'picked_up'] }
+          }
+        }),
+
+        LocalSale.sum('total_amount', {
+          where: {
+            work_date: { [Op.between]: [startDate, endDate] },
+            status: 'completed'
+          }
+        }),
+
+        // ✅ CORREGIDO: Usar movementDate en lugar de movement_date
+        FinancialMovements.findAll({
+          attributes: [
+            'type',
+            [fn('COUNT', col('id')), 'count'],
+            [fn('SUM', col('amount')), 'total']
+          ],
+          where: {
+            movementDate: { [Op.between]: [start, end] } // ✅ CORREGIDO
+          },
+          group: ['type']
+        }),
+
+        InventoryStatsController.getPaymentMethodsBreakdown(start, end)
+      ]);
+
+      const totalOnline = parseFloat(onlineRevenue || 0);
+      const totalLocal = parseFloat(localRevenue || 0);
+      const totalRevenue = totalOnline + totalLocal;
+
+      // Procesar movimientos financieros
+      const movements = {};
+      financialMovements.forEach(movement => {
+        movements[movement.type] = {
+          count: parseInt(movement.dataValues.count),
+          total: parseFloat(movement.dataValues.total)
+        };
+      });
+
+      const report = {
+        period: { startDate, endDate },
+        revenue: {
+          online: totalOnline,
+          local: totalLocal,
+          total: totalRevenue
+        },
+        movements: {
+          income: movements.income || { count: 0, total: 0 },
+          expense: movements.expense || { count: 0, total: 0 }
+        },
+        paymentMethods,
+        netIncome: (movements.income?.total || 0) - (movements.expense?.total || 0)
+      };
+
+      console.log('✅ Reporte financiero generado');
+
+      res.json({
+        success: true,
+        data: report
+      });
+    } catch (error) {
+      console.error('Error generando reporte financiero:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error generando reporte financiero',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ Productos con poco stock detallado - CORREGIDO
+  async getLowStockReport(req, res) {
+    try {
+      const products = await StoreProduct.findAll({
+        where: {
+          isActive: true,
+          [Op.and]: [
+            literal('"StoreProduct"."stock_quantity" <= "StoreProduct"."min_stock"') // ✅ CORREGIDO
+          ]
+        },
+        include: [
+          { model: StoreCategory, as: 'category', attributes: ['id', 'name'] },
+          { model: StoreBrand, as: 'brand', attributes: ['id', 'name'] }
+        ],
+        order: [['stockQuantity', 'ASC']]
+      });
+
+      const lowStockProducts = products.map(product => ({
+        id: product.id,
+        name: product.name,
+        sku: product.sku,
+        currentStock: product.stockQuantity,
+        minStock: product.minStock,
+        shortage: Math.max(0, product.minStock - product.stockQuantity),
+        category: product.category?.name || 'Sin categoría',
+        brand: product.brand?.name || 'Sin marca',
+        price: parseFloat(product.price),
+        isOutOfStock: product.stockQuantity === 0,
+        urgency: product.stockQuantity === 0 ? 'critical' : 
+                product.stockQuantity < (product.minStock * 0.5) ? 'high' : 'medium'
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          products: lowStockProducts,
+          summary: {
+            totalProducts: lowStockProducts.length,
+            outOfStock: lowStockProducts.filter(p => p.isOutOfStock).length,
+            critical: lowStockProducts.filter(p => p.urgency === 'critical').length,
+            high: lowStockProducts.filter(p => p.urgency === 'high').length,
+            medium: lowStockProducts.filter(p => p.urgency === 'medium').length
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error obteniendo reporte de stock bajo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo reporte de stock',
+        error: error.message
+      });
+    }
+  }
+
   // ✅ MÉTODO ESTÁTICO - Datos de ventas por período
   static async getSalesDataByPeriod(period) {
     try {
@@ -127,7 +314,6 @@ class InventoryStatsController {
           startDate.setMonth(startDate.getMonth() - 1);
       }
 
-      // ✅ CORREGIDO: Usar nombres de columnas correctos
       const onlineSales = await StoreOrder.findAll({
         attributes: [
           [fn('DATE', col('createdAt')), 'date'],
@@ -143,7 +329,6 @@ class InventoryStatsController {
         raw: true
       });
 
-      // ✅ CORREGIDO: Usar work_date y total_amount correctos
       const localSales = await LocalSale.findAll({
         attributes: [
           [fn('DATE', col('work_date')), 'date'],
@@ -201,10 +386,9 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO ESTÁTICO - Productos más vendidos
+  // ✅ MÉTODO ESTÁTICO - Productos más vendidos - CORREGIDO
   static async getTopSellingProducts(limit = 10) {
     try {
-      // ✅ CORREGIDO: Usar nombres de columnas correctos
       const onlineItems = await StoreOrderItem.findAll({
         attributes: [
           'product_id',
@@ -222,7 +406,7 @@ class InventoryStatsController {
         raw: true
       });
 
-      // ✅ CORREGIDO: Usar nombres correctos y asociación correcta
+      // ✅ CORREGIDO: Usar 'sale' en lugar de 'localSale'
       const localItems = await LocalSaleItem.findAll({
         attributes: [
           'product_id',
@@ -232,7 +416,7 @@ class InventoryStatsController {
         ],
         include: [{
           model: LocalSale,
-          as: 'sale', // ✅ CORREGIDO: Usar 'sale' en lugar de 'localSale'
+          as: 'sale', // ✅ CORREGIDO
           where: { status: 'completed' },
           attributes: []
         }],
@@ -303,139 +487,6 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO ESTÁTICO - Estadísticas por categoría
-  static async getCategoryStats() {
-    try {
-      const categories = await StoreCategory.findAll({
-        where: { isActive: true },
-        include: [{
-          model: StoreProduct,
-          as: 'products',
-          where: { isActive: true },
-          required: false,
-          attributes: []
-        }],
-        attributes: [
-          'id', 'name', 'slug',
-          [fn('COUNT', col('products.id')), 'productCount'],
-          [fn('SUM', literal('products.price * products.stock_quantity')), 'categoryValue'],
-          [fn('AVG', col('products.price')), 'averagePrice']
-        ],
-        group: ['StoreCategory.id'],
-        order: [['name', 'ASC']]
-      });
-
-      return categories.map(category => ({
-        id: category.id,
-        name: category.name,
-        slug: category.slug,
-        productCount: parseInt(category.dataValues.productCount || 0),
-        categoryValue: parseFloat(category.dataValues.categoryValue || 0),
-        averagePrice: parseFloat(category.dataValues.averagePrice || 0)
-      }));
-    } catch (error) {
-      console.error('Error obteniendo estadísticas por categoría:', error);
-      return [];
-    }
-  }
-
-  // ✅ Reporte financiero combinado
-  async getFinancialReport(req, res) {
-    try {
-      const { 
-        startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        endDate = new Date().toISOString().split('T')[0]
-      } = req.query;
-
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-
-      console.log(`📊 Generando reporte financiero: ${startDate} a ${endDate}`);
-
-      const [
-        onlineRevenue,
-        localRevenue,
-        financialMovements,
-        paymentMethods
-      ] = await Promise.all([
-        // ✅ CORREGIDO: Usar total_amount
-        StoreOrder.sum('total_amount', {
-          where: {
-            createdAt: { [Op.between]: [start, end] },
-            status: { [Op.in]: ['delivered', 'picked_up'] }
-          }
-        }),
-
-        // ✅ CORREGIDO: Usar total_amount
-        LocalSale.sum('total_amount', {
-          where: {
-            work_date: { [Op.between]: [startDate, endDate] },
-            status: 'completed'
-          }
-        }),
-
-        // Movimientos financieros
-        FinancialMovements.findAll({
-          attributes: [
-            'type',
-            [fn('COUNT', col('id')), 'count'],
-            [fn('SUM', col('amount')), 'total']
-          ],
-          where: {
-            movement_date: { [Op.between]: [start, end] }
-          },
-          group: ['type']
-        }),
-
-        // ✅ CORREGIDO: Llamar método estático
-        InventoryStatsController.getPaymentMethodsBreakdown(start, end)
-      ]);
-
-      const totalOnline = parseFloat(onlineRevenue || 0);
-      const totalLocal = parseFloat(localRevenue || 0);
-      const totalRevenue = totalOnline + totalLocal;
-
-      // Procesar movimientos financieros
-      const movements = {};
-      financialMovements.forEach(movement => {
-        movements[movement.type] = {
-          count: parseInt(movement.dataValues.count),
-          total: parseFloat(movement.dataValues.total)
-        };
-      });
-
-      const report = {
-        period: { startDate, endDate },
-        revenue: {
-          online: totalOnline,
-          local: totalLocal,
-          total: totalRevenue
-        },
-        movements: {
-          income: movements.income || { count: 0, total: 0 },
-          expense: movements.expense || { count: 0, total: 0 }
-        },
-        paymentMethods,
-        netIncome: (movements.income?.total || 0) - (movements.expense?.total || 0)
-      };
-
-      console.log('✅ Reporte financiero generado');
-
-      res.json({
-        success: true,
-        data: report
-      });
-    } catch (error) {
-      console.error('Error generando reporte financiero:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error generando reporte financiero',
-        error: error.message
-      });
-    }
-  }
-
   // ✅ MÉTODO ESTÁTICO - Desglose por métodos de pago
   static async getPaymentMethodsBreakdown(startDate, endDate) {
     try {
@@ -496,56 +547,38 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Productos con poco stock detallado
-  async getLowStockReport(req, res) {
+  // ✅ Dashboard resumido
+  async getDashboard(req, res) {
     try {
-      const products = await StoreProduct.findAll({
-        where: {
-          isActive: true,
-          [Op.and]: [
-            literal('stock_quantity <= min_stock')
-          ]
-        },
-        include: [
-          { model: StoreCategory, as: 'category', attributes: ['id', 'name'] },
-          { model: StoreBrand, as: 'brand', attributes: ['id', 'name'] }
-        ],
-        order: [['stockQuantity', 'ASC']]
-      });
+      const today = new Date();
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-      const lowStockProducts = products.map(product => ({
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-        currentStock: product.stockQuantity,
-        minStock: product.minStock,
-        shortage: Math.max(0, product.minStock - product.stockQuantity),
-        category: product.category?.name || 'Sin categoría',
-        brand: product.brand?.name || 'Sin marca',
-        price: parseFloat(product.price),
-        isOutOfStock: product.stockQuantity === 0,
-        urgency: product.stockQuantity === 0 ? 'critical' : 
-                product.stockQuantity < (product.minStock * 0.5) ? 'high' : 'medium'
-      }));
+      const [
+        todayStats,
+        monthStats,
+        pendingActions,
+        recentActivity
+      ] = await Promise.all([
+        InventoryStatsController.getDayStats(today),
+        InventoryStatsController.getPeriodStats(startOfMonth, today),
+        InventoryStatsController.getPendingActions(),
+        InventoryStatsController.getRecentActivity()
+      ]);
 
       res.json({
         success: true,
         data: {
-          products: lowStockProducts,
-          summary: {
-            totalProducts: lowStockProducts.length,
-            outOfStock: lowStockProducts.filter(p => p.isOutOfStock).length,
-            critical: lowStockProducts.filter(p => p.urgency === 'critical').length,
-            high: lowStockProducts.filter(p => p.urgency === 'high').length,
-            medium: lowStockProducts.filter(p => p.urgency === 'medium').length
-          }
+          today: todayStats,
+          thisMonth: monthStats,
+          pending: pendingActions,
+          recent: recentActivity
         }
       });
     } catch (error) {
-      console.error('Error obteniendo reporte de stock bajo:', error);
+      console.error('Error obteniendo dashboard:', error);
       res.status(500).json({
         success: false,
-        message: 'Error obteniendo reporte de stock',
+        message: 'Error obteniendo dashboard',
         error: error.message
       });
     }
@@ -559,7 +592,6 @@ class InventoryStatsController {
         endDate = new Date().toISOString().split('T')[0]
       } = req.query;
 
-      // ✅ CORREGIDO: Usar nombres de columna correctos
       const employeeStats = await LocalSale.findAll({
         attributes: [
           'employee_id',
@@ -611,43 +643,6 @@ class InventoryStatsController {
       res.status(500).json({
         success: false,
         message: 'Error obteniendo performance',
-        error: error.message
-      });
-    }
-  }
-
-  // ✅ Dashboard resumido
-  async getDashboard(req, res) {
-    try {
-      const today = new Date();
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-      const [
-        todayStats,
-        monthStats,
-        pendingActions,
-        recentActivity
-      ] = await Promise.all([
-        InventoryStatsController.getDayStats(today),
-        InventoryStatsController.getPeriodStats(startOfMonth, today),
-        InventoryStatsController.getPendingActions(),
-        InventoryStatsController.getRecentActivity()
-      ]);
-
-      res.json({
-        success: true,
-        data: {
-          today: todayStats,
-          thisMonth: monthStats,
-          pending: pendingActions,
-          recent: recentActivity
-        }
-      });
-    } catch (error) {
-      console.error('Error obteniendo dashboard:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error obteniendo dashboard',
         error: error.message
       });
     }
@@ -734,7 +729,7 @@ class InventoryStatsController {
         where: {
           isActive: true,
           [Op.and]: [
-            literal('stock_quantity <= min_stock')
+            literal('"StoreProduct"."stock_quantity" <= "StoreProduct"."min_stock"')
           ]
         }
       }),
