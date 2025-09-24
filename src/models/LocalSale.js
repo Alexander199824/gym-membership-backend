@@ -1,4 +1,4 @@
-// src/models/LocalSale.js - CORREGIDO: Asociaciones consistentes
+// src/models/LocalSale.js - REPARADO: Asociaciones correctas
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -358,7 +358,7 @@ LocalSale.getStats = async function(startDate, endDate, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES CORREGIDAS - CLAVE DEL PROBLEMA
+// ✅ ASOCIACIONES REPARADAS - CLAVE DE LA SOLUCIÓN
 LocalSale.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSale...');
   
@@ -369,18 +369,17 @@ LocalSale.associate = function(models) {
       as: 'employee'
     });
     
-    // ✅ ASOCIACIÓN CORREGIDA: transferConfirmedBy -> User (CAMBIO CLAVE)
+    // ✅ ASOCIACIÓN REPARADA: transferConfirmedBy -> User (NOMBRE CORRECTO)
     LocalSale.belongsTo(models.User, {
       foreignKey: 'transferConfirmedBy',
-      as: 'transferConfirmedByUser' // ✅ CAMBIADO de 'transferConfirmer' a 'transferConfirmedByUser'
+      as: 'transferConfirmer' // ✅ NOMBRE CORRECTO Y CONSISTENTE
     });
-    console.log('   ✅ LocalSale -> User (employee, transferConfirmedByUser)');
+    console.log('   ✅ LocalSale -> User (employee, transferConfirmer)');
   }
   
   if (models.LocalSaleItem) {
-    // ✅ CORREGIDO: usar 'saleId' como foreign key
     LocalSale.hasMany(models.LocalSaleItem, {
-      foreignKey: 'saleId', // ✅ CONSISTENTE con LocalSaleItem
+      foreignKey: 'saleId',
       as: 'items'
     });
     console.log('   ✅ LocalSale -> LocalSaleItem (items)');
