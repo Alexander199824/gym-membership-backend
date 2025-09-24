@@ -1,4 +1,4 @@
-// src/controllers/InventoryStatsController.js - ESTADÍSTICAS COMBINADAS (ONLINE + LOCAL)
+// src/controllers/InventoryStatsController.js - CORREGIDO
 const { 
   StoreProduct, 
   StoreCategory, 
@@ -38,7 +38,7 @@ class InventoryStatsController {
         StoreProduct.count({
           where: {
             isActive: true,
-            stockQuantity: { [Op.lte]: col('min_stock') }
+            stockQuantity: { [Op.lte]: col('minStock') }
           }
         }),
         
@@ -103,7 +103,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Datos de ventas combinadas (online + local)
+  // ✅ MÉTODO AUXILIAR CORREGIDO - Datos de ventas por período
   async getSalesDataByPeriod(period) {
     try {
       let startDate = new Date();
@@ -149,7 +149,7 @@ class InventoryStatsController {
           [fn('SUM', col('totalAmount')), 'revenue']
         ],
         where: {
-          workDate: { [Op.gte]: startDate },
+          workDate: { [Op.gte]: startDate.toISOString().split('T')[0] },
           status: 'completed'
         },
         group: [fn('DATE', col('workDate'))],
@@ -200,7 +200,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Productos más vendidos (combinando online + local)
+  // ✅ MÉTODO AUXILIAR CORREGIDO - Productos más vendidos
   async getTopSellingProducts(limit = 10) {
     try {
       // Ventas online
@@ -270,7 +270,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Contar transferencias pendientes (online + local)
+  // ✅ MÉTODO AUXILIAR CORREGIDO - Contar transferencias pendientes
   async getPendingTransfersCount() {
     try {
       const [onlinePending, localPending] = await Promise.all([
@@ -302,7 +302,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Estadísticas por categoría
+  // ✅ MÉTODO AUXILIAR CORREGIDO - Estadísticas por categoría
   async getCategoryStats() {
     try {
       const categories = await StoreCategory.findAll({
@@ -369,7 +369,7 @@ class InventoryStatsController {
         // Ingresos locales
         LocalSale.sum('totalAmount', {
           where: {
-            workDate: { [Op.between]: [start, end] },
+            workDate: { [Op.between]: [startDate, endDate] },
             status: 'completed'
           }
         }),
@@ -435,7 +435,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Desglose por métodos de pago
+  // ✅ MÉTODO AUXILIAR CORREGIDO - Desglose por métodos de pago
   async getPaymentMethodsBreakdown(startDate, endDate) {
     try {
       const [onlinePayments, localPayments] = await Promise.all([
@@ -460,7 +460,12 @@ class InventoryStatsController {
             [fn('SUM', col('totalAmount')), 'total']
           ],
           where: {
-            workDate: { [Op.between]: [startDate, endDate] },
+            workDate: { 
+              [Op.between]: [
+                startDate.toISOString ? startDate.toISOString().split('T')[0] : startDate, 
+                endDate.toISOString ? endDate.toISOString().split('T')[0] : endDate
+              ] 
+            },
             status: 'completed'
           },
           group: ['paymentMethod'],
@@ -496,7 +501,7 @@ class InventoryStatsController {
       const products = await StoreProduct.findAll({
         where: {
           isActive: true,
-          stockQuantity: { [Op.lte]: col('min_stock') }
+          stockQuantity: { [Op.lte]: col('minStock') }
         },
         include: [
           { model: StoreCategory, as: 'category', attributes: ['id', 'name'] },
@@ -543,7 +548,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ Reporte de performance por empleado
+  // ✅ Reporte de performance por empleado - CORREGIDO
   async getEmployeePerformance(req, res) {
     try {
       const { 
@@ -571,7 +576,7 @@ class InventoryStatsController {
           attributes: ['id', 'firstName', 'lastName', 'role']
         }],
         where: {
-          workDate: { [Op.between]: [start, end] },
+          workDate: { [Op.between]: [startDate, endDate] },
           status: { [Op.in]: ['completed', 'transfer_pending'] }
         },
         group: ['employeeId', 'employee.id', 'employee.firstName', 'employee.lastName', 'employee.role'],
@@ -648,7 +653,7 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODOS AUXILIARES
+  // ✅ MÉTODOS AUXILIARES CORREGIDOS
   
   async getDayStats(date) {
     const startOfDay = new Date(date);
@@ -705,7 +710,10 @@ class InventoryStatsController {
           [fn('SUM', col('totalAmount')), 'revenue']
         ],
         where: {
-          workDate: { [Op.between]: [startDate, endDate] },
+          workDate: { [Op.between]: [
+            startDate.toISOString().split('T')[0], 
+            endDate.toISOString().split('T')[0]
+          ]},
           status: 'completed'
         }
       })
@@ -725,7 +733,7 @@ class InventoryStatsController {
       StoreProduct.count({
         where: {
           isActive: true,
-          stockQuantity: { [Op.lte]: col('min_stock') }
+          stockQuantity: { [Op.lte]: col('minStock') }
         }
       }),
       StoreOrder.count({

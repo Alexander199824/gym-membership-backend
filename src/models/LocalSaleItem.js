@@ -282,6 +282,7 @@ LocalSaleItem.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSaleItem...');
   
   if (models.LocalSale) {
+    // ✅ USAR 'localSaleId' como foreign key
     LocalSaleItem.belongsTo(models.LocalSale, {
       foreignKey: 'localSaleId',
       as: 'localSale'

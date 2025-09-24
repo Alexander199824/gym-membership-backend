@@ -363,11 +363,13 @@ LocalSale.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSale...');
   
   if (models.User) {
+    // ✅ ASOCIACIÓN PRINCIPAL: employeeId -> User
     LocalSale.belongsTo(models.User, {
       foreignKey: 'employeeId',
       as: 'employee'
     });
     
+    // ✅ ASOCIACIÓN OPCIONAL: transferConfirmedBy -> User
     LocalSale.belongsTo(models.User, {
       foreignKey: 'transferConfirmedBy',
       as: 'transferConfirmer'
@@ -376,6 +378,7 @@ LocalSale.associate = function(models) {
   }
   
   if (models.LocalSaleItem) {
+    // ✅ CORREGIR: usar 'localSaleId' como foreign key
     LocalSale.hasMany(models.LocalSaleItem, {
       foreignKey: 'localSaleId',
       as: 'items'
