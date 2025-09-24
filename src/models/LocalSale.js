@@ -370,10 +370,11 @@ LocalSale.associate = function(models) {
     });
     
     // ✅ ASOCIACIÓN REPARADA: transferConfirmedBy -> User (NOMBRE CORRECTO)
-    LocalSale.belongsTo(models.User, {
-      foreignKey: 'transferConfirmedBy',
-      as: 'transferConfirmer' // ✅ NOMBRE CORRECTO Y CONSISTENTE
-    });
+   // LocalSale pertenece a User (quien confirmó la transferencia)
+LocalSale.belongsTo(models.User, {
+  foreignKey: 'transferConfirmedBy', // Campo EN LocalSale
+  as: 'transferConfirmedByUser'      // Alias para acceder al User
+});
     console.log('   ✅ LocalSale -> User (employee, transferConfirmer)');
   }
   
