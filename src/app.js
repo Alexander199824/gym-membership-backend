@@ -97,7 +97,10 @@ class App {
           memberships: '/api/memberships',
           payments: '/api/payments',
           gym: '/api/gym',
-          store: '/api/store'
+          store: '/api/store',
+          localSales: '/api/local-sales',     // ✅ AGREGADO
+          inventory: '/api/inventory',        // ✅ AGREGADO  
+          orderManagement: '/api/order-management' // ✅ AGREGADO
         },
         documentation: 'https://docs.gym-system.com'
       });
@@ -122,9 +125,11 @@ class App {
           'GET /api/gym/config',
           'GET /api/gym/services',
           'GET /api/store/products',
-          'GET /api/inventory/stats', // ✅ AGREGADO
-          'GET /api/inventory/dashboard', // ✅ AGREGADO
-          'GET /api/local-sales/' // ✅ AGREGADO
+          'GET /api/inventory/stats',         // ✅ AGREGADO
+          'GET /api/inventory/dashboard',     // ✅ AGREGADO
+          'GET /api/local-sales/',           // ✅ AGREGADO
+          'POST /api/local-sales/cash',      // ✅ AGREGADO
+          'POST /api/local-sales/transfer'   // ✅ AGREGADO
         ]
       });
     });

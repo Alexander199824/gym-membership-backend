@@ -358,7 +358,7 @@ LocalSale.getStats = async function(startDate, endDate, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES CORREGIDAS
+// ✅ ASOCIACIONES CORREGIDAS - CLAVE DEL PROBLEMA
 LocalSale.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSale...');
   
@@ -369,18 +369,18 @@ LocalSale.associate = function(models) {
       as: 'employee'
     });
     
-    // ✅ ASOCIACIÓN OPCIONAL: transferConfirmedBy -> User
+    // ✅ ASOCIACIÓN CORREGIDA: transferConfirmedBy -> User (CAMBIO CLAVE)
     LocalSale.belongsTo(models.User, {
       foreignKey: 'transferConfirmedBy',
-      as: 'transferConfirmer'
+      as: 'transferConfirmedByUser' // ✅ CAMBIADO de 'transferConfirmer' a 'transferConfirmedByUser'
     });
-    console.log('   ✅ LocalSale -> User (employee, transferConfirmer)');
+    console.log('   ✅ LocalSale -> User (employee, transferConfirmedByUser)');
   }
   
   if (models.LocalSaleItem) {
-    // ✅ CORREGIR: usar 'saleId' como foreign key
+    // ✅ CORREGIDO: usar 'saleId' como foreign key
     LocalSale.hasMany(models.LocalSaleItem, {
-      foreignKey: 'saleId', // ✅ CAMBIADO de localSaleId a saleId
+      foreignKey: 'saleId', // ✅ CONSISTENTE con LocalSaleItem
       as: 'items'
     });
     console.log('   ✅ LocalSale -> LocalSaleItem (items)');

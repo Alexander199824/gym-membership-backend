@@ -1,4 +1,4 @@
-// src/controllers/LocalSalesController.js - SISTEMA DE VENTAS LOCALES
+// src/controllers/LocalSalesController.js - CORREGIDO: Referencias de asociaciones
 const { 
   LocalSale, 
   LocalSaleItem, 
@@ -110,7 +110,7 @@ class LocalSalesController {
           const product = products.find(p => p.id === item.productId);
           
           await LocalSaleItem.create({
-            localSaleId: sale.id,
+            saleId: sale.id, // ✅ CORREGIDO: usar saleId consistente
             productId: item.productId,
             productName: product.name,
             productSku: product.sku,
@@ -264,7 +264,7 @@ class LocalSalesController {
           const product = products.find(p => p.id === item.productId);
           
           await LocalSaleItem.create({
-            localSaleId: sale.id,
+            saleId: sale.id, // ✅ CORREGIDO: usar saleId consistente
             productId: item.productId,
             productName: product.name,
             productSku: product.sku,
@@ -578,7 +578,7 @@ class LocalSalesController {
     }
   }
 
-  // ✅ Reporte diario
+  // ✅ Reporte diario - CORREGIDO
   async getDailyReport(req, res) {
     try {
       const { date = new Date().toISOString().split('T')[0] } = req.query;
@@ -608,7 +608,7 @@ class LocalSalesController {
           [LocalSaleItem.sequelize.fn('SUM', LocalSaleItem.sequelize.col('quantity')), 'totalSold']
         ],
         include: [{
-          association: 'localSale',
+          association: 'sale', // ✅ CORREGIDO: usar 'sale' en lugar de 'localSale'
           attributes: [],
           where: {
             workDate: reportDate,
@@ -647,7 +647,7 @@ class LocalSalesController {
     }
   }
 
-  // ✅ Obtener ventas (con filtros)
+  // ✅ Obtener ventas (con filtros) - CORREGIDO
   async getSales(req, res) {
     try {
       const {
@@ -687,7 +687,7 @@ class LocalSalesController {
         include: [
           { association: 'employee', attributes: ['id', 'firstName', 'lastName'] },
           { association: 'items', include: [{ association: 'product', attributes: ['id', 'name', 'sku'] }] },
-          { association: 'transferConfirmer', attributes: ['id', 'firstName', 'lastName'], required: false }
+          { association: 'transferConfirmedByUser', attributes: ['id', 'firstName', 'lastName'], required: false } // ✅ CORREGIDO: usar 'transferConfirmedByUser'
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -712,8 +712,8 @@ class LocalSalesController {
           customer: sale.getClientInfo(),
           itemsCount: sale.items.length,
           transferConfirmed: sale.transferConfirmed,
-          confirmer: sale.transferConfirmer ? {
-            name: `${sale.transferConfirmer.firstName} ${sale.transferConfirmer.lastName}`
+          confirmer: sale.transferConfirmedByUser ? { // ✅ CORREGIDO: usar 'transferConfirmedByUser'
+            name: `${sale.transferConfirmedByUser.firstName} ${sale.transferConfirmedByUser.lastName}`
           } : null,
           hoursWaiting: sale.needsTransferConfirmation() ? Math.round(hoursWaiting * 10) / 10 : null,
           needsAction: sale.needsTransferConfirmation() && req.user.role === 'admin'
@@ -744,7 +744,7 @@ class LocalSalesController {
     }
   }
 
-  // ✅ Obtener venta por ID
+  // ✅ Obtener venta por ID - CORREGIDO
   async getSaleById(req, res) {
     try {
       const { id } = req.params;
@@ -756,7 +756,7 @@ class LocalSalesController {
             association: 'items',
             include: [{ association: 'product', attributes: ['id', 'name', 'sku', 'stockQuantity'] }]
           },
-          { association: 'transferConfirmer', attributes: ['id', 'firstName', 'lastName'], required: false },
+          { association: 'transferConfirmedByUser', attributes: ['id', 'firstName', 'lastName'], required: false }, // ✅ CORREGIDO
           { association: 'transferConfirmation', required: false }
         ]
       });
@@ -814,10 +814,10 @@ class LocalSalesController {
           role: sale.employee.role
         } : null,
         
-        // Confirmador (si aplica)
-        confirmer: sale.transferConfirmer ? {
-          id: sale.transferConfirmer.id,
-          name: `${sale.transferConfirmer.firstName} ${sale.transferConfirmer.lastName}`
+        // Confirmador (si aplica) - ✅ CORREGIDO
+        confirmer: sale.transferConfirmedByUser ? {
+          id: sale.transferConfirmedByUser.id,
+          name: `${sale.transferConfirmedByUser.firstName} ${sale.transferConfirmedByUser.lastName}`
         } : null,
         
         // Items

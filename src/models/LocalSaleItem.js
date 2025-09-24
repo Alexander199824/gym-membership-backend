@@ -8,10 +8,10 @@ const LocalSaleItem = sequelize.define('LocalSaleItem', {
     defaultValue: DataTypes.UUIDV4,
     primaryKey: true
   },
-  saleId: {  // ✅ CORREGIDO: Cambiar de localSaleId a saleId
+  saleId: {  // ✅ CONSISTENTE: saleId 
     type: DataTypes.UUID,
     allowNull: false,
-    field: 'sale_id', // ✅ CORREGIDO: Cambiar field name también
+    field: 'sale_id', 
     references: {
       model: 'local_sales',
       key: 'id'
@@ -79,7 +79,7 @@ const LocalSaleItem = sequelize.define('LocalSaleItem', {
   tableName: 'local_sale_items',
   timestamps: true,
   indexes: [
-    { fields: ['sale_id'] }, // ✅ CORREGIDO
+    { fields: ['sale_id'] }, // ✅ CONSISTENTE
     { fields: ['product_id'] }
   ]
 });
@@ -133,7 +133,7 @@ LocalSaleItem.getTopSellingProducts = async function(startDate, endDate, limit =
         [this.sequelize.fn('AVG', this.sequelize.col('unitPrice')), 'averagePrice']
       ],
       include: [{
-        association: 'sale', // ✅ CORREGIDO: usar 'sale' en lugar de 'localSale'
+        association: 'sale', // ✅ CONSISTENTE: usar 'sale'
         attributes: [],
         where: {
           workDate: {
@@ -174,7 +174,7 @@ LocalSaleItem.getProductSalesStats = async function(productId, startDate, endDat
         [this.sequelize.fn('MAX', this.sequelize.col('unitPrice')), 'maxPrice']
       ],
       include: [{
-        association: 'sale', // ✅ CORREGIDO
+        association: 'sale', // ✅ CONSISTENTE
         attributes: [],
         where: {
           workDate: {
@@ -218,7 +218,7 @@ LocalSaleItem.getSalesByCategory = async function(startDate, endDate) {
       ],
       include: [
         {
-          association: 'sale', // ✅ CORREGIDO
+          association: 'sale', // ✅ CONSISTENTE
           attributes: [],
           where: {
             workDate: {
@@ -259,7 +259,7 @@ LocalSaleItem.getDailySalesItems = async function(date, employeeId = null) {
 
     return await this.findAll({
       include: [{
-        association: 'sale', // ✅ CORREGIDO
+        association: 'sale', // ✅ CONSISTENTE
         where,
         include: [{
           association: 'employee',
@@ -277,15 +277,15 @@ LocalSaleItem.getDailySalesItems = async function(date, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES CORREGIDAS
+// ✅ ASOCIACIONES CORREGIDAS - CLAVE DEL PROBLEMA
 LocalSaleItem.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSaleItem...');
   
   if (models.LocalSale) {
-    // ✅ CORREGIDO: usar 'saleId' como foreign key y 'sale' como alias
+    // ✅ CONSISTENTE: usar 'saleId' como foreign key y 'sale' como alias
     LocalSaleItem.belongsTo(models.LocalSale, {
-      foreignKey: 'saleId', // ✅ CAMBIADO de localSaleId a saleId
-      as: 'sale' // ✅ CAMBIADO de localSale a sale
+      foreignKey: 'saleId', 
+      as: 'sale' // ✅ CONSISTENTE en todo el código
     });
     console.log('   ✅ LocalSaleItem -> LocalSale (sale)');
   }

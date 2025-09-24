@@ -1,4 +1,4 @@
-// src/controllers/InventoryStatsController.js - CORREGIDO: literal() issue
+// src/controllers/InventoryStatsController.js - CORREGIDO: Referencias de asociaciones
 const { 
   StoreProduct, 
   StoreCategory, 
@@ -416,7 +416,7 @@ class InventoryStatsController {
         ],
         include: [{
           model: LocalSale,
-          as: 'sale', // ✅ CORREGIDO
+          as: 'sale', // ✅ CORREGIDO: usar 'sale' consistente
           where: { status: 'completed' },
           attributes: []
         }],
