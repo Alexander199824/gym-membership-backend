@@ -1,4 +1,4 @@
-// src/controllers/InventoryStatsController.js - CORREGIDO
+// src/controllers/InventoryStatsController.js - COMPLETAMENTE CORREGIDO
 const { 
   StoreProduct, 
   StoreCategory, 
@@ -14,7 +14,7 @@ const { Op, literal, fn, col } = require('sequelize');
 
 class InventoryStatsController {
 
-  // ✅ Dashboard principal de inventario
+  // ✅ Dashboard principal de inventario - CORREGIDO
   async getInventoryStats(req, res) {
     try {
       const { period = 'month' } = req.query;
@@ -34,11 +34,13 @@ class InventoryStatsController {
         // Total de productos activos
         StoreProduct.count({ where: { isActive: true } }),
         
-        // Productos con poco stock
+        // ✅ CORREGIDO: Usar min_stock correctamente
         StoreProduct.count({
           where: {
             isActive: true,
-            stockQuantity: { [Op.lte]: col('minStock') }
+            [Op.and]: [
+              literal('stock_quantity <= min_stock')
+            ]
           }
         }),
         
@@ -47,23 +49,23 @@ class InventoryStatsController {
           where: { isActive: true, stockQuantity: 0 }
         }),
         
-        // Valor total del inventario
+        // ✅ CORREGIDO: Valor total del inventario
         StoreProduct.sum(
-          literal('price * stock_quantity'),
+          literal('CAST(price AS DECIMAL) * CAST(stock_quantity AS DECIMAL)'),
           { where: { isActive: true } }
         ),
         
-        // Datos de ventas por período
-        this.getSalesDataByPeriod(period),
+        // ✅ CORREGIDO: Llamar método estático
+        InventoryStatsController.getSalesDataByPeriod(period),
         
-        // Productos más vendidos
-        this.getTopSellingProducts(10),
+        // ✅ CORREGIDO: Llamar método estático
+        InventoryStatsController.getTopSellingProducts(10),
         
-        // Transferencias pendientes (online + local)
-        this.getPendingTransfersCount(),
+        // ✅ CORREGIDO: Llamar método estático
+        InventoryStatsController.getPendingTransfersCount(),
         
-        // Estadísticas por categoría
-        this.getCategoryStats()
+        // ✅ CORREGIDO: Llamar método estático
+        InventoryStatsController.getCategoryStats()
       ]);
 
       const stats = {
@@ -103,8 +105,8 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO AUXILIAR CORREGIDO - Datos de ventas por período
-  async getSalesDataByPeriod(period) {
+  // ✅ MÉTODO ESTÁTICO - Datos de ventas por período
+  static async getSalesDataByPeriod(period) {
     try {
       let startDate = new Date();
       
@@ -125,12 +127,12 @@ class InventoryStatsController {
           startDate.setMonth(startDate.getMonth() - 1);
       }
 
-      // Ventas online (órdenes entregadas)
+      // ✅ CORREGIDO: Usar nombres de columnas correctos
       const onlineSales = await StoreOrder.findAll({
         attributes: [
           [fn('DATE', col('createdAt')), 'date'],
           [fn('COUNT', col('id')), 'orders'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
           createdAt: { [Op.gte]: startDate },
@@ -141,19 +143,19 @@ class InventoryStatsController {
         raw: true
       });
 
-      // Ventas locales (completadas)
+      // ✅ CORREGIDO: Usar work_date y total_amount correctos
       const localSales = await LocalSale.findAll({
         attributes: [
-          [fn('DATE', col('workDate')), 'date'],
+          [fn('DATE', col('work_date')), 'date'],
           [fn('COUNT', col('id')), 'sales'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
-          workDate: { [Op.gte]: startDate.toISOString().split('T')[0] },
+          work_date: { [Op.gte]: startDate.toISOString().split('T')[0] },
           status: 'completed'
         },
-        group: [fn('DATE', col('workDate'))],
-        order: [[fn('DATE', col('workDate')), 'ASC']],
+        group: [fn('DATE', col('work_date'))],
+        order: [[fn('DATE', col('work_date')), 'ASC']],
         raw: true
       });
 
@@ -187,7 +189,6 @@ class InventoryStatsController {
         }
       });
 
-      // Calcular totales por día
       return Object.values(combinedSales).map(item => ({
         ...item,
         totalOrders: item.onlineOrders + item.localSales,
@@ -200,16 +201,16 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO AUXILIAR CORREGIDO - Productos más vendidos
-  async getTopSellingProducts(limit = 10) {
+  // ✅ MÉTODO ESTÁTICO - Productos más vendidos
+  static async getTopSellingProducts(limit = 10) {
     try {
-      // Ventas online
+      // ✅ CORREGIDO: Usar nombres de columnas correctos
       const onlineItems = await StoreOrderItem.findAll({
         attributes: [
-          'productId',
-          'productName',
+          'product_id',
+          'product_name',
           [fn('SUM', col('quantity')), 'totalSold'],
-          [fn('SUM', col('totalPrice')), 'totalRevenue']
+          [fn('SUM', col('total_price')), 'totalRevenue']
         ],
         include: [{
           model: StoreOrder,
@@ -217,25 +218,25 @@ class InventoryStatsController {
           where: { status: { [Op.in]: ['delivered', 'picked_up'] } },
           attributes: []
         }],
-        group: ['productId', 'productName'],
+        group: ['product_id', 'product_name'],
         raw: true
       });
 
-      // Ventas locales
+      // ✅ CORREGIDO: Usar nombres correctos y asociación correcta
       const localItems = await LocalSaleItem.findAll({
         attributes: [
-          'productId',
-          'productName',
+          'product_id',
+          'product_name',
           [fn('SUM', col('quantity')), 'totalSold'],
-          [fn('SUM', col('totalPrice')), 'totalRevenue']
+          [fn('SUM', col('total_price')), 'totalRevenue']
         ],
         include: [{
           model: LocalSale,
-          as: 'localSale',
+          as: 'sale', // ✅ CORREGIDO: Usar 'sale' en lugar de 'localSale'
           where: { status: 'completed' },
           attributes: []
         }],
-        group: ['productId', 'productName'],
+        group: ['product_id', 'product_name'],
         raw: true
       });
 
@@ -243,7 +244,7 @@ class InventoryStatsController {
       const productMap = {};
 
       [...onlineItems, ...localItems].forEach(item => {
-        const productId = item.productId;
+        const productId = item.product_id;
         const sold = parseInt(item.totalSold || 0);
         const revenue = parseFloat(item.totalRevenue || 0);
 
@@ -253,7 +254,7 @@ class InventoryStatsController {
         } else {
           productMap[productId] = {
             productId,
-            productName: item.productName,
+            productName: item.product_name,
             totalSold: sold,
             totalRevenue: revenue
           };
@@ -270,22 +271,22 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO AUXILIAR CORREGIDO - Contar transferencias pendientes
-  async getPendingTransfersCount() {
+  // ✅ MÉTODO ESTÁTICO - Contar transferencias pendientes
+  static async getPendingTransfersCount() {
     try {
       const [onlinePending, localPending] = await Promise.all([
         StoreOrder.count({
           where: {
-            paymentMethod: 'transfer_on_delivery',
-            transferConfirmed: false,
+            payment_method: 'transfer_on_delivery',
+            transfer_confirmed: false,
             status: { [Op.ne]: 'cancelled' }
           }
         }),
         
         LocalSale.count({
           where: {
-            paymentMethod: 'transfer',
-            transferConfirmed: false,
+            payment_method: 'transfer',
+            transfer_confirmed: false,
             status: 'transfer_pending'
           }
         })
@@ -302,8 +303,8 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO AUXILIAR CORREGIDO - Estadísticas por categoría
-  async getCategoryStats() {
+  // ✅ MÉTODO ESTÁTICO - Estadísticas por categoría
+  static async getCategoryStats() {
     try {
       const categories = await StoreCategory.findAll({
         where: { isActive: true },
@@ -358,18 +359,18 @@ class InventoryStatsController {
         financialMovements,
         paymentMethods
       ] = await Promise.all([
-        // Ingresos online
-        StoreOrder.sum('totalAmount', {
+        // ✅ CORREGIDO: Usar total_amount
+        StoreOrder.sum('total_amount', {
           where: {
             createdAt: { [Op.between]: [start, end] },
             status: { [Op.in]: ['delivered', 'picked_up'] }
           }
         }),
 
-        // Ingresos locales
-        LocalSale.sum('totalAmount', {
+        // ✅ CORREGIDO: Usar total_amount
+        LocalSale.sum('total_amount', {
           where: {
-            workDate: { [Op.between]: [startDate, endDate] },
+            work_date: { [Op.between]: [startDate, endDate] },
             status: 'completed'
           }
         }),
@@ -382,13 +383,13 @@ class InventoryStatsController {
             [fn('SUM', col('amount')), 'total']
           ],
           where: {
-            movementDate: { [Op.between]: [start, end] }
+            movement_date: { [Op.between]: [start, end] }
           },
           group: ['type']
         }),
 
-        // Métodos de pago combinados
-        this.getPaymentMethodsBreakdown(start, end)
+        // ✅ CORREGIDO: Llamar método estático
+        InventoryStatsController.getPaymentMethodsBreakdown(start, end)
       ]);
 
       const totalOnline = parseFloat(onlineRevenue || 0);
@@ -435,32 +436,32 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODO AUXILIAR CORREGIDO - Desglose por métodos de pago
-  async getPaymentMethodsBreakdown(startDate, endDate) {
+  // ✅ MÉTODO ESTÁTICO - Desglose por métodos de pago
+  static async getPaymentMethodsBreakdown(startDate, endDate) {
     try {
       const [onlinePayments, localPayments] = await Promise.all([
         StoreOrder.findAll({
           attributes: [
-            'paymentMethod',
+            'payment_method',
             [fn('COUNT', col('id')), 'count'],
-            [fn('SUM', col('totalAmount')), 'total']
+            [fn('SUM', col('total_amount')), 'total']
           ],
           where: {
             createdAt: { [Op.between]: [startDate, endDate] },
             status: { [Op.in]: ['delivered', 'picked_up'] }
           },
-          group: ['paymentMethod'],
+          group: ['payment_method'],
           raw: true
         }),
 
         LocalSale.findAll({
           attributes: [
-            'paymentMethod',
+            'payment_method',
             [fn('COUNT', col('id')), 'count'],
-            [fn('SUM', col('totalAmount')), 'total']
+            [fn('SUM', col('total_amount')), 'total']
           ],
           where: {
-            workDate: { 
+            work_date: { 
               [Op.between]: [
                 startDate.toISOString ? startDate.toISOString().split('T')[0] : startDate, 
                 endDate.toISOString ? endDate.toISOString().split('T')[0] : endDate
@@ -468,7 +469,7 @@ class InventoryStatsController {
             },
             status: 'completed'
           },
-          group: ['paymentMethod'],
+          group: ['payment_method'],
           raw: true
         })
       ]);
@@ -476,7 +477,7 @@ class InventoryStatsController {
       const methodsMap = {};
 
       [...onlinePayments, ...localPayments].forEach(payment => {
-        const method = payment.paymentMethod;
+        const method = payment.payment_method;
         const count = parseInt(payment.count || 0);
         const total = parseFloat(payment.total || 0);
 
@@ -501,7 +502,9 @@ class InventoryStatsController {
       const products = await StoreProduct.findAll({
         where: {
           isActive: true,
-          stockQuantity: { [Op.lte]: col('minStock') }
+          [Op.and]: [
+            literal('stock_quantity <= min_stock')
+          ]
         },
         include: [
           { model: StoreCategory, as: 'category', attributes: ['id', 'name'] },
@@ -556,16 +559,13 @@ class InventoryStatsController {
         endDate = new Date().toISOString().split('T')[0]
       } = req.query;
 
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
-      // Solo empleados que han hecho ventas locales
+      // ✅ CORREGIDO: Usar nombres de columna correctos
       const employeeStats = await LocalSale.findAll({
         attributes: [
-          'employeeId',
+          'employee_id',
           [fn('COUNT', col('LocalSale.id')), 'totalSales'],
-          [fn('SUM', col('totalAmount')), 'totalRevenue'],
-          [fn('AVG', col('totalAmount')), 'averageSale'],
+          [fn('SUM', col('total_amount')), 'totalRevenue'],
+          [fn('AVG', col('total_amount')), 'averageSale'],
           [fn('COUNT', literal('CASE WHEN payment_method = \'cash\' THEN 1 END')), 'cashSales'],
           [fn('COUNT', literal('CASE WHEN payment_method = \'transfer\' THEN 1 END')), 'transferSales'],
           [fn('COUNT', literal('CASE WHEN status = \'transfer_pending\' THEN 1 END')), 'pendingTransfers']
@@ -576,11 +576,11 @@ class InventoryStatsController {
           attributes: ['id', 'firstName', 'lastName', 'role']
         }],
         where: {
-          workDate: { [Op.between]: [startDate, endDate] },
+          work_date: { [Op.between]: [startDate, endDate] },
           status: { [Op.in]: ['completed', 'transfer_pending'] }
         },
-        group: ['employeeId', 'employee.id', 'employee.firstName', 'employee.lastName', 'employee.role'],
-        order: [[fn('SUM', col('totalAmount')), 'DESC']]
+        group: ['employee_id', 'employee.id', 'employee.firstName', 'employee.lastName', 'employee.role'],
+        order: [[fn('SUM', col('total_amount')), 'DESC']]
       });
 
       const performance = employeeStats.map(stat => ({
@@ -628,10 +628,10 @@ class InventoryStatsController {
         pendingActions,
         recentActivity
       ] = await Promise.all([
-        this.getDayStats(today),
-        this.getPeriodStats(startOfMonth, today),
-        this.getPendingActions(),
-        this.getRecentActivity()
+        InventoryStatsController.getDayStats(today),
+        InventoryStatsController.getPeriodStats(startOfMonth, today),
+        InventoryStatsController.getPendingActions(),
+        InventoryStatsController.getRecentActivity()
       ]);
 
       res.json({
@@ -653,9 +653,9 @@ class InventoryStatsController {
     }
   }
 
-  // ✅ MÉTODOS AUXILIARES CORREGIDOS
+  // ✅ MÉTODOS ESTÁTICOS AUXILIARES
   
-  async getDayStats(date) {
+  static async getDayStats(date) {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
@@ -665,7 +665,7 @@ class InventoryStatsController {
       StoreOrder.findOne({
         attributes: [
           [fn('COUNT', col('id')), 'orders'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
           createdAt: { [Op.between]: [startOfDay, endOfDay] },
@@ -675,10 +675,10 @@ class InventoryStatsController {
       LocalSale.findOne({
         attributes: [
           [fn('COUNT', col('id')), 'sales'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
-          workDate: date.toISOString().split('T')[0],
+          work_date: date.toISOString().split('T')[0],
           status: 'completed'
         }
       })
@@ -692,12 +692,12 @@ class InventoryStatsController {
     };
   }
 
-  async getPeriodStats(startDate, endDate) {
+  static async getPeriodStats(startDate, endDate) {
     const [onlineStats, localStats] = await Promise.all([
       StoreOrder.findOne({
         attributes: [
           [fn('COUNT', col('id')), 'orders'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
           createdAt: { [Op.between]: [startDate, endDate] },
@@ -707,10 +707,10 @@ class InventoryStatsController {
       LocalSale.findOne({
         attributes: [
           [fn('COUNT', col('id')), 'sales'],
-          [fn('SUM', col('totalAmount')), 'revenue']
+          [fn('SUM', col('total_amount')), 'revenue']
         ],
         where: {
-          workDate: { [Op.between]: [
+          work_date: { [Op.between]: [
             startDate.toISOString().split('T')[0], 
             endDate.toISOString().split('T')[0]
           ]},
@@ -727,13 +727,15 @@ class InventoryStatsController {
     };
   }
 
-  async getPendingActions() {
+  static async getPendingActions() {
     const [transfers, lowStock, pendingOrders] = await Promise.all([
-      this.getPendingTransfersCount(),
+      InventoryStatsController.getPendingTransfersCount(),
       StoreProduct.count({
         where: {
           isActive: true,
-          stockQuantity: { [Op.lte]: col('minStock') }
+          [Op.and]: [
+            literal('stock_quantity <= min_stock')
+          ]
         }
       }),
       StoreOrder.count({
@@ -750,7 +752,7 @@ class InventoryStatsController {
     };
   }
 
-  async getRecentActivity() {
+  static async getRecentActivity() {
     // Implementar actividad reciente si es necesario
     return [];
   }
