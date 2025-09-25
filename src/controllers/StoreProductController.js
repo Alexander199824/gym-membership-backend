@@ -664,7 +664,7 @@ class StoreProductController {
             [StoreProduct.sequelize.fn('COUNT', StoreProduct.sequelize.literal('CASE WHEN "is_active" = true THEN 1 END')), 'activeProducts'],
             [StoreProduct.sequelize.fn('COUNT', StoreProduct.sequelize.literal('CASE WHEN "is_featured" = true THEN 1 END')), 'featuredProducts'],
             [StoreProduct.sequelize.fn('COUNT', StoreProduct.sequelize.literal('CASE WHEN "stock_quantity" = 0 THEN 1 END')), 'outOfStock'],
-            [StoreProduct.sequelize.fn('SUM', StoreProduct.sequelize.col('stockQuantity')), 'totalStock'],
+            [StoreProduct.sequelize.fn('SUM', StoreProduct.sequelize.col('stock_quantity')), 'totalStock'],
             [StoreProduct.sequelize.fn('AVG', StoreProduct.sequelize.col('price')), 'averagePrice']
           ]
         }),
