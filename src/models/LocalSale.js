@@ -358,7 +358,7 @@ LocalSale.getStats = async function(startDate, endDate, employeeId = null) {
   }
 };
 
-// ✅ ASOCIACIONES REPARADAS - CLAVE DE LA SOLUCIÓN
+// ✅ ASOCIACIONES CORREGIDAS - CLAVE DE LA SOLUCIÓN
 LocalSale.associate = function(models) {
   console.log('🔗 Configurando asociaciones para LocalSale...');
   
@@ -369,13 +369,12 @@ LocalSale.associate = function(models) {
       as: 'employee'
     });
     
-    // ✅ ASOCIACIÓN REPARADA: transferConfirmedBy -> User (NOMBRE CORRECTO)
-   // LocalSale pertenece a User (quien confirmó la transferencia)
-LocalSale.belongsTo(models.User, {
-  foreignKey: 'transferConfirmedBy', // Campo EN LocalSale
-  as: 'transferConfirmedByUser'      // Alias para acceder al User
-});
-    console.log('   ✅ LocalSale -> User (employee, transferConfirmer)');
+    // ✅ ASOCIACIÓN CORREGIDA: transferConfirmedBy -> User (ALIAS CORREGIDO)
+    LocalSale.belongsTo(models.User, {
+      foreignKey: 'transferConfirmedBy',
+      as: 'transferConfirmedByUser' // ✅ CORREGIDO: Cambiar de 'transferConfirmer' a 'transferConfirmedByUser'
+    });
+    console.log('   ✅ LocalSale -> User (employee, transferConfirmedByUser)');
   }
   
   if (models.LocalSaleItem) {

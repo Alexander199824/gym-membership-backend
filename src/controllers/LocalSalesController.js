@@ -687,7 +687,7 @@ class LocalSalesController {
         include: [
           { association: 'employee', attributes: ['id', 'firstName', 'lastName'] },
           { association: 'items', include: [{ association: 'product', attributes: ['id', 'name', 'sku'] }] },
-          { association: 'transferConfirmedByUser', attributes: ['id', 'firstName', 'lastName'], required: false } // ✅ CORREGIDO: usar 'transferConfirmedByUser'
+          { association: 'transferConfirmer', attributes: ['id', 'firstName', 'lastName'], required: false } // ✅ CORREGIDO: usar 'transferConfirmer'
         ],
         order: [['createdAt', 'DESC']],
         limit: parseInt(limit),
@@ -712,8 +712,8 @@ class LocalSalesController {
           customer: sale.getClientInfo(),
           itemsCount: sale.items.length,
           transferConfirmed: sale.transferConfirmed,
-          confirmer: sale.transferConfirmedByUser ? { // ✅ CORREGIDO: usar 'transferConfirmedByUser'
-            name: `${sale.transferConfirmedByUser.firstName} ${sale.transferConfirmedByUser.lastName}`
+          confirmer: sale.transferConfirmer ? { // ✅ CORREGIDO: usar 'transferConfirmer'
+            name: `${sale.transferConfirmer.firstName} ${sale.transferConfirmer.lastName}`
           } : null,
           hoursWaiting: sale.needsTransferConfirmation() ? Math.round(hoursWaiting * 10) / 10 : null,
           needsAction: sale.needsTransferConfirmation() && req.user.role === 'admin'
@@ -756,7 +756,7 @@ class LocalSalesController {
             association: 'items',
             include: [{ association: 'product', attributes: ['id', 'name', 'sku', 'stockQuantity'] }]
           },
-          { association: 'transferConfirmedByUser', attributes: ['id', 'firstName', 'lastName'], required: false }, // ✅ CORREGIDO
+          { association: 'transferConfirmer', attributes: ['id', 'firstName', 'lastName'], required: false }, // ✅ CORREGIDO
           { association: 'transferConfirmation', required: false }
         ]
       });
@@ -815,9 +815,9 @@ class LocalSalesController {
         } : null,
         
         // Confirmador (si aplica) - ✅ CORREGIDO
-        confirmer: sale.transferConfirmedByUser ? {
-          id: sale.transferConfirmedByUser.id,
-          name: `${sale.transferConfirmedByUser.firstName} ${sale.transferConfirmedByUser.lastName}`
+        confirmer: sale.transferConfirmer ? {
+          id: sale.transferConfirmer.id,
+          name: `${sale.transferConfirmer.firstName} ${sale.transferConfirmer.lastName}`
         } : null,
         
         // Items
