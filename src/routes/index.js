@@ -12,6 +12,9 @@ const scheduleRoutes = require('./scheduleRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const dataCleanupRoutes = require('./dataCleanupRoutes');
 
+// ✅ === NUEVAS RUTAS DE MEMBERSHIP PLANS ===
+const membershipPlansRoutes = require('./membershipPlansRoutes');
+
 // ✅ === RUTAS DE TIENDA ===
 const storeRoutes = require('./storeRoutes');
 
@@ -123,13 +126,14 @@ router.get('/health', async (req, res) => {
     success: true,
     message: 'Elite Fitness Club API - Sistema Completo de Gestión',
     timestamp: new Date().toISOString(),
-    version: '3.0.0',
+    version: '3.1.0', // ✅ ACTUALIZADA para incluir membership-plans
     database: databaseStatus,
     databaseDetails,
     services: {
       core: 'Active',
       auth: 'Active',
       gym: 'Active',
+      membershipPlans: 'Active', // ✅ NUEVA
       store: 'Active',
       storeManagement: 'Active',
       localSales: 'Active',
@@ -143,8 +147,8 @@ router.get('/health', async (req, res) => {
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     endpoints: {
-      total: 12,
-      responding: 12
+      total: 13, // ✅ ACTUALIZADO
+      responding: 13
     }
   });
 });
@@ -162,7 +166,7 @@ router.get('/endpoints', (req, res) => {
   res.json({
     success: true,
     message: 'Elite Fitness Club API - Documentación de Endpoints',
-    version: '3.0.0',
+    version: '3.1.0',
     categories: {
       // === AUTENTICACIÓN Y USUARIOS ===
       auth: {
@@ -197,7 +201,26 @@ router.get('/endpoints', (req, res) => {
         list: 'GET /api/memberships',
         create: 'POST /api/memberships (admin)',
         update: 'PUT /api/memberships/:id (admin)',
-        userMembership: 'GET /api/memberships/my-membership'
+        userMembership: 'GET /api/memberships/my-membership',
+        purchase: 'POST /api/memberships/purchase',
+        mySchedule: 'GET /api/memberships/my-schedule (cliente)',
+        changeSchedule: 'POST /api/memberships/my-schedule/change (cliente)'
+      },
+      
+      // ✅ === PLANES DE MEMBRESÍA (NUEVO) ===
+      membershipPlans: {
+        listAll: 'GET /api/membership-plans (admin)',
+        getActive: 'GET /api/membership-plans/active (público)',
+        getById: 'GET /api/membership-plans/:id (admin)',
+        create: 'POST /api/membership-plans (admin)',
+        update: 'PUT /api/membership-plans/:id (admin)',
+        delete: 'DELETE /api/membership-plans/:id (admin)',
+        toggleStatus: 'PATCH /api/membership-plans/:id/toggle-status (admin)',
+        duplicate: 'POST /api/membership-plans/:id/duplicate (admin)',
+        reorder: 'PATCH /api/membership-plans/reorder (admin)',
+        stats: 'GET /api/membership-plans/stats (admin)',
+        checkName: 'POST /api/membership-plans/check-name-availability (admin)',
+        metadata: 'GET /api/membership-plans/metadata/duration-types (público)'
       },
       
       // === PAGOS ===
@@ -363,6 +386,9 @@ router.use('/schedule', scheduleRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/data-cleanup', dataCleanupRoutes);
 
+// ✅ === NUEVA RUTA DE MEMBERSHIP PLANS ===
+router.use('/membership-plans', membershipPlansRoutes);
+
 // Rutas de tienda (incluye gestión en /management)
 router.use('/store', storeRoutes);
 
@@ -376,7 +402,7 @@ router.use('/promotions', promotionsRoutes);
 // Rutas de pagos
 router.use('/stripe', stripeRoutes);
 
-// ✅ === NUEVAS RUTAS ESPECÍFICAS ===
+// ✅ === RUTAS ESPECÍFICAS ===
 
 // Ventas locales (efectivo y transferencias)
 router.use('/local-sales', localSalesRoutes);
@@ -390,6 +416,7 @@ router.use('/inventory', inventoryStatsRoutes);
 console.log('✅ Sistema de rutas cargado completamente:');
 console.log('   🔐 Autenticación y usuarios');
 console.log('   🏋️ Gimnasio y membresías');
+console.log('   📋 Planes de membresía (CRUD)'); // ✅ NUEVA
 console.log('   🛒 Tienda online completa');
 console.log('   🏪 Ventas locales (efectivo/transferencia)');
 console.log('   📦 Gestión avanzada de órdenes');
@@ -413,13 +440,14 @@ router.use('*', (req, res) => {
       health: 'GET /api/health',
       storeProducts: 'GET /api/store/products',
       gymInfo: 'GET /api/gym/info',
+      membershipPlans: 'GET /api/membership-plans/active', // ✅ NUEVA
       auth: 'POST /api/auth/login'
     },
     categories: [
-      'Públicas: /api/store/*, /api/gym/info, /api/content/*',
-      'Clientes: /api/auth/*, /api/testimonials/*, /api/store/cart',
-      'Staff: /api/local-sales/*, /api/store/management/*, /api/inventory/*',
-      'Admin: /api/users/*, /api/gym-media/*, /api/data-cleanup/*'
+      'Públicas: /api/store/*, /api/gym/info, /api/content/*, /api/membership-plans/active',
+      'Clientes: /api/auth/*, /api/testimonials/*, /api/store/cart, /api/memberships/my-*',
+      'Staff: /api/local-sales/*, /api/store/management/*, /api/inventory/*, /api/membership-plans (admin)',
+      'Admin: /api/users/*, /api/gym-media/*, /api/data-cleanup/*, /api/membership-plans/*'
     ]
   });
 });
