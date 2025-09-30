@@ -1,4 +1,4 @@
-// src/routes/localSales.js - RUTAS PARA VENTAS LOCALES
+// src/routes/localSales.js - CORREGIDO: Validaciones flexibles
 const express = require('express');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
 const localSalesController = require('../controllers/LocalSalesController');
@@ -56,10 +56,11 @@ const validateCashSale = [
     .optional()
     .isLength({ max: 100 })
     .withMessage('Nombre del cliente muy largo'),
+  // ✅ CORREGIDO: Validación flexible de teléfono
   body('customerInfo.phone')
     .optional()
-    .isMobilePhone()
-    .withMessage('Teléfono inválido'),
+    .matches(/^[0-9\-\s\+\(\)]{7,20}$/)
+    .withMessage('Teléfono inválido (7-20 caracteres, números y símbolos permitidos)'),
   body('customerInfo.email')
     .optional()
     .isEmail()
@@ -99,10 +100,11 @@ const validateTransferSale = [
     .optional()
     .isLength({ max: 100 })
     .withMessage('Nombre del cliente muy largo'),
+  // ✅ CORREGIDO: Validación flexible de teléfono (acepta 1234-5678, 50212345678, etc.)
   body('customerInfo.phone')
     .optional()
-    .isMobilePhone()
-    .withMessage('Teléfono inválido'),
+    .matches(/^[0-9\-\s\+\(\)]{7,20}$/)
+    .withMessage('Teléfono inválido (7-20 caracteres, números y símbolos permitidos)'),
   body('customerInfo.email')
     .optional()
     .isEmail()
@@ -126,7 +128,7 @@ router.post('/transfer', validateTransferSale, localSalesController.createTransf
 
 const validateConfirmTransfer = [
   param('saleId')
-    .isInt({ min: 1 })
+    .isUUID()
     .withMessage('ID de venta inválido'),
   body('notes')
     .optional()
@@ -160,7 +162,7 @@ const validateSalesFilters = [
     .withMessage('Método de pago inválido'),
   query('employeeId')
     .optional()
-    .isInt({ min: 1 })
+    .isUUID()
     .withMessage('ID de empleado inválido'),
   query('page')
     .optional()
@@ -181,7 +183,7 @@ router.get('/pending-transfers', localSalesController.getPendingTransfers);
 
 // Obtener venta por ID
 router.get('/:id', [
-  param('id').isInt({ min: 1 }).withMessage('ID de venta inválido'),
+  param('id').isUUID().withMessage('ID de venta inválido'),
   handleValidationErrors
 ], localSalesController.getSaleById);
 

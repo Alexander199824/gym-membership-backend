@@ -1,4 +1,4 @@
-// src/models/FinancialMovements.js - CORREGIDO: Formato estándar de Sequelize
+// src/models/FinancialMovements.js - ACTUALIZADO: Con categorías de transferencias locales
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -20,10 +20,24 @@ const FinancialMovements = sequelize.define('FinancialMovements', {
   category: {
     type: DataTypes.ENUM(
       // Ingresos
-      'membership_payment', 'daily_payment', 'personal_training', 'products_sale', 'other_income',
+      'membership_payment', 
+      'daily_payment', 
+      'personal_training', 
+      'products_sale', 
+      'local_transfer_pending',    // ✅ NUEVO: Transferencia local pendiente
+      'local_transfer_confirmed',  // ✅ NUEVO: Transferencia local confirmada
+      'other_income',
       // Egresos  
-      'rent', 'utilities', 'equipment_purchase', 'equipment_maintenance', 'staff_salary',
-      'cleaning_supplies', 'marketing', 'insurance', 'taxes', 'other_expense'
+      'rent', 
+      'utilities', 
+      'equipment_purchase', 
+      'equipment_maintenance', 
+      'staff_salary',
+      'cleaning_supplies', 
+      'marketing', 
+      'insurance', 
+      'taxes', 
+      'other_expense'
     ),
     allowNull: false,
     validate: {
@@ -85,7 +99,7 @@ const FinancialMovements = sequelize.define('FinancialMovements', {
     allowNull: true
   },
   referenceType: {
-    type: DataTypes.ENUM('payment', 'store_order', 'membership', 'manual'),
+    type: DataTypes.ENUM('payment', 'store_order', 'membership', 'manual', 'local_sale'), // ✅ Ya tiene local_sale
     allowNull: true
   },
   isAutomatic: {
@@ -226,9 +240,6 @@ FinancialMovements.adoptAutomaticMovement = async function(movementId, userId) {
   return movement;
 };
 
-// Agregar estos métodos al final de src/models/FinancialMovements.js
-// ANTES del module.exports
-
 // ✅ Método para obtener ingresos por período
 FinancialMovements.getIncomeByPeriod = async function(startDate, endDate) {
   const { Op } = require('sequelize');
@@ -263,7 +274,7 @@ FinancialMovements.getExpensesByPeriod = async function(startDate, endDate) {
   }
 };
 
-// ✅ Método para obtener resumen financiero (opcional pero útil)
+// ✅ Método para obtener resumen financiero
 FinancialMovements.getFinancialSummary = async function(startDate, endDate) {
   const { Op } = require('sequelize');
   try {
