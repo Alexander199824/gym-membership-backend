@@ -328,6 +328,7 @@ class LocalSalesController {
   }
 
   // ✅ Confirmar transferencia manualmente (solo admin)
+  
   async confirmTransferPayment(req, res) {
     try {
       const { saleId } = req.params;
@@ -386,11 +387,12 @@ class LocalSalesController {
           notes
         }, { transaction });
 
-        // Actualizar movimiento financiero
+        // ✅ ACTUALIZAR MOVIMIENTO FINANCIERO - CORREGIDO
         await FinancialMovements.update(
           { 
             category: 'local_transfer_confirmed',
-            description: `Venta local transferencia ${sale.saleNumber} (CONFIRMADA)`
+            description: `Venta local transferencia ${sale.saleNumber} (CONFIRMADA)`,
+            registeredBy: req.user.id  // ⭐ LÍNEA AGREGADA
           },
           { 
             where: { 
@@ -434,7 +436,7 @@ class LocalSalesController {
       });
     }
   }
-
+  
   // ✅ Obtener transferencias pendientes
   async getPendingTransfers(req, res) {
     try {
