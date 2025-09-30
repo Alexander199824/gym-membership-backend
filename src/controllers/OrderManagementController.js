@@ -180,7 +180,7 @@ class OrderManagementController {
         // Crear movimiento financiero
         await FinancialMovements.create({
           type: 'income',
-          category: 'store_transfer_confirmed',
+          category: 'products_sale',
           description: `Transferencia confirmada - Orden ${order.orderNumber}`,
           amount: order.totalAmount,
           paymentMethod: 'transfer',
@@ -559,7 +559,7 @@ class OrderManagementController {
               where: {
                 referenceId: order.id,
                 referenceType: 'store_order',
-                category: 'store_sale_completed'
+                category: 'products_sale'
               },
               transaction
             });
@@ -567,7 +567,7 @@ class OrderManagementController {
             if (!existingMovement) {
               await FinancialMovements.create({
                 type: 'income',
-                category: 'store_sale_completed',
+                category: 'products_sale',
                 description: `Venta completada - Orden ${order.orderNumber} (${order.deliveryType})`,
                 amount: order.totalAmount,
                 paymentMethod: order.paymentMethod === 'transfer_on_delivery' ? 'transfer' : 

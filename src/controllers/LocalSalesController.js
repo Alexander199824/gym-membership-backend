@@ -130,7 +130,7 @@ class LocalSalesController {
         // Crear movimiento financiero
         await FinancialMovements.create({
           type: 'income',
-          category: 'local_cash_sale',
+          category: 'products_sale',
           description: `Venta local efectivo ${sale.saleNumber}`,
           amount: totalAmount,
           paymentMethod: 'cash',
