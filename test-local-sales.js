@@ -1,4 +1,4 @@
-// test-local-sales.js - TEST COMPLETO DE VENTAS LOCALES v1.0
+// test-local-sales.js - TEST COMPLETO DE VENTAS LOCALES v2.0 - CON VERIFICACIÓN DE STOCK
 const axios = require('axios');
 require('dotenv').config();
 
@@ -10,24 +10,29 @@ class LocalSalesTest {
     this.testProducts = [];
     this.createdSales = [];
     this.pendingTransfers = [];
+    this.stockVerification = []; // ⭐ NUEVO: Para tracking de stock
   }
 
   async runFullTest() {
-    console.log('🏪 Elite Fitness Club - Test de Ventas Locales v1.0');
+    console.log('🏪 Elite Fitness Club - Test de Ventas Locales v2.0');
     console.log('='.repeat(80));
-    console.log('🎯 OBJETIVO: Probar sistema completo de ventas locales');
-    console.log('📋 PROCESO: Login → Productos → Ventas → Transferencias → Reportes\n');
+    console.log('🎯 OBJETIVO: Probar sistema completo de ventas locales + verificar descuento de stock');
+    console.log('📋 PROCESO: Login → Productos → Ventas → Stock Check → Transferencias → Reportes\n');
     
     try {
       await this.loginUsers();
       await this.loadTestProducts();
       await this.testCashSale();
+      await this.verifyStockAfterCashSale(); // ⭐ NUEVO
       await this.testTransferSale();
+      await this.verifyStockAfterTransferSale(); // ⭐ NUEVO
       await this.testProductSearch();
       await this.testPendingTransfers();
       await this.testConfirmTransfer();
+      await this.verifyStockAfterConfirmation(); // ⭐ NUEVO
       await this.testGetSales();
       await this.testDailyReport();
+      await this.showStockVerificationSummary(); // ⭐ NUEVO
       await this.showFinalSummary();
       
       console.log('\n🎉 ¡TEST DE VENTAS COMPLETADO EXITOSAMENTE!');
@@ -52,7 +57,6 @@ class LocalSalesTest {
   async loginUsers() {
     console.log('1. 🔐 Autenticando usuarios...');
     
-    // Login como admin
     try {
       const adminResponse = await axios.post(`${this.baseURL}/api/auth/login`, {
         email: 'admin@gym.com',
@@ -66,7 +70,6 @@ class LocalSalesTest {
       throw new Error(`Login admin falló: ${error.message}`);
     }
     
-    // Login como colaborador (usar mismo usuario admin por ahora)
     this.colaboradorToken = this.adminToken;
     console.log('   ✅ Colaborador token configurado');
   }
@@ -79,7 +82,6 @@ class LocalSalesTest {
     console.log('\n2. 📦 Cargando productos de prueba...');
     
     try {
-      // ESTRATEGIA 1: Buscar productos con los SKUs específicos
       console.log('   🔍 Estrategia 1: Buscando por SKUs específicos...');
       const skus = ['MASSASS-GAdfsIN-3010-C55H', 'UNSDSIF-PER54345F-PL5US-M'];
       
@@ -97,24 +99,18 @@ class LocalSalesTest {
             console.log(`      ✅ "${product.name}" (SKU: ${product.sku})`);
           }
         } catch (error) {
-          // Silenciar errores, intentaremos con estrategia 2
+          // Continuar con la siguiente estrategia
         }
       }
       
-      // ESTRATEGIA 2: Si no encontramos productos específicos, usar cualquier producto disponible
       if (this.testProducts.length < 2) {
         console.log('   🔍 Estrategia 2: Cargando productos disponibles con stock...');
         
         const response = await axios.get(`${this.baseURL}/api/store/products`, {
-          params: { 
-            limit: 20,
-            page: 1
-          }
+          params: { limit: 20, page: 1 }
         });
         
         const allProducts = response.data.data?.products || [];
-        
-        // Filtrar productos con stock disponible
         const availableProducts = allProducts.filter(p => 
           p.isActive && 
           p.stockQuantity > 0 &&
@@ -125,7 +121,6 @@ class LocalSalesTest {
           throw new Error('No hay productos disponibles con stock en la tienda');
         }
         
-        // Tomar hasta 2 productos diferentes
         this.testProducts = [];
         for (let i = 0; i < Math.min(2, availableProducts.length); i++) {
           this.testProducts.push(availableProducts[i]);
@@ -134,14 +129,13 @@ class LocalSalesTest {
         console.log('      ✅ Productos genéricos cargados:');
       }
       
-      // Mostrar productos que se usarán
       console.log('\n   📦 PRODUCTOS SELECCIONADOS PARA EL TEST:');
       this.testProducts.forEach((product, index) => {
         console.log(`      ${index + 1}. "${product.name}"`);
         console.log(`         🆔 ID: ${product.id}`);
         console.log(`         🏷️ SKU: ${product.sku || 'N/A'}`);
         console.log(`         💰 Precio: ${product.price}`);
-        console.log(`         📦 Stock: ${product.stockQuantity} unidades`);
+        console.log(`         📦 Stock INICIAL: ${product.stockQuantity} unidades`); // ⭐ Énfasis en INICIAL
       });
       
       console.log(`\n   🎯 TOTAL: ${this.testProducts.length} producto(s) listo(s) para ventas`);
@@ -165,14 +159,24 @@ class LocalSalesTest {
       return;
     }
     
-    // Crear venta con el primer producto
     const product = this.testProducts[0];
     const quantity = 2;
     const subtotal = parseFloat(product.price) * quantity;
     const discount = 5.00;
-    const taxAmount = subtotal * 0.12; // 12% IVA Guatemala
+    const taxAmount = subtotal * 0.12;
     const total = subtotal + taxAmount - discount;
-    const cashReceived = Math.ceil(total) + 10; // Redondear arriba + dar cambio
+    const cashReceived = Math.ceil(total) + 10;
+    
+    // ⭐ GUARDAR STOCK INICIAL
+    const stockBefore = product.stockQuantity;
+    this.stockVerification.push({
+      productId: product.id,
+      productName: product.name,
+      saleType: 'cash',
+      stockBefore: stockBefore,
+      quantitySold: quantity,
+      expectedStockAfter: stockBefore - quantity
+    });
     
     const cashSaleData = {
       items: [
@@ -194,6 +198,7 @@ class LocalSalesTest {
     console.log('   📋 Datos de la venta:');
     console.log(`      📦 Producto: "${product.name}"`);
     console.log(`      🔢 Cantidad: ${quantity}`);
+    console.log(`      📊 Stock ANTES: ${stockBefore} unidades`); // ⭐ NUEVO
     console.log(`      💵 Subtotal: ${subtotal.toFixed(2)}`);
     console.log(`      📊 IVA (12%): ${taxAmount.toFixed(2)}`);
     console.log(`      🎯 Descuento: -${discount.toFixed(2)}`);
@@ -231,6 +236,54 @@ class LocalSalesTest {
     }
   }
 
+  // ⭐ NUEVO: VERIFICAR STOCK DESPUÉS DE VENTA EN EFECTIVO
+  async verifyStockAfterCashSale() {
+    console.log('\n3.5 🔍 VERIFICACIÓN: Stock después de venta en efectivo...');
+    console.log('   ' + '-'.repeat(70));
+    
+    const verification = this.stockVerification.find(v => v.saleType === 'cash');
+    if (!verification) {
+      console.log('   ⚠️ No hay verificación pendiente para venta en efectivo');
+      return;
+    }
+    
+    try {
+      const response = await axios.get(
+        `${this.baseURL}/api/store/products/${verification.productId}`,
+        {
+          headers: { 'Authorization': `Bearer ${this.adminToken}` }
+        }
+      );
+      
+      const product = response.data.data.product;
+      const stockAfter = product.stockQuantity;
+      
+      verification.stockAfter = stockAfter;
+      verification.stockCorrect = (stockAfter === verification.expectedStockAfter);
+      
+      console.log(`   📦 Producto: "${verification.productName}"`);
+      console.log(`   📊 Stock ANTES de la venta: ${verification.stockBefore}`);
+      console.log(`   🛒 Cantidad vendida: ${verification.quantitySold}`);
+      console.log(`   📊 Stock DESPUÉS de la venta: ${stockAfter}`);
+      console.log(`   ✨ Stock ESPERADO: ${verification.expectedStockAfter}`);
+      
+      if (verification.stockCorrect) {
+        console.log(`   ✅ ¡STOCK DESCONTADO CORRECTAMENTE!`);
+        console.log(`   🎯 Diferencia: ${verification.stockBefore - stockAfter} unidades (OK)`);
+      } else {
+        console.log(`   ❌ ERROR: El stock NO se descontó correctamente`);
+        console.log(`   ⚠️ Stock actual: ${stockAfter}, Esperado: ${verification.expectedStockAfter}`);
+        console.log(`   💥 Diferencia real: ${verification.stockBefore - stockAfter}, Esperado: ${verification.quantitySold}`);
+      }
+      
+    } catch (error) {
+      console.error('   ❌ Error verificando stock después de venta en efectivo');
+      console.error(`      💥 ${error.message}`);
+      verification.stockCorrect = false;
+      verification.error = error.message;
+    }
+  }
+
   // ========================================
   // 4. TEST: VENTA POR TRANSFERENCIA
   // ========================================
@@ -244,10 +297,20 @@ class LocalSalesTest {
       return;
     }
     
-    // Crear venta con el segundo producto
     const product = this.testProducts[1];
     const quantity = 1;
     const total = parseFloat(product.price) * quantity;
+    
+    // ⭐ GUARDAR STOCK INICIAL
+    const stockBefore = product.stockQuantity;
+    this.stockVerification.push({
+      productId: product.id,
+      productName: product.name,
+      saleType: 'transfer',
+      stockBefore: stockBefore,
+      quantitySold: quantity,
+      expectedStockAfter: stockBefore - quantity
+    });
     
     const transferSaleData = {
       items: [
@@ -271,6 +334,7 @@ class LocalSalesTest {
     console.log('   📋 Datos de la venta:');
     console.log(`      📦 Producto: "${product.name}"`);
     console.log(`      🔢 Cantidad: ${quantity}`);
+    console.log(`      📊 Stock ANTES: ${stockBefore} unidades`); // ⭐ NUEVO
     console.log(`      💰 Total: $${total.toFixed(2)}`);
     console.log(`      🏦 Comprobante: ${transferSaleData.transferVoucher.substring(0, 50)}...`);
     console.log(`      👤 Cliente: ${transferSaleData.customerInfo.name}`);
@@ -303,6 +367,55 @@ class LocalSalesTest {
       console.error(`      💥 Status: ${error.response?.status}`);
       console.error(`      💥 Message: ${error.response?.data?.message || error.message}`);
       throw error;
+    }
+  }
+
+  // ⭐ NUEVO: VERIFICAR STOCK DESPUÉS DE VENTA POR TRANSFERENCIA
+  async verifyStockAfterTransferSale() {
+    console.log('\n4.5 🔍 VERIFICACIÓN: Stock después de venta por transferencia...');
+    console.log('   ' + '-'.repeat(70));
+    
+    const verification = this.stockVerification.find(v => v.saleType === 'transfer');
+    if (!verification) {
+      console.log('   ⚠️ No hay verificación pendiente para venta por transferencia');
+      return;
+    }
+    
+    try {
+      const response = await axios.get(
+        `${this.baseURL}/api/store/products/${verification.productId}`,
+        {
+          headers: { 'Authorization': `Bearer ${this.adminToken}` }
+        }
+      );
+      
+      const product = response.data.data.product;
+      const stockAfter = product.stockQuantity;
+      
+      verification.stockAfter = stockAfter;
+      verification.stockCorrect = (stockAfter === verification.expectedStockAfter);
+      
+      console.log(`   📦 Producto: "${verification.productName}"`);
+      console.log(`   📊 Stock ANTES de la venta: ${verification.stockBefore}`);
+      console.log(`   🛒 Cantidad vendida: ${verification.quantitySold}`);
+      console.log(`   📊 Stock DESPUÉS de la venta: ${stockAfter}`);
+      console.log(`   ✨ Stock ESPERADO: ${verification.expectedStockAfter}`);
+      console.log(`   ℹ️ NOTA: Stock se reserva inmediatamente, aunque la transferencia esté pendiente`);
+      
+      if (verification.stockCorrect) {
+        console.log(`   ✅ ¡STOCK DESCONTADO/RESERVADO CORRECTAMENTE!`);
+        console.log(`   🎯 Diferencia: ${verification.stockBefore - stockAfter} unidades (OK)`);
+      } else {
+        console.log(`   ❌ ERROR: El stock NO se descontó correctamente`);
+        console.log(`   ⚠️ Stock actual: ${stockAfter}, Esperado: ${verification.expectedStockAfter}`);
+        console.log(`   💥 Diferencia real: ${verification.stockBefore - stockAfter}, Esperado: ${verification.quantitySold}`);
+      }
+      
+    } catch (error) {
+      console.error('   ❌ Error verificando stock después de venta por transferencia');
+      console.error(`      💥 ${error.message}`);
+      verification.stockCorrect = false;
+      verification.error = error.message;
     }
   }
 
@@ -374,7 +487,6 @@ class LocalSalesTest {
             console.log(`         🔧 Puede confirmar: ${transfer.canConfirm ? 'Sí' : 'No'}`);
           });
           
-          // Guardar para confirmar después
           this.pendingTransfers = transfers;
         }
       }
@@ -431,6 +543,46 @@ class LocalSalesTest {
       console.error('   ❌ Error confirmando transferencia');
       console.error(`      💥 Status: ${error.response?.status}`);
       console.error(`      💥 Message: ${error.response?.data?.message || error.message}`);
+    }
+  }
+
+  // ⭐ NUEVO: VERIFICAR QUE EL STOCK NO CAMBIÓ AL CONFIRMAR
+  async verifyStockAfterConfirmation() {
+    console.log('\n7.5 🔍 VERIFICACIÓN: Stock después de confirmar transferencia...');
+    console.log('   ' + '-'.repeat(70));
+    console.log('   ℹ️ El stock NO debe cambiar al confirmar (ya fue descontado al crear la venta)');
+    
+    const verification = this.stockVerification.find(v => v.saleType === 'transfer');
+    if (!verification || !verification.stockAfter) {
+      console.log('   ⚠️ No hay datos previos de stock para comparar');
+      return;
+    }
+    
+    try {
+      const response = await axios.get(
+        `${this.baseURL}/api/store/products/${verification.productId}`,
+        {
+          headers: { 'Authorization': `Bearer ${this.adminToken}` }
+        }
+      );
+      
+      const product = response.data.data.product;
+      const stockNow = product.stockQuantity;
+      
+      console.log(`   📦 Producto: "${verification.productName}"`);
+      console.log(`   📊 Stock antes de confirmar: ${verification.stockAfter}`);
+      console.log(`   📊 Stock después de confirmar: ${stockNow}`);
+      
+      if (stockNow === verification.stockAfter) {
+        console.log(`   ✅ ¡CORRECTO! El stock NO cambió al confirmar (como se esperaba)`);
+      } else {
+        console.log(`   ⚠️ ADVERTENCIA: El stock cambió al confirmar`);
+        console.log(`   💥 Diferencia: ${verification.stockAfter - stockNow} unidades`);
+      }
+      
+    } catch (error) {
+      console.error('   ❌ Error verificando stock después de confirmación');
+      console.error(`      💥 ${error.message}`);
     }
   }
 
@@ -528,18 +680,63 @@ class LocalSalesTest {
     }
   }
 
+  // ⭐ NUEVO: RESUMEN DE VERIFICACIÓN DE STOCK
+  async showStockVerificationSummary() {
+    console.log('\n10. 📊 RESUMEN DE VERIFICACIÓN DE STOCK');
+    console.log('='.repeat(80));
+    
+    if (this.stockVerification.length === 0) {
+      console.log('   ⚠️ No hay verificaciones de stock registradas');
+      return;
+    }
+    
+    const allCorrect = this.stockVerification.every(v => v.stockCorrect);
+    
+    console.log(`\n   📈 VERIFICACIONES REALIZADAS: ${this.stockVerification.length}`);
+    console.log(`   ✅ Correctas: ${this.stockVerification.filter(v => v.stockCorrect).length}`);
+    console.log(`   ❌ Incorrectas: ${this.stockVerification.filter(v => !v.stockCorrect).length}`);
+    
+    this.stockVerification.forEach((verification, index) => {
+      const icon = verification.stockCorrect ? '✅' : '❌';
+      console.log(`\n   ${icon} VERIFICACIÓN ${index + 1}: ${verification.saleType.toUpperCase()}`);
+      console.log(`      📦 Producto: "${verification.productName}"`);
+      console.log(`      📊 Stock inicial: ${verification.stockBefore}`);
+      console.log(`      🛒 Cantidad vendida: ${verification.quantitySold}`);
+      console.log(`      📊 Stock esperado: ${verification.expectedStockAfter}`);
+      console.log(`      📊 Stock final: ${verification.stockAfter || 'No verificado'}`);
+      
+      if (verification.stockCorrect) {
+        console.log(`      🎯 Resultado: ✅ CORRECTO - Stock descontado apropiadamente`);
+      } else if (verification.error) {
+        console.log(`      💥 Error: ${verification.error}`);
+      } else {
+        console.log(`      ⚠️ Resultado: ❌ INCORRECTO - Stock no coincide`);
+      }
+    });
+    
+    console.log('\n   ' + '='.repeat(76));
+    if (allCorrect) {
+      console.log('   🎉 ¡TODAS LAS VERIFICACIONES DE STOCK PASARON EXITOSAMENTE!');
+      console.log('   ✅ El sistema está descontando el stock correctamente en todas las ventas');
+    } else {
+      console.log('   ⚠️ ALGUNAS VERIFICACIONES DE STOCK FALLARON');
+      console.log('   🔧 Revisa los logs anteriores para más detalles');
+    }
+  }
+
   // ========================================
-  // 10. RESUMEN FINAL
+  // 11. RESUMEN FINAL
   // ========================================
   
   async showFinalSummary() {
-    console.log('\n10. 📊 RESUMEN FINAL DEL TEST');
+    console.log('\n11. 📊 RESUMEN FINAL DEL TEST');
     console.log('='.repeat(80));
     
     console.log('\n🎯 RESULTADOS:');
     console.log(`   📦 Productos cargados: ${this.testProducts.length}`);
     console.log(`   🛒 Ventas creadas: ${this.createdSales.length}`);
     console.log(`   ⏳ Transferencias pendientes: ${this.pendingTransfers.length}`);
+    console.log(`   🔍 Verificaciones de stock: ${this.stockVerification.length}`);
     
     if (this.createdSales.length > 0) {
       const totalAmount = this.createdSales.reduce((sum, sale) => 
@@ -576,6 +773,8 @@ class LocalSalesTest {
     console.log('\n✅ FUNCIONALIDADES PROBADAS:');
     console.log('   ✅ Venta en efectivo');
     console.log('   ✅ Venta por transferencia');
+    console.log('   ✅ Descuento automático de stock'); // ⭐ NUEVO
+    console.log('   ✅ Verificación de stock'); // ⭐ NUEVO
     console.log('   ✅ Búsqueda de productos');
     console.log('   ✅ Transferencias pendientes');
     console.log('   ✅ Confirmación de transferencias');
@@ -589,12 +788,13 @@ class LocalSalesTest {
 // ========================================
 
 function showHelp() {
-  console.log('\n🏪 Elite Fitness Club - Test de Ventas Locales v1.0\n');
-  console.log('🎯 PRUEBA COMPLETA DEL SISTEMA DE VENTAS\n');
+  console.log('\n🏪 Elite Fitness Club - Test de Ventas Locales v2.0\n');
+  console.log('🎯 PRUEBA COMPLETA DEL SISTEMA DE VENTAS + VERIFICACIÓN DE STOCK\n');
   
   console.log('✨ FUNCIONALIDADES:');
   console.log('  💰 Ventas en efectivo con cambio');
   console.log('  🏦 Ventas por transferencia bancaria');
+  console.log('  📦 Verificación automática de descuento de stock'); // ⭐ NUEVO
   console.log('  🔍 Búsqueda rápida de productos');
   console.log('  ⏳ Gestión de transferencias pendientes');
   console.log('  ✅ Confirmación de pagos (admin)');
@@ -607,13 +807,13 @@ function showHelp() {
   console.log('📋 REQUISITOS:');
   console.log('  • Servidor corriendo en puerto 5000');
   console.log('  • Usuario admin: admin@gym.com / Admin123!');
-  console.log('  • Productos registrados (ejecutar test-products-register.js primero)\n');
+  console.log('  • Productos registrados con stock disponible\n');
   
-  console.log('📦 DATOS DE PRUEBA:');
-  console.log('  • Usa productos del test-products-register.js');
-  console.log('  • Crea 1 venta en efectivo');
-  console.log('  • Crea 1 venta por transferencia');
-  console.log('  • Confirma transferencias como admin\n');
+  console.log('🎯 QUÉ VERIFICA:');
+  console.log('  ✅ Stock se descuenta automáticamente en ventas en efectivo');
+  console.log('  ✅ Stock se reserva automáticamente en ventas por transferencia');
+  console.log('  ✅ Stock NO cambia al confirmar transferencias (ya fue descontado)');
+  console.log('  ✅ Cantidad descontada coincide con cantidad vendida\n');
 }
 
 // ========================================
@@ -633,8 +833,18 @@ async function main() {
   try {
     await test.runFullTest();
     
-    console.log('\n✅ TEST COMPLETADO SIN ERRORES');
-    process.exit(0);
+    // ⭐ VERIFICAR SI TODAS LAS PRUEBAS DE STOCK PASARON
+    const allStockVerificationsCorrect = test.stockVerification.every(v => v.stockCorrect);
+    
+    if (allStockVerificationsCorrect) {
+      console.log('\n✅ TEST COMPLETADO SIN ERRORES');
+      console.log('🎉 ¡TODAS LAS VERIFICACIONES DE STOCK PASARON!');
+      process.exit(0);
+    } else {
+      console.log('\n⚠️ TEST COMPLETADO CON ADVERTENCIAS');
+      console.log('❌ Algunas verificaciones de stock fallaron');
+      process.exit(1);
+    }
     
   } catch (error) {
     console.error('\n🚨 TEST FALLÓ');
