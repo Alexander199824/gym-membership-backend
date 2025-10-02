@@ -1,4 +1,4 @@
-// src/controllers/storeController.js - CORREGIDO imports y métodos
+// src/controllers/storeController.js - MODIFICADO: Frontend controla IVA y envío
 const { 
   StoreCategory, 
   StoreBrand, 
@@ -230,9 +230,9 @@ class StoreController {
     }
   }
 
-  // ✅ === CARRITO CORREGIDO ===
+  // ✅ === CARRITO ===
 
-  // ✅ CORREGIDO: Obtener carrito - Usando métodos estáticos
+  // ✅ MODIFICADO: Obtener carrito - Ahora solo sugiere valores, NO los impone
   async getCart(req, res) {
     try {
       const { sessionId } = req.query;
@@ -245,11 +245,9 @@ class StoreController {
       });
 
       if (req.user) {
-        // ✅ Usuario logueado - usar método estático
         cartItems = await StoreCart.getCartByUser(req.user.id);
         console.log('✅ Carrito obtenido para usuario logueado');
       } else if (sessionId) {
-        // ✅ Usuario invitado - usar método estático
         cartItems = await StoreCart.getCartBySession(sessionId);
         console.log('✅ Carrito obtenido para invitado');
       } else {
@@ -259,16 +257,19 @@ class StoreController {
         });
       }
 
-      // ✅ Calcular totales
+      // ✅ Calcular solo el subtotal
       const subtotal = cartItems.reduce((sum, item) => {
         return sum + (parseFloat(item.unitPrice) * item.quantity);
       }, 0);
 
-      const taxAmount = subtotal * 0.12; // 12% IVA
-      const shippingAmount = subtotal >= 300 ? 0 : 25; // Envío gratis por compras mayores a Q300
-      const totalAmount = subtotal + taxAmount + shippingAmount;
+      // ✅ CAMBIO PRINCIPAL: Calcular valores SUGERIDOS, no obligatorios
+      const suggestedTaxRate = 0.12; // 12% IVA sugerido
+      const suggestedTaxAmount = subtotal * suggestedTaxRate;
+      const suggestedShippingThreshold = 300; // Envío gratis sobre Q300
+      const suggestedShippingAmount = subtotal >= suggestedShippingThreshold ? 0 : 25;
+      const suggestedTotalAmount = subtotal + suggestedTaxAmount + suggestedShippingAmount;
 
-      console.log(`📊 Resumen del carrito: ${cartItems.length} items, total: Q${totalAmount.toFixed(2)}`);
+      console.log(`📊 Resumen del carrito: ${cartItems.length} items, subtotal: Q${subtotal.toFixed(2)}`);
 
       res.json({
         success: true,
@@ -277,9 +278,12 @@ class StoreController {
           summary: {
             itemsCount: cartItems.length,
             subtotal: parseFloat(subtotal.toFixed(2)),
-            taxAmount: parseFloat(taxAmount.toFixed(2)),
-            shippingAmount: parseFloat(shippingAmount.toFixed(2)),
-            totalAmount: parseFloat(totalAmount.toFixed(2))
+            // ✅ NUEVO: Valores sugeridos que el frontend puede usar o modificar
+            suggestedTaxRate,
+            suggestedTaxAmount: parseFloat(suggestedTaxAmount.toFixed(2)),
+            suggestedShippingThreshold,
+            suggestedShippingAmount: parseFloat(suggestedShippingAmount.toFixed(2)),
+            suggestedTotalAmount: parseFloat(suggestedTotalAmount.toFixed(2))
           }
         }
       });
@@ -326,12 +330,10 @@ class StoreController {
       let cartData = { productId };
       
       if (req.user) {
-        // Usuario logueado
         cartData.userId = req.user.id;
         cartData.sessionId = null;
         console.log('👤 Agregando para usuario logueado');
       } else if (sessionId) {
-        // Usuario invitado
         cartData.userId = null;
         cartData.sessionId = sessionId;
         console.log('🎫 Agregando para usuario invitado');
@@ -346,12 +348,10 @@ class StoreController {
       const existingCartItem = await StoreCart.findOne({ where: cartData });
 
       if (existingCartItem) {
-        // ✅ Actualizar cantidad
         existingCartItem.quantity += parseInt(quantity);
         await existingCartItem.save();
         console.log('✅ Cantidad actualizada en item existente');
       } else {
-        // ✅ Crear nuevo item
         await StoreCart.create({
           ...cartData,
           quantity: parseInt(quantity),
@@ -389,7 +389,7 @@ class StoreController {
         });
       }
 
-      // ✅ Verificar permisos (usuario logueado o sesión coincidente)
+      // ✅ Verificar permisos
       if (req.user) {
         if (cartItem.userId !== req.user.id) {
           return res.status(403).json({
@@ -398,7 +398,6 @@ class StoreController {
           });
         }
       } else {
-        // Para usuarios invitados, verificar sessionId en query params
         const { sessionId } = req.query;
         if (!sessionId || cartItem.sessionId !== sessionId) {
           return res.status(403).json({
@@ -447,7 +446,7 @@ class StoreController {
         });
       }
 
-      // ✅ Verificar permisos (similar al update)
+      // ✅ Verificar permisos
       if (req.user) {
         if (cartItem.userId !== req.user.id) {
           return res.status(403).json({
@@ -483,26 +482,47 @@ class StoreController {
 
   // ✅ === ÓRDENES ===
 
-  // ✅ CORREGIDO: Crear orden (checkout) - con métodos estáticos
+  // ✅ MODIFICADO: Crear orden - Ahora recibe taxAmount y shippingAmount del frontend
   async createOrder(req, res) {
     try {
       const {
         sessionId,
-        customerInfo, // Para usuarios no logueados
+        customerInfo,
         shippingAddress,
         paymentMethod,
         deliveryTimeSlot,
-        notes
+        notes,
+        // ✅ NUEVO: Recibir estos valores del frontend
+        taxAmount,
+        shippingAmount,
+        discountAmount = 0
       } = req.body;
 
       console.log('📦 Creando orden...', {
         hasUser: !!req.user,
         userId: req.user?.id,
         sessionId,
-        paymentMethod
+        paymentMethod,
+        taxAmount,
+        shippingAmount
       });
 
-      // ✅ Obtener items del carrito usando métodos estáticos corregidos
+      // ✅ VALIDAR que el frontend envíe taxAmount y shippingAmount
+      if (taxAmount === undefined || taxAmount === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'taxAmount es requerido (debe enviarse desde el frontend)'
+        });
+      }
+
+      if (shippingAmount === undefined || shippingAmount === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'shippingAmount es requerido (debe enviarse desde el frontend)'
+        });
+      }
+
+      // ✅ Obtener items del carrito
       let cartItems;
       if (req.user) {
         cartItems = await StoreCart.getCartByUser(req.user.id);
@@ -536,26 +556,48 @@ class StoreController {
         }
       }
 
-      // ✅ Calcular totales
-      const subtotal = cartItems.reduce((sum, item) => sum + (parseFloat(item.unitPrice) * item.quantity), 0);
-      const taxAmount = subtotal * 0.12;
-      const shippingAmount = subtotal >= 300 ? 0 : 25;
-      const totalAmount = subtotal + taxAmount + shippingAmount;
+      // ✅ Calcular solo el subtotal, el resto viene del frontend
+      const subtotal = cartItems.reduce((sum, item) => 
+        sum + (parseFloat(item.unitPrice) * item.quantity), 0
+      );
 
-      console.log('💰 Totales calculados:', {
+      // ✅ Usar los valores recibidos del frontend
+      const finalTaxAmount = parseFloat(taxAmount);
+      const finalShippingAmount = parseFloat(shippingAmount);
+      const finalDiscountAmount = parseFloat(discountAmount) || 0;
+      const totalAmount = subtotal + finalTaxAmount + finalShippingAmount - finalDiscountAmount;
+
+      console.log('💰 Totales recibidos del frontend:', {
         subtotal: subtotal.toFixed(2),
-        taxAmount: taxAmount.toFixed(2),
-        shippingAmount: shippingAmount.toFixed(2),
+        taxAmount: finalTaxAmount.toFixed(2),
+        shippingAmount: finalShippingAmount.toFixed(2),
+        discountAmount: finalDiscountAmount.toFixed(2),
         totalAmount: totalAmount.toFixed(2)
       });
 
-      // ✅ Crear la orden
+      // ✅ Validación de cordura
+      if (totalAmount < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'El total de la orden no puede ser negativo'
+        });
+      }
+
+      if (totalAmount < subtotal - finalDiscountAmount) {
+        return res.status(400).json({
+          success: false,
+          message: 'El total de la orden es inconsistente con el subtotal'
+        });
+      }
+
+      // ✅ Crear la orden con los valores del frontend
       const orderData = {
         userId: req.user?.id || null,
         orderNumber: StoreOrder.generateOrderNumber(),
         subtotal,
-        taxAmount,
-        shippingAmount,
+        taxAmount: finalTaxAmount,
+        shippingAmount: finalShippingAmount,
+        discountAmount: finalDiscountAmount,
         totalAmount,
         paymentMethod,
         paymentStatus: paymentMethod === 'cash_on_delivery' ? 'pending' : 'pending',
@@ -588,7 +630,7 @@ class StoreController {
 
       console.log('✅ Items de orden creados y stock actualizado');
 
-      // ✅ Limpiar carrito usando método estático corregido
+      // ✅ Limpiar carrito
       if (req.user) {
         await StoreCart.clearCart(req.user.id);
         console.log('✅ Carrito de usuario limpiado');
@@ -692,18 +734,27 @@ class StoreController {
     }
   }
 
-  // ✅ Obtener orden por ID corregido
+  // ✅ CORREGIDO: Obtener orden por ID - Removida asociación 'processor' que no existe
   async getOrderById(req, res) {
     try {
       const { id } = req.params;
 
       const order = await StoreOrder.findByPk(id, {
         include: [
-          { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
-          { association: 'processor', attributes: ['id', 'firstName', 'lastName'] },
+          { 
+            association: 'user', 
+            attributes: ['id', 'firstName', 'lastName', 'email'],
+            required: false 
+          },
           { 
             association: 'items',
-            include: [{ association: 'product' }]
+            include: [
+              { 
+                association: 'product',
+                attributes: ['id', 'name', 'sku', 'price'],
+                required: false
+              }
+            ]
           }
         ]
       });
@@ -717,16 +768,13 @@ class StoreController {
 
       // ✅ Verificar permisos
       if (req.user) {
-        // Si es usuario logueado
         if (req.user.role === 'cliente' && order.userId !== req.user.id) {
           return res.status(403).json({
             success: false,
             message: 'No tienes permisos para ver esta orden'
           });
         }
-        // Admin y colaborador pueden ver todas las órdenes
       } else {
-        // Si no hay usuario logueado, solo puede ver órdenes sin usuario (guest orders)
         if (order.userId) {
           return res.status(403).json({
             success: false,
@@ -793,7 +841,7 @@ class StoreController {
     }
   }
 
-  // Actualizar estado de orden (MEJORADO)
+  // Actualizar estado de orden
   async updateOrderStatus(req, res) {
     try {
       const { id } = req.params;
@@ -807,7 +855,6 @@ class StoreController {
         });
       }
 
-      // ✅ Actualizar orden
       order.status = status;
       order.processedBy = req.user.id;
       if (notes) order.notes = notes;
@@ -817,10 +864,8 @@ class StoreController {
         order.deliveryDate = new Date();
         order.paymentStatus = 'paid';
         
-        // ✅ NUEVO: Crear pago automáticamente al entregar
         const { Payment } = require('../models');
         
-        // Verificar si ya existe pago
         const existingPayment = await Payment.findOne({
           where: { 
             referenceId: order.id,
@@ -829,7 +874,6 @@ class StoreController {
         });
 
         if (!existingPayment) {
-          // ✅ Determinar tipo de pago
           let paymentType, paymentMethod;
           switch (order.paymentMethod) {
             case 'cash_on_delivery':
@@ -853,7 +897,6 @@ class StoreController {
               paymentMethod = 'cash';
           }
 
-          // ✅ Crear pago
           const payment = await Payment.create({
             userId: order.userId,
             amount: order.totalAmount,
@@ -868,7 +911,6 @@ class StoreController {
             paymentDate: new Date()
           });
 
-          // ✅ Crear movimiento financiero
           try {
             await FinancialMovements.create({
               type: 'income',
@@ -912,7 +954,6 @@ class StoreController {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      // ✅ Estadísticas del día
       const [
         ordersToday,
         revenueToday,
@@ -934,7 +975,6 @@ class StoreController {
         StoreOrder.count({
           where: { status: ['pending', 'confirmed'] }
         }),
-        // ✅ CORREGIDO: Usar min_stock en lugar de minStock
         StoreProduct.count({
           where: {
             stockQuantity: { [Op.lte]: StoreProduct.sequelize.col('min_stock') },

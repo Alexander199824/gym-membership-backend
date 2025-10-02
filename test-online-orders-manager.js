@@ -1,8 +1,20 @@
 // test-online-orders-manager.js - GESTOR COMPLETO DE PEDIDOS ONLINE
+// Elite Fitness - Sistema de gestión de pedidos con flujos específicos por tipo
 const axios = require('axios');
 const readline = require('readline');
 require('dotenv').config();
 
+/**
+ * GESTOR DE PEDIDOS ONLINE
+ * 
+ * Funcionalidades:
+ * - Flujos específicos por tipo de entrega (delivery, express, pickup)
+ * - Validación OBLIGATORIA de transferencias antes de preparar
+ * - Pagos con tarjeta online: automáticos (sin confirmación)
+ * - Pagos en efectivo: confirmación al entregar
+ * - Tracking obligatorio para envíos
+ * - Gestión paso a paso de estados
+ */
 class OnlineOrdersManager {
   constructor(baseURL = 'http://localhost:5000') {
     this.baseURL = baseURL;
@@ -10,9 +22,6 @@ class OnlineOrdersManager {
     
     // Datos cargados
     this.pendingOrders = [];
-    this.pickupOrders = [];
-    this.deliveryOrders = [];
-    this.expressOrders = [];
     this.allOrders = [];
     this.products = [];
     this.dashboard = null;
@@ -22,13 +31,161 @@ class OnlineOrdersManager {
       input: process.stdin,
       output: process.stdout
     });
+
+    // ============================================================================
+    // DEFINICIÓN DE FLUJOS DE TRABAJO
+    // ============================================================================
+    this.workflows = {
+      delivery: {
+        name: 'Envío a Domicilio',
+        icon: '🚚',
+        steps: [
+          { 
+            status: 'pending', 
+            name: 'Pendiente', 
+            next: 'confirmed',
+            description: 'Pedido recibido, esperando confirmación'
+          },
+          { 
+            status: 'confirmed', 
+            name: 'Confirmado', 
+            next: 'preparing', 
+            requiresTransferValidation: true,
+            description: 'Pedido confirmado. Si es transferencia, debe validarse antes de preparar'
+          },
+          { 
+            status: 'preparing', 
+            name: 'En Preparación', 
+            next: 'packed',
+            description: 'Preparando productos para envío'
+          },
+          { 
+            status: 'packed', 
+            name: 'Empacado', 
+            next: 'shipped', 
+            requiresTracking: true,
+            description: 'Pedido empacado, listo para enviar. Requiere número de guía'
+          },
+          { 
+            status: 'shipped', 
+            name: 'Enviado', 
+            next: 'delivered',
+            description: 'Pedido en ruta hacia el cliente'
+          },
+          { 
+            status: 'delivered', 
+            name: 'Entregado', 
+            requiresCashPayment: true,
+            description: 'Pedido entregado al cliente. Confirmar pago si es contra entrega'
+          }
+        ]
+      },
+      express: {
+        name: 'Envío Express',
+        icon: '⚡',
+        steps: [
+          { 
+            status: 'pending', 
+            name: 'Pendiente', 
+            next: 'confirmed',
+            description: 'Pedido express recibido - PRIORIDAD ALTA'
+          },
+          { 
+            status: 'confirmed', 
+            name: 'Confirmado', 
+            next: 'preparing', 
+            requiresTransferValidation: true,
+            description: 'Pedido confirmado. Si es transferencia, debe validarse antes de preparar'
+          },
+          { 
+            status: 'preparing', 
+            name: 'En Preparación', 
+            next: 'packed',
+            description: 'Preparando productos (2-4 horas)'
+          },
+          { 
+            status: 'packed', 
+            name: 'Empacado', 
+            next: 'shipped', 
+            requiresTracking: true,
+            description: 'Empacado y listo para envío express'
+          },
+          { 
+            status: 'shipped', 
+            name: 'Enviado', 
+            next: 'delivered',
+            description: 'En ruta express hacia el cliente'
+          },
+          { 
+            status: 'delivered', 
+            name: 'Entregado', 
+            requiresCashPayment: true,
+            description: 'Entregado. Confirmar pago si es contra entrega'
+          }
+        ]
+      },
+      pickup: {
+        name: 'Recoger en Tienda',
+        icon: '🏪',
+        steps: [
+          { 
+            status: 'pending', 
+            name: 'Pendiente', 
+            next: 'confirmed',
+            description: 'Pedido para recoger recibido'
+          },
+          { 
+            status: 'confirmed', 
+            name: 'Confirmado', 
+            next: 'preparing', 
+            requiresTransferValidation: true,
+            description: 'Pedido confirmado. Si es transferencia, debe validarse antes de preparar'
+          },
+          { 
+            status: 'preparing', 
+            name: 'En Preparación', 
+            next: 'packed',
+            description: 'Preparando productos para recoger'
+          },
+          { 
+            status: 'packed', 
+            name: 'Empacado', 
+            next: 'ready_pickup',
+            description: 'Empacado y listo para que el cliente recoja'
+          },
+          { 
+            status: 'ready_pickup', 
+            name: 'Listo para Recoger', 
+            next: 'picked_up', 
+            requiresCashPayment: true,
+            description: 'Cliente puede recoger. Verificar identidad y confirmar pago si es en tienda'
+          },
+          { 
+            status: 'picked_up', 
+            name: 'Recogido',
+            description: 'Cliente recogió el pedido exitosamente'
+          }
+        ]
+      }
+    };
   }
 
+  // ============================================================================
+  // INICIO Y AUTENTICACIÓN
+  // ============================================================================
+
   async start() {
-    console.log('🛒 Elite Fitness - GESTOR COMPLETO DE PEDIDOS ONLINE');
-    console.log('='.repeat(80));
-    console.log('📦 FUNCIONES: Confirmar, actualizar estados, modificar datos, gestión completa');
-    console.log('🔧 CARACTERÍSTICAS: Control total del flujo de pedidos online\n');
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║           🛒 ELITE FITNESS - GESTOR DE PEDIDOS ONLINE V2.0                ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+    console.log('\n📦 CARACTERÍSTICAS DEL SISTEMA:');
+    console.log('   ✅ Flujos específicos por tipo de entrega');
+    console.log('   ✅ Gestión paso a paso de estados');
+    console.log('   🏦 Validación OBLIGATORIA de transferencias antes de preparar');
+    console.log('   💳 Pagos con tarjeta online: automáticos (sin confirmación)');
+    console.log('   💰 Pagos en efectivo: confirmación al entregar');
+    console.log('   📦 Tracking obligatorio para envíos');
+    console.log('   🔄 Actualización en tiempo real\n');
     
     try {
       await this.loginAdmin();
@@ -36,21 +193,17 @@ class OnlineOrdersManager {
       await this.showMainMenu();
       
     } catch (error) {
-      console.error('\n❌ Error:', error.message);
+      console.error('\n❌ ERROR CRÍTICO:', error.message);
       if (error.response) {
-        console.error('📋 Detalles:', error.response.data);
+        console.error('📋 Detalles del servidor:', error.response.data);
       }
     } finally {
       this.rl.close();
     }
   }
 
-  // ============================================================================
-  // AUTENTICACIÓN Y CARGA DE DATOS
-  // ============================================================================
-
   async loginAdmin() {
-    console.log('1. 🔐 Autenticando como administrador...');
+    console.log('🔐 Autenticando como administrador...');
     
     try {
       const response = await axios.post(`${this.baseURL}/api/auth/login`, {
@@ -60,36 +213,36 @@ class OnlineOrdersManager {
 
       if (response.data.success && response.data.data.token) {
         this.adminToken = response.data.data.token;
-        console.log('   ✅ Autenticación exitosa');
-        console.log(`   👤 Usuario: ${response.data.data.user.firstName} ${response.data.data.user.lastName}`);
+        console.log(`   ✅ Sesión iniciada: ${response.data.data.user.firstName} ${response.data.data.user.lastName}`);
+        console.log(`   👤 Rol: ${response.data.data.user.role.toUpperCase()}`);
       }
     } catch (error) {
-      throw new Error(`Autenticación falló: ${error.message}`);
+      throw new Error(`Error de autenticación: ${error.message}`);
     }
   }
 
   async loadAllData() {
-    console.log('\n2. 📊 Cargando datos de pedidos online...');
+    console.log('\n📊 Cargando datos del sistema...');
     
     try {
       await Promise.all([
         this.loadDashboard(),
         this.loadAllOrders(),
-        this.loadPendingOrders(),
-        this.loadPickupOrders(),
-        this.loadDeliveryOrders(),
         this.loadProducts()
       ]);
       
-      console.log(`   ✅ Datos cargados:`);
-      console.log(`      📦 Total órdenes: ${this.allOrders.length}`);
-      console.log(`      ⏳ Pendientes confirmación: ${this.pendingOrders.length}`);
-      console.log(`      🏪 Para recogida: ${this.pickupOrders.length}`);
-      console.log(`      🚚 Para entrega: ${this.deliveryOrders.length}`);
-      console.log(`      📦 Productos: ${this.products.length}`);
+      // Filtrar pedidos en proceso
+      this.pendingOrders = this.allOrders.filter(o => 
+        ['pending', 'confirmed', 'preparing', 'packed', 'shipped', 'ready_pickup'].includes(o.status)
+      );
+      
+      console.log('   ✅ Datos cargados exitosamente');
+      console.log(`   📦 Total órdenes: ${this.allOrders.length}`);
+      console.log(`   ⏳ En proceso: ${this.pendingOrders.length}`);
+      console.log(`   📦 Productos: ${this.products.length}`);
       
     } catch (error) {
-      console.log(`   ❌ Error cargando datos: ${error.message}`);
+      console.log(`   ⚠️ Error cargando datos: ${error.message}`);
     }
   }
 
@@ -98,12 +251,11 @@ class OnlineOrdersManager {
       const response = await axios.get(`${this.baseURL}/api/order-management/dashboard`, {
         headers: { 'Authorization': `Bearer ${this.adminToken}` }
       });
-      
       if (response.data.success) {
         this.dashboard = response.data.data;
       }
     } catch (error) {
-      console.warn('⚠️ No se pudo cargar dashboard');
+      console.warn('⚠️ Dashboard no disponible');
     }
   }
 
@@ -113,57 +265,11 @@ class OnlineOrdersManager {
         headers: { 'Authorization': `Bearer ${this.adminToken}` },
         params: { limit: 100 }
       });
-      
       if (response.data.success && response.data.data?.orders) {
         this.allOrders = response.data.data.orders;
       }
     } catch (error) {
-      console.warn('⚠️ No se pudieron cargar todas las órdenes');
-    }
-  }
-
-  async loadPendingOrders() {
-    try {
-      const response = await axios.get(`${this.baseURL}/api/store/management/orders`, {
-        headers: { 'Authorization': `Bearer ${this.adminToken}` },
-        params: { status: 'pending', limit: 50 }
-      });
-      
-      if (response.data.success && response.data.data?.orders) {
-        this.pendingOrders = response.data.data.orders;
-      }
-    } catch (error) {
-      this.pendingOrders = [];
-    }
-  }
-
-  async loadPickupOrders() {
-    try {
-      const response = await axios.get(`${this.baseURL}/api/order-management/orders/delivery-type`, {
-        headers: { 'Authorization': `Bearer ${this.adminToken}` },
-        params: { deliveryType: 'pickup', limit: 50 }
-      });
-      
-      if (response.data.success && response.data.data?.orders) {
-        this.pickupOrders = response.data.data.orders;
-      }
-    } catch (error) {
-      this.pickupOrders = [];
-    }
-  }
-
-  async loadDeliveryOrders() {
-    try {
-      const response = await axios.get(`${this.baseURL}/api/order-management/orders/delivery-type`, {
-        headers: { 'Authorization': `Bearer ${this.adminToken}` },
-        params: { deliveryType: 'delivery', limit: 50 }
-      });
-      
-      if (response.data.success && response.data.data?.orders) {
-        this.deliveryOrders = response.data.data.orders;
-      }
-    } catch (error) {
-      this.deliveryOrders = [];
+      this.allOrders = [];
     }
   }
 
@@ -173,7 +279,6 @@ class OnlineOrdersManager {
         headers: { 'Authorization': `Bearer ${this.adminToken}` },
         params: { limit: 100 }
       });
-      
       if (response.data.success && response.data.data?.products) {
         this.products = response.data.data.products;
       }
@@ -187,946 +292,545 @@ class OnlineOrdersManager {
   // ============================================================================
 
   async showMainMenu() {
-    console.log('\n🛒 GESTOR DE PEDIDOS ONLINE - MENÚ PRINCIPAL');
-    console.log('='.repeat(80));
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                        🛒 MENÚ PRINCIPAL                                   ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
     
-    if (this.dashboard) {
-      console.log('\n📊 RESUMEN RÁPIDO:');
-      console.log(`   ⏳ Pendientes confirmación: ${this.dashboard.summary?.pendingConfirmation || 0}`);
-      console.log(`   🏪 Listos para recogida: ${this.dashboard.summary?.readyForPickup || 0}`);
-      console.log(`   📦 Empaquetados para envío: ${this.dashboard.summary?.packedForShipping || 0}`);
-      console.log(`   🏦 Transferencias pendientes: ${this.dashboard.summary?.pendingTransfers || 0}`);
-      console.log(`   📉 Stock bajo: ${this.dashboard.summary?.lowStockCount || 0}`);
+    // Mostrar resumen del dashboard
+    if (this.dashboard?.summary) {
+      const s = this.dashboard.summary;
+      console.log('\n📊 RESUMEN DEL SISTEMA:');
+      console.log(`   ⏳ Pendientes confirmación: ${s.pendingConfirmation || 0}`);
+      console.log(`   🏪 Listos para recogida: ${s.readyForPickup || 0}`);
+      console.log(`   📦 Empaquetados para envío: ${s.packedForShipping || 0}`);
+      
+      const pendingTransfers = s.pendingTransfers || 0;
+      if (pendingTransfers > 0) {
+        console.log(`   🏦 TRANSFERENCIAS PENDIENTES: ${pendingTransfers} ⚠️ ¡REQUIEREN VALIDACIÓN!`);
+      } else {
+        console.log(`   ✅ Transferencias pendientes: 0`);
+      }
+      
+      console.log(`   📅 Pedidos hoy: ${s.ordersToday || 0}`);
+      console.log(`   💰 Ingresos hoy: Q${(s.revenueToday || 0).toFixed(2)}`);
     }
     
-    console.log('\n📋 OPCIONES:');
-    console.log('1. ⏳ Ver y confirmar pedidos pendientes');
-    console.log('2. 🏪 Gestionar pedidos para RECOGIDA');
-    console.log('3. 🚚 Gestionar pedidos para ENTREGA');
-    console.log('4. ⚡ Gestionar pedidos EXPRESS');
-    console.log('5. 🔍 Buscar pedido específico');
-    console.log('6. ✏️ Modificar datos de envío');
-    console.log('7. 📦 Ver productos y stock afectado');
-    console.log('8. 🏦 Gestionar transferencias pendientes');
-    console.log('9. 📊 Dashboard completo');
-    console.log('10. 🔄 Recargar datos');
-    console.log('0. 🚪 Salir');
+    // Mostrar pedidos en proceso por tipo
+    const byType = {
+      delivery: this.pendingOrders.filter(o => o.deliveryType === 'delivery'),
+      express: this.pendingOrders.filter(o => o.deliveryType === 'express'),
+      pickup: this.pendingOrders.filter(o => o.deliveryType === 'pickup')
+    };
+
+    console.log('\n📦 PEDIDOS EN PROCESO POR TIPO:');
+    console.log(`   🚚 Envíos a domicilio: ${byType.delivery.length}`);
+    console.log(`   ⚡ Envíos express: ${byType.express.length}`);
+    console.log(`   🏪 Para recoger en tienda: ${byType.pickup.length}`);
     
-    const choice = await this.askQuestion('\n🛒 Selecciona una opción (0-10): ');
+    console.log('\n' + '─'.repeat(80));
+    console.log('📋 OPCIONES DISPONIBLES:');
+    console.log('─'.repeat(80));
+    console.log('1. 🚚 Gestionar ENVÍOS A DOMICILIO (delivery)');
+    console.log('2. ⚡ Gestionar ENVÍOS EXPRESS (prioridad alta)');
+    console.log('3. 🏪 Gestionar RECOGIDA EN TIENDA (pickup)');
+    console.log('4. 🏦 Validar TRANSFERENCIAS pendientes ⚠️ ¡PRIORITARIO!');
+    console.log('5. 🔍 Buscar pedido específico');
+    console.log('6. 📊 Ver dashboard completo');
+    console.log('7. 🔄 Recargar datos del sistema');
+    console.log('0. 🚪 Salir del sistema');
+    
+    console.log('\n💡 RECORDATORIOS IMPORTANTES:');
+    console.log('   💳 Tarjeta online: Pago procesado automáticamente');
+    console.log('   🏦 Transferencias: DEBEN validarse antes de preparar');
+    console.log('   💰 Efectivo: Se confirma al momento de entrega/recogida');
+    
+    const choice = await this.askQuestion('\n🛒 Selecciona una opción (0-7): ');
     
     switch (choice.trim()) {
       case '1':
-        await this.managePendingOrders();
+        await this.manageOrdersByType('delivery');
         break;
       case '2':
-        await this.managePickupOrders();
+        await this.manageOrdersByType('express');
         break;
       case '3':
-        await this.manageDeliveryOrders();
+        await this.manageOrdersByType('pickup');
         break;
       case '4':
-        await this.manageExpressOrders();
+        await this.managePendingTransfers();
         break;
       case '5':
         await this.searchSpecificOrder();
         break;
       case '6':
-        await this.modifyShippingData();
-        break;
-      case '7':
-        await this.viewProductsAndStock();
-        break;
-      case '8':
-        await this.managePendingTransfers();
-        break;
-      case '9':
         await this.showFullDashboard();
         break;
-      case '10':
+      case '7':
         await this.loadAllData();
-        await this.askQuestion('\n⏎ Datos recargados. Presiona Enter...');
+        console.log('\n✅ Datos actualizados');
+        await this.askQuestion('\n⏎ Presiona Enter para continuar...');
         break;
       case '0':
-        console.log('\n👋 ¡Hasta luego!');
+        console.log('\n👋 ¡Hasta luego! Cerrando sistema...');
         return;
       default:
-        console.log('\n❌ Opción inválida');
+        console.log('\n❌ Opción inválida. Intenta de nuevo.');
+        await this.askQuestion('\n⏎ Presiona Enter para continuar...');
     }
     
     await this.showMainMenu();
   }
 
   // ============================================================================
-  // GESTIÓN DE PEDIDOS PENDIENTES
+  // GESTIÓN POR TIPO DE ENTREGA
   // ============================================================================
 
-  async managePendingOrders() {
-    console.log('\n⏳ PEDIDOS PENDIENTES DE CONFIRMACIÓN');
-    console.log('='.repeat(80));
-    
-    if (this.pendingOrders.length === 0) {
-      console.log('✅ No hay pedidos pendientes de confirmación');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+  async manageOrdersByType(deliveryType) {
+    const workflow = this.workflows[deliveryType];
+    const orders = this.pendingOrders.filter(o => o.deliveryType === deliveryType);
+
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log(`║  ${workflow.icon} GESTIÓN DE: ${workflow.name.toUpperCase().padEnd(61)}║`);
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+
+    if (orders.length === 0) {
+      console.log(`\n✅ No hay pedidos de tipo "${workflow.name}" en proceso`);
+      await this.askQuestion('\n⏎ Presiona Enter para volver...');
       return;
     }
 
-    this.displayOrders(this.pendingOrders, 'PENDIENTES');
-
-    console.log('\n📋 ACCIONES:');
-    console.log('1. Confirmar un pedido');
-    console.log('2. Confirmar múltiples pedidos');
-    console.log('3. Ver detalles de un pedido');
-    console.log('4. Cancelar un pedido');
-    console.log('0. Volver');
-
-    const action = await this.askQuestion('\n⏳ Selecciona acción: ');
-
-    switch (action.trim()) {
-      case '1':
-        await this.confirmSingleOrder();
-        break;
-      case '2':
-        await this.confirmMultipleOrders();
-        break;
-      case '3':
-        await this.viewOrderDetails(this.pendingOrders);
-        break;
-      case '4':
-        await this.cancelOrder(this.pendingOrders);
-        break;
-    }
-  }
-
-  async confirmSingleOrder() {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido a confirmar (0 para cancelar): ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderNum === '0') return;
-
-    if (orderIndex < 0 || orderIndex >= this.pendingOrders.length) {
-      console.log('❌ Número de pedido inválido');
-      return;
-    }
-
-    const order = this.pendingOrders[orderIndex];
-    
-    console.log(`\n✅ CONFIRMANDO PEDIDO #${order.orderNumber}`);
-    this.displayOrderSummary(order);
-
-    // Solicitar fechas estimadas según el tipo
-    let estimatedDate = null;
-    if (order.deliveryType === 'pickup') {
-      const dateStr = await this.askQuestion('\n📅 Fecha estimada de recogida (YYYY-MM-DD): ');
-      estimatedDate = dateStr.trim() || null;
-    } else {
-      const dateStr = await this.askQuestion('\n📅 Fecha estimada de entrega (YYYY-MM-DD): ');
-      estimatedDate = dateStr.trim() || null;
-    }
-
-    const notes = await this.askQuestion('📝 Notas adicionales (opcional): ');
-    const confirm = await this.askQuestion('\n✅ ¿Confirmar este pedido? (s/n): ');
-
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Confirmación cancelada');
-      return;
-    }
-
-    try {
-      const requestData = {
-        notes: notes || `Pedido confirmado - ${order.deliveryType}`
-      };
-
-      if (order.deliveryType === 'pickup' && estimatedDate) {
-        requestData.estimatedPickup = estimatedDate;
-      } else if (estimatedDate) {
-        requestData.estimatedDelivery = estimatedDate;
-      }
-
-      const response = await axios.post(
-        `${this.baseURL}/api/order-management/${order.id}/confirm`,
-        requestData,
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Pedido confirmado exitosamente');
-        console.log(`   📦 Estado: ${response.data.data.order.status}`);
-        if (response.data.data.order.estimatedDelivery) {
-          console.log(`   📅 Entrega estimada: ${response.data.data.order.estimatedDelivery}`);
-        }
-        if (response.data.data.order.pickupDate) {
-          console.log(`   📅 Recogida estimada: ${response.data.data.order.pickupDate}`);
-        }
-        
-        await this.loadAllData();
-      } else {
-        console.log('❌ Error:', response.data.message);
-      }
-    } catch (error) {
-      console.error('❌ Error confirmando pedido:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async confirmMultipleOrders() {
-    console.log('\n✅ CONFIRMAR MÚLTIPLES PEDIDOS');
-    console.log('Ingresa los números separados por comas (ej: 1,3,5)');
-    
-    const orderNums = await this.askQuestion('\n📦 Números de pedidos: ');
-    const indexes = orderNums.split(',').map(n => parseInt(n.trim()) - 1);
-
-    const validOrders = indexes.filter(i => i >= 0 && i < this.pendingOrders.length);
-    
-    if (validOrders.length === 0) {
-      console.log('❌ No hay pedidos válidos para confirmar');
-      return;
-    }
-
-    console.log(`\n📋 Se confirmarán ${validOrders.length} pedidos:`);
-    validOrders.forEach(i => {
-      const order = this.pendingOrders[i];
-      console.log(`   ${i + 1}. Pedido #${order.orderNumber} - ${order.deliveryType} - Q${order.totalAmount}`);
+    // Mostrar flujo de trabajo
+    console.log('\n📋 FLUJO DE TRABAJO:');
+    console.log('─'.repeat(80));
+    workflow.steps.forEach((step, i) => {
+      const arrow = i < workflow.steps.length - 1 ? ' → ' : '';
+      let extras = '';
+      if (step.requiresTransferValidation) extras = ' [🏦 Validar transferencia]';
+      if (step.requiresTracking) extras = ' [📦 Número de guía]';
+      if (step.requiresCashPayment) extras = ' [💰 Confirmar pago efectivo]';
+      console.log(`   ${i + 1}. ${step.name}${extras}${arrow}`);
     });
 
-    const confirm = await this.askQuestion('\n✅ ¿Confirmar todos estos pedidos? (s/n): ');
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Confirmación cancelada');
-      return;
-    }
+    // Agrupar por estado
+    console.log('\n📊 DISTRIBUCIÓN POR ESTADO:');
+    console.log('─'.repeat(80));
+    const byStatus = {};
+    orders.forEach(order => {
+      byStatus[order.status] = (byStatus[order.status] || []);
+      byStatus[order.status].push(order);
+    });
 
-    let successCount = 0;
-    let errorCount = 0;
+    workflow.steps.forEach(step => {
+      const count = byStatus[step.status]?.length || 0;
+      if (count > 0) {
+        console.log(`   ${this.getStatusIcon(step.status)} ${step.name}: ${count} pedido(s)`);
+      }
+    });
 
-    for (const i of validOrders) {
-      const order = this.pendingOrders[i];
+    // Listar pedidos detallados
+    console.log(`\n📦 LISTA DE PEDIDOS (${orders.length}):`);
+    console.log('─'.repeat(80));
+    orders.forEach((order, i) => {
+      const currentStep = workflow.steps.find(s => s.status === order.status);
+      console.log(`\n   ${i + 1}. 📦 Pedido #${order.orderNumber}`);
+      console.log(`      📊 Estado: ${this.getStatusIcon(order.status)} ${currentStep?.name || order.status}`);
+      console.log(`      💰 Total: Q${order.totalAmount}`);
+      console.log(`      👤 Cliente: ${this.getCustomerName(order)}`);
+      console.log(`      💳 Pago: ${this.getPaymentMethodName(order.paymentMethod)}`);
+      console.log(`      📅 Creado: ${new Date(order.createdAt).toLocaleString('es-GT')}`);
       
-      try {
-        const response = await axios.post(
-          `${this.baseURL}/api/order-management/${order.id}/confirm`,
-          { notes: 'Confirmación masiva' },
-          { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-        );
-
-        if (response.data.success) {
-          console.log(`   ✅ Pedido #${order.orderNumber} confirmado`);
-          successCount++;
-        } else {
-          console.log(`   ❌ Error en #${order.orderNumber}: ${response.data.message}`);
-          errorCount++;
-        }
-      } catch (error) {
-        console.log(`   ❌ Error en #${order.orderNumber}: ${error.message}`);
-        errorCount++;
+      // Alertas importantes
+      if (order.paymentMethod.includes('transfer') && !order.transferConfirmed) {
+        console.log(`      ⚠️  TRANSFERENCIA PENDIENTE - Bloquea preparación`);
+      } else if (order.paymentMethod.includes('transfer') && order.transferConfirmed) {
+        console.log(`      ✅ Transferencia validada - Puede procesarse`);
+      } else if (order.paymentMethod === 'online_card') {
+        console.log(`      ✅ Pago con tarjeta procesado automáticamente`);
       }
-    }
-
-    console.log(`\n📊 RESUMEN: ${successCount} exitosos, ${errorCount} errores`);
-    await this.loadAllData();
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  // ============================================================================
-  // GESTIÓN DE PEDIDOS PARA RECOGIDA
-  // ============================================================================
-
-  async managePickupOrders() {
-    console.log('\n🏪 PEDIDOS PARA RECOGIDA EN TIENDA');
-    console.log('='.repeat(80));
-
-    if (this.pickupOrders.length === 0) {
-      console.log('❌ No hay pedidos para recogida');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    // Agrupar por estado
-    const byStatus = {
-      confirmed: this.pickupOrders.filter(o => o.status === 'confirmed'),
-      preparing: this.pickupOrders.filter(o => o.status === 'preparing'),
-      ready_pickup: this.pickupOrders.filter(o => o.status === 'ready_pickup'),
-      picked_up: this.pickupOrders.filter(o => o.status === 'picked_up')
-    };
-
-    console.log('\n📊 ESTADOS DE PEDIDOS PARA RECOGIDA:');
-    console.log(`   ✅ Confirmados: ${byStatus.confirmed.length}`);
-    console.log(`   👨‍🍳 En preparación: ${byStatus.preparing.length}`);
-    console.log(`   📦 Listos para recoger: ${byStatus.ready_pickup.length}`);
-    console.log(`   ✅ Ya recogidos: ${byStatus.picked_up.length}`);
-
-    this.displayOrders(this.pickupOrders, 'RECOGIDA');
-
-    console.log('\n📋 ACCIONES:');
-    console.log('1. Marcar como "en preparación"');
-    console.log('2. Marcar como "listo para recoger"');
-    console.log('3. Confirmar que fue recogido');
-    console.log('4. Ver detalles de un pedido');
-    console.log('5. Modificar fecha de recogida');
-    console.log('0. Volver');
-
-    const action = await this.askQuestion('\n🏪 Selecciona acción: ');
-
-    switch (action.trim()) {
-      case '1':
-        await this.updateOrderStatusFlow(this.pickupOrders, 'preparing', 'EN PREPARACIÓN');
-        break;
-      case '2':
-        await this.updateOrderStatusFlow(this.pickupOrders, 'ready_pickup', 'LISTO PARA RECOGER');
-        break;
-      case '3':
-        await this.confirmPickup();
-        break;
-      case '4':
-        await this.viewOrderDetails(this.pickupOrders);
-        break;
-      case '5':
-        await this.modifyPickupDate();
-        break;
-    }
-  }
-
-  async confirmPickup() {
-    const readyOrders = this.pickupOrders.filter(o => o.status === 'ready_pickup');
-    
-    if (readyOrders.length === 0) {
-      console.log('\n❌ No hay pedidos listos para confirmar recogida');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    console.log('\n📦 PEDIDOS LISTOS PARA RECOGER:');
-    readyOrders.forEach((order, i) => {
-      console.log(`   ${i + 1}. #${order.orderNumber} - ${this.getCustomerName(order)} - Q${order.totalAmount}`);
-    });
-
-    const orderNum = await this.askQuestion('\n📦 Número de pedido recogido: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= readyOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = readyOrders[orderIndex];
-    
-    console.log(`\n✅ CONFIRMAR RECOGIDA: #${order.orderNumber}`);
-    this.displayOrderSummary(order);
-
-    const verify = await this.askQuestion('\n👤 ¿Verificaste la identidad del cliente? (s/n): ');
-    if (verify.toLowerCase() !== 's') {
-      console.log('❌ Por seguridad, verifica la identidad antes de entregar');
-      return;
-    }
-
-    const notes = await this.askQuestion('📝 Notas (opcional): ');
-    const confirm = await this.askQuestion('\n✅ ¿Confirmar que fue recogido? (s/n): ');
-
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Confirmación cancelada');
-      return;
-    }
-
-    try {
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: 'picked_up',
-          notes: notes || `Recogido en tienda - Verificado`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Recogida confirmada exitosamente');
-        console.log('   📦 El stock se ha actualizado automáticamente');
-        console.log('   💰 El pago se ha registrado como completado');
-        
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async modifyPickupDate() {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= this.pickupOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = this.pickupOrders[orderIndex];
-    
-    console.log(`\n📅 MODIFICAR FECHA DE RECOGIDA: #${order.orderNumber}`);
-    if (order.pickupDate) {
-      console.log(`   Fecha actual: ${new Date(order.pickupDate).toLocaleDateString()}`);
-    }
-
-    const newDate = await this.askQuestion('📅 Nueva fecha (YYYY-MM-DD): ');
-    const notes = await this.askQuestion('📝 Motivo del cambio: ');
-
-    try {
-      // Nota: Esta funcionalidad requeriría un endpoint específico
-      // Por ahora usamos el endpoint de actualización de estado con notas
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: order.status,
-          notes: `Fecha de recogida modificada a ${newDate}. Motivo: ${notes}`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Fecha modificada exitosamente');
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  // ============================================================================
-  // GESTIÓN DE PEDIDOS PARA ENTREGA
-  // ============================================================================
-
-  async manageDeliveryOrders() {
-    console.log('\n🚚 PEDIDOS PARA ENTREGA A DOMICILIO');
-    console.log('='.repeat(80));
-
-    if (this.deliveryOrders.length === 0) {
-      console.log('❌ No hay pedidos para entrega');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    // Agrupar por estado
-    const byStatus = {
-      confirmed: this.deliveryOrders.filter(o => o.status === 'confirmed'),
-      preparing: this.deliveryOrders.filter(o => o.status === 'preparing'),
-      packed: this.deliveryOrders.filter(o => o.status === 'packed'),
-      shipped: this.deliveryOrders.filter(o => o.status === 'shipped'),
-      delivered: this.deliveryOrders.filter(o => o.status === 'delivered')
-    };
-
-    console.log('\n📊 ESTADOS DE PEDIDOS PARA ENTREGA:');
-    console.log(`   ✅ Confirmados: ${byStatus.confirmed.length}`);
-    console.log(`   👨‍🍳 En preparación: ${byStatus.preparing.length}`);
-    console.log(`   📦 Empaquetados: ${byStatus.packed.length}`);
-    console.log(`   🚚 Enviados: ${byStatus.shipped.length}`);
-    console.log(`   ✅ Entregados: ${byStatus.delivered.length}`);
-
-    this.displayOrders(this.deliveryOrders, 'ENTREGA');
-
-    console.log('\n📋 ACCIONES:');
-    console.log('1. Marcar como "en preparación"');
-    console.log('2. Marcar como "empaquetado"');
-    console.log('3. Marcar como "enviado" y asignar tracking');
-    console.log('4. Confirmar entrega');
-    console.log('5. Ver detalles de un pedido');
-    console.log('6. Modificar dirección de envío');
-    console.log('0. Volver');
-
-    const action = await this.askQuestion('\n🚚 Selecciona acción: ');
-
-    switch (action.trim()) {
-      case '1':
-        await this.updateOrderStatusFlow(this.deliveryOrders, 'preparing', 'EN PREPARACIÓN');
-        break;
-      case '2':
-        await this.updateOrderStatusFlow(this.deliveryOrders, 'packed', 'EMPAQUETADO');
-        break;
-      case '3':
-        await this.markAsShipped();
-        break;
-      case '4':
-        await this.confirmDelivery();
-        break;
-      case '5':
-        await this.viewOrderDetails(this.deliveryOrders);
-        break;
-      case '6':
-        await this.modifyShippingAddress();
-        break;
-    }
-  }
-
-  async markAsShipped() {
-    const packedOrders = this.deliveryOrders.filter(o => o.status === 'packed');
-    
-    if (packedOrders.length === 0) {
-      console.log('\n❌ No hay pedidos empaquetados listos para enviar');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    console.log('\n📦 PEDIDOS EMPAQUETADOS:');
-    packedOrders.forEach((order, i) => {
-      console.log(`   ${i + 1}. #${order.orderNumber} - ${this.getCustomerName(order)} - Q${order.totalAmount}`);
-      if (order.shippingAddress) {
-        const addr = typeof order.shippingAddress === 'string' 
-          ? order.shippingAddress 
-          : `${order.shippingAddress.street}, ${order.shippingAddress.city}`;
-        console.log(`      📍 ${addr}`);
-      }
-    });
-
-    const orderNum = await this.askQuestion('\n📦 Número de pedido a enviar: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= packedOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = packedOrders[orderIndex];
-    
-    console.log(`\n🚚 MARCAR COMO ENVIADO: #${order.orderNumber}`);
-    this.displayOrderSummary(order);
-
-    const trackingNumber = await this.askQuestion('\n📦 Número de guía/tracking: ');
-    const courier = await this.askQuestion('🚚 Empresa de envío: ');
-    const notes = await this.askQuestion('📝 Notas adicionales: ');
-
-    if (!trackingNumber.trim()) {
-      console.log('❌ El número de tracking es requerido');
-      return;
-    }
-
-    const confirm = await this.askQuestion('\n✅ ¿Marcar como enviado? (s/n): ');
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Cancelado');
-      return;
-    }
-
-    try {
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: 'shipped',
-          trackingNumber: trackingNumber.trim(),
-          notes: `Enviado con ${courier}. ${notes || ''}`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Pedido marcado como enviado');
-        console.log(`   📦 Tracking: ${trackingNumber}`);
-        console.log('   📦 El stock se ha actualizado automáticamente');
-        
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async confirmDelivery() {
-    const shippedOrders = this.deliveryOrders.filter(o => o.status === 'shipped');
-    
-    if (shippedOrders.length === 0) {
-      console.log('\n❌ No hay pedidos enviados pendientes de confirmar entrega');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    console.log('\n🚚 PEDIDOS ENVIADOS:');
-    shippedOrders.forEach((order, i) => {
-      console.log(`   ${i + 1}. #${order.orderNumber} - ${this.getCustomerName(order)}`);
+      
       if (order.trackingNumber) {
         console.log(`      📦 Tracking: ${order.trackingNumber}`);
       }
     });
 
-    const orderNum = await this.askQuestion('\n📦 Número de pedido entregado: ');
-    const orderIndex = parseInt(orderNum) - 1;
+    console.log('\n' + '─'.repeat(80));
+    console.log('📋 ACCIONES DISPONIBLES:');
+    console.log('─'.repeat(80));
+    console.log('1. ▶️  Avanzar pedido al siguiente paso');
+    console.log('2. 👁️  Ver detalles completos de un pedido');
+    console.log('3. 📋 Ver flujo de trabajo de un pedido');
+    console.log('4. ❌ Cancelar un pedido');
+    console.log('0. ⬅️  Volver al menú principal');
 
-    if (orderIndex < 0 || orderIndex >= shippedOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
+    const action = await this.askQuestion(`\n${workflow.icon} Selecciona acción (0-4): `);
 
-    const order = shippedOrders[orderIndex];
-    
-    console.log(`\n✅ CONFIRMAR ENTREGA: #${order.orderNumber}`);
-
-    const notes = await this.askQuestion('📝 Notas de entrega (opcional): ');
-    const confirm = await this.askQuestion('\n✅ ¿Confirmar que fue entregado? (s/n): ');
-
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Confirmación cancelada');
-      return;
-    }
-
-    try {
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: 'delivered',
-          notes: notes || 'Entregado exitosamente'
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Entrega confirmada exitosamente');
-        console.log('   💰 El pago se ha registrado como completado');
-        console.log('   📦 Pedido finalizado');
-        
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async modifyShippingAddress() {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= this.deliveryOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = this.deliveryOrders[orderIndex];
-    
-    console.log(`\n📍 MODIFICAR DIRECCIÓN: #${order.orderNumber}`);
-    
-    if (order.shippingAddress) {
-      console.log('\n📍 Dirección actual:');
-      const addr = typeof order.shippingAddress === 'string' 
-        ? order.shippingAddress 
-        : JSON.stringify(order.shippingAddress, null, 2);
-      console.log(addr);
-    }
-
-    console.log('\n📝 Ingresa la nueva dirección:');
-    const street = await this.askQuestion('   Calle y número: ');
-    const city = await this.askQuestion('   Ciudad: ');
-    const zone = await this.askQuestion('   Zona: ');
-    const reference = await this.askQuestion('   Referencia: ');
-    const phone = await this.askQuestion('   Teléfono de contacto: ');
-    const reason = await this.askQuestion('📝 Motivo del cambio: ');
-
-    const newAddress = {
-      street: street.trim(),
-      city: city.trim(),
-      zone: zone.trim(),
-      reference: reference.trim(),
-      phone: phone.trim()
-    };
-
-    console.log('\n📍 Nueva dirección:');
-    console.log(JSON.stringify(newAddress, null, 2));
-
-    const confirm = await this.askQuestion('\n✅ ¿Guardar cambios? (s/n): ');
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Cambios cancelados');
-      return;
-    }
-
-    try {
-      // Nota: Esto requeriría un endpoint específico para actualizar dirección
-      // Por ahora lo agregamos como nota en el pedido
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: order.status,
-          notes: `DIRECCIÓN MODIFICADA. Motivo: ${reason}\nNueva dirección: ${JSON.stringify(newAddress)}`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Dirección actualizada en las notas del pedido');
-        console.log('⚠️ IMPORTANTE: Verifica que el mensajero tenga la nueva dirección');
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  // ============================================================================
-  // GESTIÓN DE PEDIDOS EXPRESS
-  // ============================================================================
-
-  async manageExpressOrders() {
-    console.log('\n⚡ PEDIDOS EXPRESS (ENTREGA RÁPIDA)');
-    console.log('='.repeat(80));
-
-    try {
-      const response = await axios.get(`${this.baseURL}/api/order-management/orders/delivery-type`, {
-        headers: { 'Authorization': `Bearer ${this.adminToken}` },
-        params: { deliveryType: 'express', limit: 50 }
-      });
-
-      if (response.data.success && response.data.data?.orders) {
-        this.expressOrders = response.data.data.orders;
-      } else {
-        this.expressOrders = [];
-      }
-
-      if (this.expressOrders.length === 0) {
-        console.log('❌ No hay pedidos express');
-        await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+    switch (action.trim()) {
+      case '1':
+        await this.advanceOrderToNextStep(orders, workflow);
+        break;
+      case '2':
+        await this.viewOrderDetails(orders);
+        break;
+      case '3':
+        await this.showOrderWorkflow(orders, workflow);
+        break;
+      case '4':
+        await this.cancelOrder(orders);
+        break;
+      case '0':
         return;
-      }
-
-      console.log('⚡ PEDIDOS EXPRESS (Prioridad alta):');
-      this.displayOrders(this.expressOrders, 'EXPRESS');
-
-      console.log('\n⚠️ Los pedidos express requieren procesamiento inmediato (2-4 horas)');
-      
-      console.log('\n📋 ACCIONES:');
-      console.log('1. Procesar pedido express');
-      console.log('2. Marcar como enviado');
-      console.log('3. Confirmar entrega');
-      console.log('0. Volver');
-
-      const action = await this.askQuestion('\n⚡ Selecciona acción: ');
-
-      switch (action.trim()) {
-        case '1':
-          await this.updateOrderStatusFlow(this.expressOrders, 'preparing', 'EN PREPARACIÓN EXPRESS');
-          break;
-        case '2':
-          await this.markAsShipped();
-          break;
-        case '3':
-          await this.confirmDelivery();
-          break;
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.message);
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+      default:
+        console.log('\n❌ Opción inválida');
+        await this.askQuestion('\n⏎ Presiona Enter...');
     }
+
+    // Volver a mostrar la gestión del mismo tipo
+    await this.manageOrdersByType(deliveryType);
   }
 
   // ============================================================================
-  // FUNCIONES AUXILIARES
+  // AVANZAR PEDIDO AL SIGUIENTE PASO
   // ============================================================================
 
-  async updateOrderStatusFlow(orders, newStatus, statusName) {
-    if (orders.length === 0) {
-      console.log(`\n❌ No hay pedidos para actualizar a ${statusName}`);
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
+  async advanceOrderToNextStep(orders, workflow) {
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                    ▶️  AVANZAR PEDIDO AL SIGUIENTE PASO                    ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
-    const orderNum = await this.askQuestion(`\n📦 Número de pedido para ${statusName}: `);
+    // Mostrar lista numerada
+    console.log('\n📦 PEDIDOS DISPONIBLES:');
+    orders.forEach((order, i) => {
+      const currentStep = workflow.steps.find(s => s.status === order.status);
+      console.log(`   ${i + 1}. #${order.orderNumber} - ${currentStep?.name} - Q${order.totalAmount}`);
+    });
+
+    const orderNum = await this.askQuestion('\n📦 Número de pedido (0 para cancelar): ');
+    if (orderNum === '0') return;
+
     const orderIndex = parseInt(orderNum) - 1;
-
     if (orderIndex < 0 || orderIndex >= orders.length) {
       console.log('❌ Número inválido');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
     const order = orders[orderIndex];
+    const currentStep = workflow.steps.find(s => s.status === order.status);
     
-    console.log(`\n🔄 ACTUALIZAR A ${statusName}: #${order.orderNumber}`);
-    this.displayOrderSummary(order);
-
-    const notes = await this.askQuestion('📝 Notas (opcional): ');
-    const confirm = await this.askQuestion(`\n✅ ¿Cambiar a ${statusName}? (s/n): `);
-
-    if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Cancelado');
+    if (!currentStep) {
+      console.log('❌ Estado del pedido no reconocido en el flujo de trabajo');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
+    if (!currentStep.next) {
+      console.log('✅ Este pedido ya está en el estado final del flujo');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    const nextStep = workflow.steps.find(s => s.status === currentStep.next);
+
+    console.log('\n' + '─'.repeat(80));
+    console.log('🔄 INFORMACIÓN DEL CAMBIO:');
+    console.log('─'.repeat(80));
+    console.log(`📦 Pedido: #${order.orderNumber}`);
+    console.log(`👤 Cliente: ${this.getCustomerName(order)}`);
+    console.log(`💰 Total: Q${order.totalAmount}`);
+    console.log(`📊 Estado actual: ${this.getStatusIcon(currentStep.status)} ${currentStep.name}`);
+    console.log(`➡️  Siguiente paso: ${this.getStatusIcon(nextStep.status)} ${nextStep.name}`);
+
+    // 🔥 VALIDACIÓN OBLIGATORIA DE TRANSFERENCIAS
+    if (nextStep.requiresTransferValidation) {
+      if (order.paymentMethod.includes('transfer') && !order.transferConfirmed) {
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║                    ❌ ERROR: TRANSFERENCIA NO VALIDADA                     ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log('\n⚠️  No se puede iniciar la preparación de este pedido');
+        console.log('🏦 Este pedido tiene una TRANSFERENCIA BANCARIA SIN VALIDAR');
+        console.log('\n📋 ACCIÓN REQUERIDA:');
+        console.log('   1. Vuelve al menú principal');
+        console.log('   2. Selecciona la opción 4: "Validar TRANSFERENCIAS pendientes"');
+        console.log('   3. Valida la transferencia de este pedido');
+        console.log('   4. Luego podrás continuar con la preparación');
+        await this.askQuestion('\n⏎ Presiona Enter para volver...');
+        return;
+      }
+    }
+
+    // Manejar requerimientos especiales del paso
+    let additionalData = {};
+
+    // 📦 TRACKING PARA ENVÍOS
+    if (nextStep.requiresTracking) {
+      console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+      console.log('║                     📦 GENERAR GUÍA DE ENVÍO                               ║');
+      console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+      
+      const trackingNumber = await this.askQuestion('\n📦 Número de guía/tracking: ');
+      const courier = await this.askQuestion('🚚 Empresa de envío (ej: DHL, FedEx, UPS): ');
+      
+      if (!trackingNumber.trim()) {
+        console.log('\n❌ El número de tracking es OBLIGATORIO para envíos');
+        await this.askQuestion('\n⏎ Presiona Enter...');
+        return;
+      }
+      
+      additionalData.trackingNumber = trackingNumber.trim();
+      additionalData.notes = `Enviado con ${courier}`;
+      
+      console.log(`\n✅ Tracking registrado: ${trackingNumber}`);
+    }
+
+    // 💰 CONFIRMACIÓN DE PAGO (solo para efectivo/tarjeta contra entrega)
+    if (nextStep.requiresCashPayment) {
+      if (order.paymentMethod === 'cash_on_delivery') {
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║              💰 CONFIRMAR PAGO EN EFECTIVO CONTRA ENTREGA                  ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log(`\n   Método: Efectivo contra entrega`);
+        console.log(`   Monto a cobrar: Q${order.totalAmount}`);
+        
+        const paymentConfirmed = await this.askQuestion('\n¿El cliente pagó en efectivo? (s/n): ');
+        if (paymentConfirmed.toLowerCase() !== 's') {
+          console.log('\n❌ No se puede completar la entrega sin confirmar el pago');
+          await this.askQuestion('\n⏎ Presiona Enter...');
+          return;
+        }
+        
+        const receiptNumber = await this.askQuestion('Número de recibo (opcional): ');
+        additionalData.notes = (additionalData.notes || '') + 
+          `\n💰 Pago confirmado: Efectivo Q${order.totalAmount}` +
+          (receiptNumber ? ` - Recibo: ${receiptNumber}` : '');
+        
+        console.log('\n✅ Pago en efectivo confirmado');
+      } 
+      else if (order.paymentMethod === 'cash_on_pickup') {
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║               💰 CONFIRMAR PAGO EN EFECTIVO EN TIENDA                      ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log(`\n   Método: Efectivo en tienda`);
+        console.log(`   Monto a cobrar: Q${order.totalAmount}`);
+        
+        const verifyIdentity = await this.askQuestion('\n¿Verificaste la identidad del cliente? (s/n): ');
+        if (verifyIdentity.toLowerCase() !== 's') {
+          console.log('\n❌ Por seguridad, verifica la identidad antes de entregar');
+          await this.askQuestion('\n⏎ Presiona Enter...');
+          return;
+        }
+        
+        const paymentConfirmed = await this.askQuestion('¿El cliente pagó en efectivo? (s/n): ');
+        if (paymentConfirmed.toLowerCase() !== 's') {
+          console.log('\n❌ No se puede completar sin confirmar el pago');
+          await this.askQuestion('\n⏎ Presiona Enter...');
+          return;
+        }
+        
+        additionalData.notes = (additionalData.notes || '') + 
+          `\n💰 Pago confirmado: Efectivo en tienda Q${order.totalAmount}\n👤 Identidad verificada`;
+        
+        console.log('\n✅ Pago confirmado e identidad verificada');
+      }
+      else if (order.paymentMethod === 'card_on_delivery') {
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║              💳 CONFIRMAR PAGO CON TARJETA CONTRA ENTREGA                  ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log(`\n   Método: Tarjeta contra entrega`);
+        console.log(`   Monto a cobrar: Q${order.totalAmount}`);
+        
+        const paymentConfirmed = await this.askQuestion('\n¿Se procesó el pago con tarjeta exitosamente? (s/n): ');
+        if (paymentConfirmed.toLowerCase() !== 's') {
+          console.log('\n❌ No se puede completar sin confirmar el pago');
+          await this.askQuestion('\n⏎ Presiona Enter...');
+          return;
+        }
+        
+        const authCode = await this.askQuestion('Código de autorización (opcional): ');
+        additionalData.notes = (additionalData.notes || '') + 
+          `\n💳 Pago con tarjeta confirmado: Q${order.totalAmount}` +
+          (authCode ? ` - Auth: ${authCode}` : '');
+        
+        console.log('\n✅ Pago con tarjeta procesado');
+      }
+      else if (order.paymentMethod === 'online_card' || order.paymentMethod === 'transfer') {
+        console.log('\n✅ PAGO YA PROCESADO PREVIAMENTE');
+        if (order.paymentMethod === 'online_card') {
+          console.log('   💳 Pago con tarjeta online - Procesado automáticamente');
+        } else {
+          console.log('   🏦 Transferencia bancaria - Validada previamente');
+        }
+        additionalData.notes = (additionalData.notes || '') + 
+          `\n✅ Pago verificado: ${this.getPaymentMethodName(order.paymentMethod)}`;
+      }
+    }
+
+    // Solicitar notas adicionales
+    const notes = await this.askQuestion('\n📝 Notas adicionales (opcional, Enter para omitir): ');
+    if (notes.trim()) {
+      additionalData.notes = (additionalData.notes || '') + '\n' + notes.trim();
+    }
+
+    // Confirmación final
+    console.log('\n' + '─'.repeat(80));
+    const confirm = await this.askQuestion(`✅ ¿Confirmar avance a "${nextStep.name}"? (s/n): `);
+    if (confirm.toLowerCase() !== 's') {
+      console.log('\n❌ Operación cancelada');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    // Ejecutar actualización
     try {
       const response = await axios.patch(
         `${this.baseURL}/api/order-management/${order.id}/status`,
         {
-          status: newStatus,
-          notes: notes || `Estado actualizado a ${statusName}`
+          status: nextStep.status,
+          ...additionalData
         },
         { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
       );
 
       if (response.data.success) {
-        console.log(`\n✅ Estado actualizado a ${statusName}`);
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║                         ✅ OPERACIÓN EXITOSA                               ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log(`\n📦 Pedido #${order.orderNumber} avanzado a: ${nextStep.name}`);
+        
+        if (nextStep.status === 'delivered' || nextStep.status === 'picked_up') {
+          console.log('\n📊 ACCIONES AUTOMÁTICAS REALIZADAS:');
+          console.log('   ✅ Movimiento financiero registrado');
+          console.log('   ✅ Stock actualizado automáticamente');
+          console.log('   ✅ Pedido completado');
+        }
+        
         await this.loadAllData();
       }
     } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
+      console.log('\n❌ ERROR al actualizar el pedido:');
+      console.error('   ', error.response?.data?.message || error.message);
     }
 
     await this.askQuestion('\n⏎ Presiona Enter para continuar...');
   }
 
-  async searchSpecificOrder() {
-    console.log('\n🔍 BUSCAR PEDIDO ESPECÍFICO');
-    console.log('='.repeat(60));
-    
-    const searchTerm = await this.askQuestion('🔍 Número de pedido o nombre de cliente: ');
-    
-    if (!searchTerm.trim()) return;
+  // ============================================================================
+  // MOSTRAR WORKFLOW DE UN PEDIDO
+  // ============================================================================
 
-    const results = this.allOrders.filter(order => {
-      const orderNum = (order.orderNumber || '').toLowerCase();
-      const customerName = this.getCustomerName(order).toLowerCase();
-      const search = searchTerm.toLowerCase();
-      
-      return orderNum.includes(search) || customerName.includes(search);
+  async showOrderWorkflow(orders, workflow) {
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                    📋 FLUJO DE TRABAJO DEL PEDIDO                          ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+
+    // Mostrar lista
+    console.log('\n📦 PEDIDOS DISPONIBLES:');
+    orders.forEach((order, i) => {
+      console.log(`   ${i + 1}. #${order.orderNumber} - ${this.getCustomerName(order)}`);
     });
 
-    if (results.length === 0) {
-      console.log('❌ No se encontraron pedidos');
-    } else {
-      console.log(`\n📋 RESULTADOS (${results.length}):`);
-      this.displayOrders(results, 'BÚSQUEDA');
+    const orderNum = await this.askQuestion('\n📦 Número de pedido (0 para cancelar): ');
+    if (orderNum === '0') return;
+
+    const orderIndex = parseInt(orderNum) - 1;
+    if (orderIndex < 0 || orderIndex >= orders.length) {
+      console.log('❌ Número inválido');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    const order = orders[orderIndex];
+    const currentStepIndex = workflow.steps.findIndex(s => s.status === order.status);
+
+    console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log(`║  📦 PEDIDO #${order.orderNumber.padEnd(66)}║`);
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+
+    console.log('\n📋 PROGRESO DEL FLUJO:');
+    console.log('─'.repeat(80));
+
+    workflow.steps.forEach((step, i) => {
+      const icon = i < currentStepIndex ? '✅' : 
+                   i === currentStepIndex ? '🔄' : '⏳';
+      const status = i < currentStepIndex ? 'COMPLETADO' : 
+                     i === currentStepIndex ? '🔸 ACTUAL 🔸' : 'PENDIENTE';
       
-      const viewDetails = await this.askQuestion('\n👁️ ¿Ver detalles de alguno? (s/n): ');
-      if (viewDetails.toLowerCase() === 's') {
-        await this.viewOrderDetails(results);
+      console.log(`\n   ${icon} ${step.name} - ${status}`);
+      console.log(`      ${step.description}`);
+      
+      if (step.requiresTransferValidation && i === currentStepIndex) {
+        console.log(`      🏦 Requiere: Validación de transferencia (si aplica)`);
+      }
+      if (step.requiresTracking && i === currentStepIndex) {
+        console.log(`      📦 Requiere: Número de guía/tracking obligatorio`);
+      }
+      if (step.requiresCashPayment && i === currentStepIndex) {
+        if (order.paymentMethod === 'cash_on_delivery' || order.paymentMethod === 'cash_on_pickup') {
+          console.log(`      💰 Requiere: Confirmación de pago en efectivo`);
+        } else if (order.paymentMethod === 'card_on_delivery') {
+          console.log(`      💳 Requiere: Procesar pago con tarjeta`);
+        } else {
+          console.log(`      ✅ Pago ya procesado`);
+        }
+      }
+      
+      if (i === currentStepIndex && step.next) {
+        const nextStep = workflow.steps.find(s => s.status === step.next);
+        console.log(`      ➡️  Siguiente paso: ${nextStep.name}`);
+      }
+    });
+
+    console.log('\n' + '─'.repeat(80));
+    console.log('📊 INFORMACIÓN DEL PEDIDO:');
+    console.log('─'.repeat(80));
+    console.log(`   💰 Total: Q${order.totalAmount}`);
+    console.log(`   👤 Cliente: ${this.getCustomerName(order)}`);
+    console.log(`   💳 Método de pago: ${this.getPaymentMethodName(order.paymentMethod)}`);
+    console.log(`   📅 Fecha de creación: ${new Date(order.createdAt).toLocaleString('es-GT')}`);
+
+    if (order.trackingNumber) {
+      console.log(`   📦 Número de tracking: ${order.trackingNumber}`);
+    }
+
+    // Estado detallado del pago
+    console.log('\n💳 ESTADO DEL PAGO:');
+    if (order.paymentMethod.includes('transfer')) {
+      if (order.transferConfirmed) {
+        console.log(`   ✅ Transferencia VALIDADA - El pedido puede procesarse`);
+      } else {
+        console.log(`   ⚠️  Transferencia PENDIENTE - Bloquea la preparación del pedido`);
+      }
+    } else if (order.paymentMethod === 'online_card') {
+      console.log(`   ✅ Pago procesado automáticamente con tarjeta online`);
+    } else if (order.paymentMethod === 'cash_on_delivery' || order.paymentMethod === 'cash_on_pickup') {
+      if (order.status === 'delivered' || order.status === 'picked_up') {
+        console.log(`   ✅ Pago confirmado al momento de la entrega`);
+      } else {
+        console.log(`   ⏳ Se confirmará al momento de la entrega/recogida`);
+      }
+    } else if (order.paymentMethod === 'card_on_delivery') {
+      if (order.status === 'delivered') {
+        console.log(`   ✅ Pago procesado al momento de la entrega`);
+      } else {
+        console.log(`   ⏳ Se procesará al momento de la entrega`);
       }
     }
 
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+    await this.askQuestion('\n⏎ Presiona Enter para volver...');
   }
 
-  async viewOrderDetails(ordersList) {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= ordersList.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = ordersList[orderIndex];
-    
-    console.log(`\n📦 DETALLES COMPLETOS - PEDIDO #${order.orderNumber}`);
-    console.log('='.repeat(80));
-    
-    console.log('\n📊 INFORMACIÓN GENERAL:');
-    console.log(`   Estado: ${this.getStatusIcon(order.status)} ${order.status.toUpperCase()}`);
-    console.log(`   Tipo: ${this.getDeliveryTypeIcon(order.deliveryType)} ${order.deliveryType?.toUpperCase() || 'N/A'}`);
-    console.log(`   Fecha: ${new Date(order.createdAt).toLocaleString()}`);
-    
-    console.log('\n👤 CLIENTE:');
-    console.log(`   Nombre: ${this.getCustomerName(order)}`);
-    if (order.user?.email) console.log(`   Email: ${order.user.email}`);
-    if (order.user?.phone) console.log(`   Teléfono: ${order.user.phone}`);
-    
-    if (order.shippingAddress) {
-      console.log('\n📍 DIRECCIÓN DE ENVÍO:');
-      const addr = typeof order.shippingAddress === 'string' 
-        ? order.shippingAddress 
-        : JSON.stringify(order.shippingAddress, null, 2);
-      console.log(addr);
-    }
-
-    console.log('\n💰 RESUMEN FINANCIERO:');
-    console.log(`   Subtotal: Q${order.subtotal || 0}`);
-    console.log(`   Impuestos: Q${order.taxAmount || 0}`);
-    console.log(`   Envío: Q${order.shippingAmount || 0}`);
-    if (order.discountAmount > 0) console.log(`   Descuento: -Q${order.discountAmount}`);
-    console.log(`   TOTAL: Q${order.totalAmount}`);
-    console.log(`   Método de pago: ${order.paymentMethod}`);
-    console.log(`   Estado de pago: ${order.paymentStatus}`);
-
-    if (order.items && order.items.length > 0) {
-      console.log('\n📦 PRODUCTOS:');
-      order.items.forEach((item, i) => {
-        console.log(`   ${i + 1}. ${item.productName}`);
-        console.log(`      SKU: ${item.productSku}`);
-        console.log(`      Cantidad: ${item.quantity}`);
-        console.log(`      Precio unitario: Q${item.unitPrice}`);
-        console.log(`      Total: Q${item.totalPrice}`);
-      });
-    }
-
-    if (order.trackingNumber) {
-      console.log(`\n📦 Número de tracking: ${order.trackingNumber}`);
-    }
-
-    if (order.estimatedDelivery) {
-      console.log(`\n📅 Entrega estimada: ${new Date(order.estimatedDelivery).toLocaleDateString()}`);
-    }
-
-    if (order.pickupDate) {
-      console.log(`\n📅 Fecha de recogida: ${new Date(order.pickupDate).toLocaleDateString()}`);
-    }
-
-    if (order.notes) {
-      console.log(`\n📝 NOTAS:\n${order.notes}`);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async viewProductsAndStock() {
-    console.log('\n📦 PRODUCTOS Y STOCK AFECTADO');
-    console.log('='.repeat(80));
-
-    if (this.products.length === 0) {
-      console.log('❌ No hay productos cargados');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    console.log('\n📊 RESUMEN DE INVENTARIO:');
-    
-    const lowStock = this.products.filter(p => p.stockQuantity <= (p.minStock || 5));
-    const outOfStock = this.products.filter(p => p.stockQuantity === 0);
-    const totalValue = this.products.reduce((sum, p) => sum + (p.stockQuantity * p.price), 0);
-
-    console.log(`   📦 Total productos: ${this.products.length}`);
-    console.log(`   🟢 En stock: ${this.products.filter(p => p.stockQuantity > (p.minStock || 5)).length}`);
-    console.log(`   🟡 Stock bajo: ${lowStock.length}`);
-    console.log(`   🔴 Sin stock: ${outOfStock.length}`);
-    console.log(`   💎 Valor total inventario: Q${totalValue.toFixed(2)}`);
-
-    if (lowStock.length > 0) {
-      console.log('\n🟡 PRODUCTOS CON STOCK BAJO:');
-      lowStock.slice(0, 10).forEach((product, i) => {
-        console.log(`   ${i + 1}. ${product.name}`);
-        console.log(`      Stock: ${product.stockQuantity} (mínimo: ${product.minStock || 5})`);
-        console.log(`      Precio: Q${product.price}`);
-      });
-    }
-
-    if (outOfStock.length > 0) {
-      console.log('\n🔴 PRODUCTOS SIN STOCK:');
-      outOfStock.slice(0, 10).forEach((product, i) => {
-        console.log(`   ${i + 1}. ${product.name} - Q${product.price}`);
-      });
-    }
-
-    const viewMore = await this.askQuestion('\n📦 ¿Ver lista completa de productos? (s/n): ');
-    if (viewMore.toLowerCase() === 's') {
-      console.log('\n📦 TODOS LOS PRODUCTOS:');
-      this.products.forEach((product, i) => {
-        const stockStatus = product.stockQuantity === 0 ? '🔴' : 
-                          product.stockQuantity <= (product.minStock || 5) ? '🟡' : '🟢';
-        console.log(`   ${i + 1}. ${product.name}`);
-        console.log(`      ${stockStatus} Stock: ${product.stockQuantity} - Precio: Q${product.price}`);
-      });
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
+  // ============================================================================
+  // GESTIÓN DE TRANSFERENCIAS PENDIENTES
+  // ============================================================================
 
   async managePendingTransfers() {
-    console.log('\n🏦 TRANSFERENCIAS PENDIENTES');
-    console.log('='.repeat(80));
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║              🏦 VALIDACIÓN DE TRANSFERENCIAS BANCARIAS                     ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
     try {
       const response = await axios.get(`${this.baseURL}/api/order-management/pending-transfers`, {
@@ -1134,49 +838,110 @@ class OnlineOrdersManager {
       });
 
       if (!response.data.success || !response.data.data?.orders || response.data.data.orders.length === 0) {
-        console.log('✅ No hay transferencias pendientes');
-        await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+        console.log('\n✅ ¡Excelente! No hay transferencias pendientes de validar');
+        console.log('\nTodas las transferencias han sido procesadas correctamente.');
+        await this.askQuestion('\n⏎ Presiona Enter para volver...');
         return;
       }
 
       const transfers = response.data.data.orders;
 
-      console.log(`\n📋 TRANSFERENCIAS PENDIENTES (${transfers.length}):`);
+      console.log(`\n⚠️  HAY ${transfers.length} TRANSFERENCIA(S) PENDIENTE(S) DE VALIDACIÓN`);
+      console.log('─'.repeat(80));
+      console.log('\nEstas transferencias BLOQUEAN la preparación de los pedidos.');
+      console.log('Es PRIORITARIO validarlas para que los pedidos puedan procesarse.\n');
+
       transfers.forEach((order, i) => {
+        const hoursWaiting = (new Date() - new Date(order.createdAt)) / 3600000;
+        const priority = hoursWaiting > 24 ? '🔴 URGENTE' : hoursWaiting > 12 ? '🟡 ALTA' : '🟢 NORMAL';
+        
         console.log(`\n   ${i + 1}. Pedido #${order.orderNumber}`);
         console.log(`      💰 Monto: Q${order.totalAmount}`);
         console.log(`      👤 Cliente: ${this.getCustomerName(order)}`);
-        console.log(`      📅 Fecha: ${new Date(order.createdAt).toLocaleString()}`);
-        console.log(`      ⏱️ Tiempo esperando: ${this.getTimeSince(order.createdAt)}`);
+        console.log(`      📅 Fecha del pedido: ${new Date(order.createdAt).toLocaleString('es-GT')}`);
+        console.log(`      ⏱️  Tiempo esperando: ${Math.floor(hoursWaiting)} horas`);
+        console.log(`      📊 Estado del pedido: ${order.status}`);
+        console.log(`      🚦 Prioridad: ${priority}`);
       });
 
-      const confirm = await this.askQuestion('\n✅ ¿Confirmar alguna transferencia? (s/n): ');
-      if (confirm.toLowerCase() === 's') {
-        const orderNum = await this.askQuestion('📦 Número de transferencia: ');
-        const orderIndex = parseInt(orderNum) - 1;
+      console.log('\n' + '─'.repeat(80));
+      console.log('📋 ACCIONES DISPONIBLES:');
+      console.log('─'.repeat(80));
+      console.log('1. ✅ Validar una transferencia (aprobar)');
+      console.log('2. ❌ Rechazar una transferencia');
+      console.log('3. 👁️  Ver detalles de un pedido');
+      console.log('0. ⬅️  Volver al menú principal');
 
-        if (orderIndex >= 0 && orderIndex < transfers.length) {
-          await this.confirmTransfer(transfers[orderIndex]);
-        }
+      const action = await this.askQuestion('\n🏦 Selecciona acción (0-3): ');
+
+      switch (action.trim()) {
+        case '1':
+          await this.validateTransfer(transfers);
+          break;
+        case '2':
+          await this.rejectTransfer(transfers);
+          break;
+        case '3':
+          await this.viewTransferDetails(transfers);
+          break;
+        case '0':
+          return;
+        default:
+          console.log('\n❌ Opción inválida');
+          await this.askQuestion('\n⏎ Presiona Enter...');
       }
-    } catch (error) {
-      console.error('❌ Error:', error.message);
-    }
 
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
+      // Recargar y volver a mostrar
+      await this.loadAllData();
+      await this.managePendingTransfers();
+
+    } catch (error) {
+      console.error('\n❌ Error al cargar transferencias:', error.message);
+      await this.askQuestion('\n⏎ Presiona Enter...');
+    }
   }
 
-  async confirmTransfer(order) {
-    console.log(`\n🏦 CONFIRMAR TRANSFERENCIA - Pedido #${order.orderNumber}`);
-    this.displayOrderSummary(order);
+  async validateTransfer(transfers) {
+    console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                    ✅ VALIDAR TRANSFERENCIA BANCARIA                        ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
-    const voucherDetails = await this.askQuestion('\n📝 Detalles del voucher: ');
-    const bankReference = await this.askQuestion('🏦 Referencia bancaria: ');
-    const notes = await this.askQuestion('📝 Notas adicionales: ');
+    const orderNum = await this.askQuestion('\n📦 Número de transferencia a validar (0 para cancelar): ');
+    if (orderNum === '0') return;
 
-    const confirm = await this.askQuestion('\n✅ ¿Confirmar transferencia? (s/n): ');
+    const orderIndex = parseInt(orderNum) - 1;
+    if (orderIndex < 0 || orderIndex >= transfers.length) {
+      console.log('\n❌ Número inválido');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    const order = transfers[orderIndex];
+    
+    console.log('\n📊 INFORMACIÓN DEL PEDIDO:');
+    console.log('─'.repeat(80));
+    console.log(`   Pedido: #${order.orderNumber}`);
+    console.log(`   Cliente: ${this.getCustomerName(order)}`);
+    console.log(`   Monto: Q${order.totalAmount}`);
+    console.log(`   Tipo: ${order.deliveryType}`);
+
+    console.log('\n📝 INFORMACIÓN DE LA TRANSFERENCIA:');
+    console.log('─'.repeat(80));
+    const voucherDetails = await this.askQuestion('Descripción del voucher/boleta: ');
+    const bankReference = await this.askQuestion('Número de referencia bancaria: ');
+    const notes = await this.askQuestion('Notas adicionales (opcional): ');
+
+    if (!voucherDetails.trim() || !bankReference.trim()) {
+      console.log('\n❌ La descripción del voucher y la referencia bancaria son obligatorias');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    console.log('\n' + '─'.repeat(80));
+    const confirm = await this.askQuestion('✅ ¿CONFIRMAR que la transferencia es VÁLIDA? (s/n): ');
     if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Cancelado');
+      console.log('\n❌ Validación cancelada');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
@@ -1192,285 +957,61 @@ class OnlineOrdersManager {
       );
 
       if (response.data.success) {
-        console.log('\n✅ Transferencia confirmada exitosamente');
-        await this.loadAllData();
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║                    ✅ TRANSFERENCIA VALIDADA EXITOSAMENTE                  ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log('\n📊 ACCIONES REALIZADAS:');
+        console.log('   ✅ Transferencia marcada como válida');
+        console.log('   ✅ Movimiento financiero registrado');
+        console.log('   ✅ Pedido desbloqueado para preparación');
+        console.log('\n💡 El pedido ahora puede continuar su procesamiento normal.');
       }
     } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-  }
-
-  async showFullDashboard() {
-    console.log('\n📊 DASHBOARD COMPLETO DE PEDIDOS ONLINE');
-    console.log('='.repeat(80));
-
-    if (!this.dashboard) {
-      console.log('❌ No se pudo cargar el dashboard');
-      await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-      return;
-    }
-
-    const summary = this.dashboard.summary || {};
-
-    console.log('\n📈 RESUMEN GENERAL:');
-    console.log(`   ⏳ Pendientes confirmación: ${summary.pendingConfirmation || 0}`);
-    console.log(`   🏪 Listos para recogida: ${summary.readyForPickup || 0}`);
-    console.log(`   📦 Empaquetados para envío: ${summary.packedForShipping || 0}`);
-    console.log(`   🏦 Transferencias pendientes: ${summary.pendingTransfers || 0}`);
-    console.log(`   📅 Pedidos hoy: ${summary.ordersToday || 0}`);
-    console.log(`   💰 Ingresos hoy: Q${(summary.revenueToday || 0).toFixed(2)}`);
-    console.log(`   📉 Productos con stock bajo: ${summary.lowStockCount || 0}`);
-
-    if (this.dashboard.recentOrders && this.dashboard.recentOrders.length > 0) {
-      console.log('\n📋 PEDIDOS RECIENTES:');
-      this.dashboard.recentOrders.slice(0, 5).forEach((order, i) => {
-        console.log(`   ${i + 1}. #${order.orderNumber} - ${order.status} - Q${order.totalAmount}`);
-      });
-    }
-
-    // Estadísticas adicionales
-    console.log('\n📊 ESTADÍSTICAS POR TIPO:');
-    const byDeliveryType = {
-      pickup: this.allOrders.filter(o => o.deliveryType === 'pickup').length,
-      delivery: this.allOrders.filter(o => o.deliveryType === 'delivery').length,
-      express: this.allOrders.filter(o => o.deliveryType === 'express').length
-    };
-    
-    console.log(`   🏪 Recogida: ${byDeliveryType.pickup}`);
-    console.log(`   🚚 Entrega: ${byDeliveryType.delivery}`);
-    console.log(`   ⚡ Express: ${byDeliveryType.express}`);
-
-    console.log('\n📊 ESTADÍSTICAS POR ESTADO:');
-    const byStatus = {};
-    this.allOrders.forEach(order => {
-      byStatus[order.status] = (byStatus[order.status] || 0) + 1;
-    });
-    
-    Object.keys(byStatus).forEach(status => {
-      console.log(`   ${this.getStatusIcon(status)} ${status}: ${byStatus[status]}`);
-    });
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  // ============================================================================
-  // FUNCIONES DE VISUALIZACIÓN
-  // ============================================================================
-
-  displayOrders(orders, title) {
-    console.log(`\n📋 ${title} (${orders.length}):`);
-    
-    if (orders.length === 0) {
-      console.log('   (Ninguno)');
-      return;
-    }
-
-    orders.forEach((order, i) => {
-      console.log(`\n   ${i + 1}. Pedido #${order.orderNumber}`);
-      console.log(`      📊 Estado: ${this.getStatusIcon(order.status)} ${order.status}`);
-      console.log(`      🚚 Tipo: ${this.getDeliveryTypeIcon(order.deliveryType)} ${order.deliveryType || 'N/A'}`);
-      console.log(`      💰 Total: Q${order.totalAmount}`);
-      console.log(`      👤 Cliente: ${this.getCustomerName(order)}`);
-      console.log(`      📅 Fecha: ${new Date(order.createdAt).toLocaleDateString()}`);
-      
-      if (order.trackingNumber) {
-        console.log(`      📦 Tracking: ${order.trackingNumber}`);
-      }
-    });
-  }
-
-  displayOrderSummary(order) {
-    console.log(`\n   📦 Pedido #${order.orderNumber}`);
-    console.log(`   💰 Total: Q${order.totalAmount}`);
-    console.log(`   👤 Cliente: ${this.getCustomerName(order)}`);
-    console.log(`   🚚 Tipo: ${order.deliveryType}`);
-    console.log(`   📦 Productos: ${order.itemsCount || order.items?.length || 0} items`);
-  }
-
-  getStatusIcon(status) {
-    const icons = {
-      'pending': '⏳',
-      'confirmed': '✅',
-      'preparing': '👨‍🍳',
-      'ready_pickup': '📦',
-      'packed': '📦',
-      'shipped': '🚚',
-      'delivered': '✅',
-      'picked_up': '✅',
-      'cancelled': '❌',
-      'refunded': '💸'
-    };
-    return icons[status] || '❓';
-  }
-
-  getDeliveryTypeIcon(type) {
-    const icons = {
-      'pickup': '🏪',
-      'delivery': '🚚',
-      'express': '⚡'
-    };
-    return icons[type] || '📦';
-  }
-
-  getCustomerName(order) {
-    if (order.user?.firstName || order.user?.lastName) {
-      return `${order.user.firstName || ''} ${order.user.lastName || ''}`.trim();
-    }
-    if (order.customerInfo?.name) {
-      return order.customerInfo.name;
-    }
-    if (order.customer?.name) {
-      return order.customer.name;
-    }
-    return 'Cliente anónimo';
-  }
-
-  getTimeSince(dateString) {
-    const now = new Date();
-    const date = new Date(dateString);
-    const diffMs = now - date;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffDays > 0) {
-      return `${diffDays} día${diffDays > 1 ? 's' : ''}`;
-    } else {
-      return `${diffHours} hora${diffHours !== 1 ? 's' : ''}`;
-    }
-  }
-
-  askQuestion(question) {
-    return new Promise((resolve) => {
-      this.rl.question(question, (answer) => {
-        resolve(answer);
-      });
-    });
-  }
-
-  async modifyShippingData() {
-    console.log('\n✏️ MODIFICAR DATOS DE ENVÍO');
-    console.log('='.repeat(60));
-    console.log('1. Modificar dirección de entrega');
-    console.log('2. Modificar fecha de recogida');
-    console.log('3. Modificar fecha de entrega');
-    console.log('4. Modificar información de contacto');
-    console.log('0. Volver');
-
-    const choice = await this.askQuestion('\n✏️ Selecciona qué modificar: ');
-
-    switch (choice.trim()) {
-      case '1':
-        await this.modifyShippingAddress();
-        break;
-      case '2':
-        await this.modifyPickupDate();
-        break;
-      case '3':
-        await this.modifyDeliveryDate();
-        break;
-      case '4':
-        await this.modifyContactInfo();
-        break;
-    }
-  }
-
-  async modifyDeliveryDate() {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= this.deliveryOrders.length) {
-      console.log('❌ Número inválido');
-      return;
-    }
-
-    const order = this.deliveryOrders[orderIndex];
-    
-    console.log(`\n📅 MODIFICAR FECHA DE ENTREGA: #${order.orderNumber}`);
-    if (order.estimatedDelivery) {
-      console.log(`   Fecha actual: ${new Date(order.estimatedDelivery).toLocaleDateString()}`);
-    }
-
-    const newDate = await this.askQuestion('📅 Nueva fecha (YYYY-MM-DD): ');
-    const reason = await this.askQuestion('📝 Motivo del cambio: ');
-
-    try {
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: order.status,
-          notes: `Fecha de entrega modificada a ${newDate}. Motivo: ${reason}`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Fecha modificada exitosamente');
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
+      console.log('\n❌ ERROR al validar transferencia:');
+      console.error('   ', error.response?.data?.message || error.message);
     }
 
     await this.askQuestion('\n⏎ Presiona Enter para continuar...');
   }
 
-  async modifyContactInfo() {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
-    const orderIndex = parseInt(orderNum) - 1;
+  async rejectTransfer(transfers) {
+    console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                    ❌ RECHAZAR TRANSFERENCIA BANCARIA                       ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
 
-    if (orderIndex < 0 || orderIndex >= this.allOrders.length) {
-      console.log('❌ Número inválido');
+    const orderNum = await this.askQuestion('\n📦 Número de transferencia a rechazar (0 para cancelar): ');
+    if (orderNum === '0') return;
+
+    const orderIndex = parseInt(orderNum) - 1;
+    if (orderIndex < 0 || orderIndex >= transfers.length) {
+      console.log('\n❌ Número inválido');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
-    const order = this.allOrders[orderIndex];
+    const order = transfers[orderIndex];
     
-    console.log(`\n📱 MODIFICAR INFORMACIÓN DE CONTACTO: #${order.orderNumber}`);
+    console.log('\n📊 INFORMACIÓN DEL PEDIDO:');
+    console.log(`   Pedido: #${order.orderNumber}`);
+    console.log(`   Cliente: ${this.getCustomerName(order)}`);
+    console.log(`   Monto: Q${order.totalAmount}`);
 
-    const phone = await this.askQuestion('📱 Nuevo teléfono: ');
-    const email = await this.askQuestion('📧 Nuevo email: ');
-    const reason = await this.askQuestion('📝 Motivo: ');
-
-    try {
-      const response = await axios.patch(
-        `${this.baseURL}/api/order-management/${order.id}/status`,
-        {
-          status: order.status,
-          notes: `Contacto modificado - Tel: ${phone}, Email: ${email}. Motivo: ${reason}`
-        },
-        { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
-      );
-
-      if (response.data.success) {
-        console.log('\n✅ Información de contacto actualizada');
-        await this.loadAllData();
-      }
-    } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
-    }
-
-    await this.askQuestion('\n⏎ Presiona Enter para continuar...');
-  }
-
-  async cancelOrder(ordersList) {
-    const orderNum = await this.askQuestion('\n📦 Número de pedido a cancelar: ');
-    const orderIndex = parseInt(orderNum) - 1;
-
-    if (orderIndex < 0 || orderIndex >= ordersList.length) {
-      console.log('❌ Número inválido');
+    const reason = await this.askQuestion('\n📝 Motivo del rechazo (obligatorio): ');
+    
+    if (!reason.trim()) {
+      console.log('\n❌ Debes especificar un motivo para el rechazo');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
-    const order = ordersList[orderIndex];
+    console.log('\n⚠️  ADVERTENCIA: Al rechazar la transferencia, el pedido será CANCELADO');
+    console.log('   - El stock será restaurado');
+    console.log('   - Se notificará al cliente');
     
-    console.log(`\n❌ CANCELAR PEDIDO: #${order.orderNumber}`);
-    this.displayOrderSummary(order);
-
-    const reason = await this.askQuestion('\n📝 Motivo de cancelación: ');
-    const confirm = await this.askQuestion('❌ ¿CONFIRMAR CANCELACIÓN? (s/n): ');
-
+    const confirm = await this.askQuestion('\n❌ ¿CONFIRMAR RECHAZO de la transferencia? (s/n): ');
     if (confirm.toLowerCase() !== 's') {
-      console.log('❌ Cancelación abortada');
+      console.log('\n❌ Operación cancelada');
+      await this.askQuestion('\n⏎ Presiona Enter...');
       return;
     }
 
@@ -1479,26 +1020,261 @@ class OnlineOrdersManager {
         `${this.baseURL}/api/order-management/${order.id}/status`,
         {
           status: 'cancelled',
-          notes: `PEDIDO CANCELADO. Motivo: ${reason}`
+          notes: `❌ PEDIDO CANCELADO - Transferencia rechazada\nMotivo: ${reason}`
         },
         { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
       );
 
       if (response.data.success) {
-        console.log('\n✅ Pedido cancelado');
-        console.log('   📦 El stock ha sido restaurado automáticamente');
-        await this.loadAllData();
+        console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+        console.log('║                   ❌ TRANSFERENCIA RECHAZADA Y PEDIDO CANCELADO            ║');
+        console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+        console.log('\n📊 ACCIONES REALIZADAS:');
+        console.log('   ❌ Transferencia rechazada');
+        console.log('   ❌ Pedido cancelado');
+        console.log('   ✅ Stock restaurado automáticamente');
+        console.log('   📧 Se notificará al cliente del rechazo');
       }
     } catch (error) {
-      console.error('❌ Error:', error.response?.data?.message || error.message);
+      console.log('\n❌ ERROR al rechazar transferencia:');
+      console.error('   ', error.response?.data?.message || error.message);
     }
 
     await this.askQuestion('\n⏎ Presiona Enter para continuar...');
   }
+
+  async viewTransferDetails(transfers) {
+    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
+    const idx = parseInt(orderNum) - 1;
+    if (idx >= 0 && idx < transfers.length) {
+      await this.showDetailedOrder(transfers[idx]);
+      await this.askQuestion('\n⏎ Presiona Enter...');
+    }
+  }
+
+  // ============================================================================
+  // FUNCIONES AUXILIARES
+  // ============================================================================
+
+  async searchSpecificOrder() {
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                          🔍 BUSCAR PEDIDO                                  ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+    
+    const searchTerm = await this.askQuestion('\n🔍 Número de pedido o nombre de cliente: ');
+    if (!searchTerm.trim()) return;
+
+    const results = this.allOrders.filter(order => {
+      const orderNum = (order.orderNumber || '').toLowerCase();
+      const customerName = this.getCustomerName(order).toLowerCase();
+      const search = searchTerm.toLowerCase();
+      return orderNum.includes(search) || customerName.includes(search);
+    });
+
+    if (results.length === 0) {
+      console.log('\n❌ No se encontraron pedidos con ese criterio');
+    } else {
+      console.log(`\n✅ Se encontraron ${results.length} resultado(s):`);
+      console.log('─'.repeat(80));
+      results.forEach((order, i) => {
+        console.log(`   ${i + 1}. #${order.orderNumber} - ${order.status} - Q${order.totalAmount} - ${this.getCustomerName(order)}`);
+      });
+      
+      const viewNum = await this.askQuestion('\n👁️  Ver detalles de (número, 0 para salir): ');
+      if (viewNum !== '0') {
+        const idx = parseInt(viewNum) - 1;
+        if (idx >= 0 && idx < results.length) {
+          await this.showDetailedOrder(results[idx]);
+        }
+      }
+    }
+
+    await this.askQuestion('\n⏎ Presiona Enter...');
+  }
+
+  async showDetailedOrder(order) {
+    const workflow = this.workflows[order.deliveryType];
+    
+    console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log(`║  📦 DETALLES COMPLETOS - PEDIDO #${order.orderNumber.padEnd(48)}║`);
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+    
+    console.log('\n📊 INFORMACIÓN GENERAL:');
+    console.log(`   Estado: ${this.getStatusIcon(order.status)} ${order.status.toUpperCase()}`);
+    console.log(`   Tipo: ${workflow?.icon || '📦'} ${workflow?.name || order.deliveryType}`);
+    console.log(`   Fecha: ${new Date(order.createdAt).toLocaleString('es-GT')}`);
+    
+    console.log('\n👤 CLIENTE:');
+    console.log(`   Nombre: ${this.getCustomerName(order)}`);
+    if (order.user?.email) console.log(`   Email: ${order.user.email}`);
+    if (order.user?.phone) console.log(`   Teléfono: ${order.user.phone}`);
+
+    console.log('\n💰 RESUMEN FINANCIERO:');
+    console.log(`   Subtotal: Q${order.subtotal || 0}`);
+    console.log(`   Impuestos: Q${order.taxAmount || 0}`);
+    console.log(`   Envío: Q${order.shippingAmount || 0}`);
+    if (order.discountAmount > 0) console.log(`   Descuento: -Q${order.discountAmount}`);
+    console.log(`   TOTAL: Q${order.totalAmount}`);
+
+    console.log('\n💳 INFORMACIÓN DE PAGO:');
+    console.log(`   Método: ${this.getPaymentMethodName(order.paymentMethod)}`);
+    
+    if (order.paymentMethod.includes('transfer')) {
+      if (order.transferConfirmed) {
+        console.log(`   Estado: ✅ Transferencia VALIDADA`);
+      } else {
+        console.log(`   Estado: ⚠️  Transferencia PENDIENTE (bloquea preparación)`);
+      }
+    } else if (order.paymentMethod === 'online_card') {
+      console.log(`   Estado: ✅ Procesado automáticamente`);
+    } else {
+      console.log(`   Estado: ⏳ Se confirmará al entregar`);
+    }
+
+    if (order.trackingNumber) {
+      console.log(`\n📦 Tracking: ${order.trackingNumber}`);
+    }
+
+    if (order.items?.length > 0) {
+      console.log(`\n📦 PRODUCTOS (${order.items.length}):`);
+      order.items.forEach(item => {
+        console.log(`   • ${item.productName} x${item.quantity} = Q${item.totalPrice}`);
+      });
+    }
+  }
+
+  async showFullDashboard() {
+    console.clear();
+    console.log('╔════════════════════════════════════════════════════════════════════════════╗');
+    console.log('║                       📊 DASHBOARD COMPLETO                                ║');
+    console.log('╚════════════════════════════════════════════════════════════════════════════╝');
+
+    if (this.dashboard?.summary) {
+      const s = this.dashboard.summary;
+      console.log('\n📈 ESTADÍSTICAS GENERALES:');
+      console.log('─'.repeat(80));
+      console.log(`   ⏳ Pendientes confirmación: ${s.pendingConfirmation || 0}`);
+      console.log(`   🏪 Listos para recogida: ${s.readyForPickup || 0}`);
+      console.log(`   📦 Empaquetados: ${s.packedForShipping || 0}`);
+      console.log(`   🏦 Transferencias pendientes: ${s.pendingTransfers || 0}`);
+      console.log(`   📅 Pedidos hoy: ${s.ordersToday || 0}`);
+      console.log(`   💰 Ingresos hoy: Q${(s.revenueToday || 0).toFixed(2)}`);
+      console.log(`   📉 Stock bajo: ${s.lowStockCount || 0}`);
+    }
+
+    console.log('\n📊 DISTRIBUCIÓN POR TIPO:');
+    console.log('─'.repeat(80));
+    const byType = {
+      pickup: this.allOrders.filter(o => o.deliveryType === 'pickup').length,
+      delivery: this.allOrders.filter(o => o.deliveryType === 'delivery').length,
+      express: this.allOrders.filter(o => o.deliveryType === 'express').length
+    };
+    console.log(`   🏪 Recogida: ${byType.pickup}`);
+    console.log(`   🚚 Domicilio: ${byType.delivery}`);
+    console.log(`   ⚡ Express: ${byType.express}`);
+
+    console.log('\n📊 DISTRIBUCIÓN POR ESTADO:');
+    console.log('─'.repeat(80));
+    const byStatus = {};
+    this.allOrders.forEach(order => {
+      byStatus[order.status] = (byStatus[order.status] || 0) + 1;
+    });
+    Object.keys(byStatus).sort().forEach(status => {
+      console.log(`   ${this.getStatusIcon(status)} ${status}: ${byStatus[status]}`);
+    });
+
+    await this.askQuestion('\n⏎ Presiona Enter para volver...');
+  }
+
+  async cancelOrder(orders) {
+    console.log('\n❌ CANCELAR PEDIDO');
+    const orderNum = await this.askQuestion('📦 Número a cancelar (0 para volver): ');
+    if (orderNum === '0') return;
+
+    const idx = parseInt(orderNum) - 1;
+    if (idx < 0 || idx >= orders.length) {
+      console.log('❌ Número inválido');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    const order = orders[idx];
+    console.log(`\n📦 Pedido: #${order.orderNumber}`);
+    console.log(`💰 Total: Q${order.totalAmount}`);
+    
+    const reason = await this.askQuestion('📝 Motivo de cancelación: ');
+    if (!reason.trim()) {
+      console.log('❌ Debes especificar un motivo');
+      await this.askQuestion('\n⏎ Presiona Enter...');
+      return;
+    }
+
+    const confirm = await this.askQuestion('❌ ¿CONFIRMAR CANCELACIÓN? (s/n): ');
+    if (confirm.toLowerCase() === 's') {
+      try {
+        await axios.patch(
+          `${this.baseURL}/api/order-management/${order.id}/status`,
+          { status: 'cancelled', notes: `CANCELADO: ${reason}` },
+          { headers: { 'Authorization': `Bearer ${this.adminToken}` } }
+        );
+        console.log('\n✅ Pedido cancelado. Stock restaurado.');
+        await this.loadAllData();
+      } catch (error) {
+        console.error('❌ Error:', error.message);
+      }
+    }
+
+    await this.askQuestion('\n⏎ Presiona Enter...');
+  }
+
+  async viewOrderDetails(orders) {
+    const orderNum = await this.askQuestion('\n📦 Número de pedido: ');
+    const idx = parseInt(orderNum) - 1;
+    if (idx >= 0 && idx < orders.length) {
+      await this.showDetailedOrder(orders[idx]);
+      await this.askQuestion('\n⏎ Presiona Enter...');
+    }
+  }
+
+  // Utilidades
+  getStatusIcon(status) {
+    const icons = {
+      pending: '⏳', confirmed: '✅', preparing: '👨‍🍳',
+      ready_pickup: '📦', packed: '📦', shipped: '🚚',
+      delivered: '✅', picked_up: '✅', cancelled: '❌', refunded: '💸'
+    };
+    return icons[status] || '❓';
+  }
+
+  getPaymentMethodName(method) {
+    const names = {
+      'cash_on_delivery': 'Efectivo contra entrega',
+      'cash_on_pickup': 'Efectivo en tienda',
+      'card_on_delivery': 'Tarjeta contra entrega',
+      'online_card': 'Tarjeta online (procesado)',
+      'transfer': 'Transferencia bancaria',
+      'transfer_on_delivery': 'Transferencia'
+    };
+    return names[method] || method;
+  }
+
+  getCustomerName(order) {
+    if (order.user?.firstName || order.user?.lastName) {
+      return `${order.user.firstName || ''} ${order.user.lastName || ''}`.trim();
+    }
+    if (order.customerInfo?.name) return order.customerInfo.name;
+    if (order.customer?.name) return order.customer.name;
+    return 'Cliente';
+  }
+
+  askQuestion(q) {
+    return new Promise(resolve => this.rl.question(q, resolve));
+  }
 }
 
 // ============================================================================
-// FUNCIÓN PRINCIPAL
+// EJECUCIÓN
 // ============================================================================
 
 async function main() {
