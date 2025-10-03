@@ -1,124 +1,99 @@
-// src/services/notificationServices.js - CORREGIDO: Gmail con nodemailer
-const nodemailer = require('nodemailer');
+// src/services/notificationServices.js - CON GOOGLE APPS SCRIPT
 const twilio = require('twilio');
+const axios = require('axios');
 
 class EmailService {
- // src/services/notificationServices.js - VERIFICACIÓN DE CONFIGURACIÓN GMAIL
-// AGREGAR AL CONSTRUCTOR DE EmailService - LÍNEA ~15
-
-constructor() {
-    // ✅ VERIFICACIÓN DETALLADA: Comprobar todas las variables de entorno necesarias
+  constructor() {
     console.log('📧 =====================================');
-    console.log('📧 INICIALIZANDO EMAIL SERVICE - GMAIL');
+    console.log('📧 INICIALIZANDO EMAIL SERVICE - GOOGLE APPS SCRIPT');
     console.log('📧 =====================================');
     
-    // Verificar variables de entorno
-    const gmailUser = process.env.GMAIL_USER;
-    const gmailPassword = process.env.GMAIL_APP_PASSWORD;
+    // Verificar variables de entorno para Apps Script
+    const appsScriptUrl = process.env.GOOGLE_APPS_SCRIPT_URL;
+    const appsScriptToken = process.env.GOOGLE_APPS_SCRIPT_TOKEN;
     const emailEnabled = process.env.NOTIFICATION_EMAIL_ENABLED;
+    const senderEmail = process.env.GMAIL_USER;
+    const senderName = process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club';
     
     console.log('🔍 VERIFICANDO CONFIGURACIÓN:');
-    console.log(`   📧 GMAIL_USER: ${gmailUser ? '✅ Configurado' : '❌ Faltante'}`);
-    console.log(`   🔑 GMAIL_APP_PASSWORD: ${gmailPassword ? '✅ Configurado' : '❌ Faltante'}`);
+    console.log(`   🌐 GOOGLE_APPS_SCRIPT_URL: ${appsScriptUrl ? '✅ Configurado' : '❌ Faltante'}`);
+    console.log(`   🔑 GOOGLE_APPS_SCRIPT_TOKEN: ${appsScriptToken ? '✅ Configurado' : '❌ Faltante'}`);
+    console.log(`   📧 GMAIL_USER (sender): ${senderEmail ? '✅ Configurado' : '❌ Faltante'}`);
     console.log(`   🔔 NOTIFICATION_EMAIL_ENABLED: ${emailEnabled || 'true'}`);
     
-    if (gmailUser) {
-      console.log(`   📮 Email configurado: ${gmailUser}`);
+    if (appsScriptUrl) {
+      console.log(`   🌐 Apps Script URL configurada`);
     }
     
-    if (gmailPassword) {
-      console.log(`   🔐 Password length: ${gmailPassword.length} caracteres`);
-      if (gmailPassword.length < 16) {
-        console.warn('   ⚠️ WARNING: La App Password debería tener 16 caracteres');
-        console.warn('   💡 Asegúrate de usar una App Password de Gmail, no la contraseña normal');
-      }
+    if (appsScriptToken) {
+      console.log(`   🔐 Token length: ${appsScriptToken.length} caracteres`);
     }
 
-    // Verificar que las credenciales de Gmail sean válidas
-    const hasValidGmailConfig = 
-      gmailUser &&
-      gmailPassword &&
-      gmailUser !== 'yourEmail@email.com' && // No es placeholder
-      gmailPassword !== 'yourPassword' && // No es placeholder
-      gmailPassword.length > 10 && // Validación básica de longitud
-      gmailUser.includes('@'); // Validar formato email básico
+    // Verificar que la configuración de Apps Script sea válida
+    const hasValidConfig = 
+      appsScriptUrl &&
+      appsScriptToken &&
+      senderEmail &&
+      appsScriptUrl.includes('script.google.com') &&
+      appsScriptUrl.includes('/exec') &&
+      appsScriptToken.length > 20 &&
+      senderEmail.includes('@');
 
-    if (hasValidGmailConfig) {
-      try {
-        console.log('🔧 CONFIGURANDO TRANSPORTER GMAIL...');
-        
-        // ✅ CORREGIDO: createTransport (no createTransporter)
-        this.transporter = nodemailer.createTransport({
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true, // true para 465, false para otros puertos
-          auth: {
-            user: gmailUser,
-            pass: gmailPassword
-          },
-          // Configuraciones adicionales para Gmail
-          pool: true, // Pool de conexiones para mejor performance
-          maxConnections: 5,
-          maxMessages: 10,
-          rateDelta: 1000, // 1 segundo entre emails
-          rateLimit: 5 // máximo 5 emails por segundo
-        });
-        
-        this.isConfigured = true;
-        console.log('✅ Gmail Email Service inicializado correctamente');
-        console.log(`   📧 Usuario configurado: ${gmailUser}`);
-        console.log(`   🏢 Sender name: ${process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club'}`);
-        
-        // ✅ NUEVA FUNCIÓN: Verificar configuración automáticamente
-        setTimeout(() => {
-          this.verifyConfiguration(false); // false = no enviar email de prueba automáticamente
-        }, 1000);
-        
-      } catch (error) {
-        console.error('❌ Error al inicializar Gmail:', error.message);
-        this.transporter = null;
-        this.isConfigured = false;
-      }
-    } else {
-      console.warn('⚠️ Gmail no configurado correctamente - Las notificaciones por email no funcionarán');
+    if (hasValidConfig) {
+      this.appsScriptUrl = appsScriptUrl;
+      this.appsScriptToken = appsScriptToken;
+      this.senderEmail = senderEmail;
+      this.senderName = senderName;
+      this.isConfigured = true;
       
-      // Diagnóstico detallado de problemas
-      if (!gmailUser) {
+      console.log('✅ Google Apps Script Email Service configurado correctamente');
+      console.log(`   📧 Sender Email: ${senderEmail}`);
+      console.log(`   🏢 Sender Name: ${senderName}`);
+      console.log(`   🌐 Apps Script URL: ${appsScriptUrl.substring(0, 50)}...`);
+      
+      // Verificar configuración automáticamente
+      setTimeout(() => {
+        this.verifyConfiguration(false);
+      }, 1000);
+      
+    } else {
+      console.warn('⚠️ Google Apps Script no configurado correctamente - Las notificaciones por email no funcionarán');
+      
+      if (!appsScriptUrl) {
+        console.warn('   ❌ GOOGLE_APPS_SCRIPT_URL no configurado en .env');
+        console.warn('   💡 Agrega: GOOGLE_APPS_SCRIPT_URL=https://script.google.com/macros/s/YOUR_ID/exec');
+      } else if (!appsScriptUrl.includes('script.google.com')) {
+        console.warn('   ❌ GOOGLE_APPS_SCRIPT_URL no parece ser una URL válida de Apps Script');
+      } else if (!appsScriptUrl.includes('/exec')) {
+        console.warn('   ❌ GOOGLE_APPS_SCRIPT_URL debe terminar en /exec');
+      }
+      
+      if (!appsScriptToken) {
+        console.warn('   ❌ GOOGLE_APPS_SCRIPT_TOKEN no configurado en .env');
+        console.warn('   💡 Agrega: GOOGLE_APPS_SCRIPT_TOKEN=tu-token-generado');
+      } else if (appsScriptToken.length <= 20) {
+        console.warn('   ❌ GOOGLE_APPS_SCRIPT_TOKEN parece ser demasiado corto');
+      }
+      
+      if (!senderEmail) {
         console.warn('   ❌ GMAIL_USER no configurado en .env');
         console.warn('   💡 Agrega: GMAIL_USER=tu-email@gmail.com');
-      } else if (gmailUser === 'yourEmail@email.com') {
-        console.warn('   ❌ GMAIL_USER todavía tiene el valor placeholder');
-        console.warn('   💡 Cambia por tu email real de Gmail');
-      } else if (!gmailUser.includes('@')) {
-        console.warn('   ❌ GMAIL_USER no parece ser un email válido');
-      }
-      
-      if (!gmailPassword) {
-        console.warn('   ❌ GMAIL_APP_PASSWORD no configurado en .env');
-        console.warn('   💡 Agrega: GMAIL_APP_PASSWORD=tu-app-password');
-        console.warn('   💡 Instrucciones: https://support.google.com/accounts/answer/185833');
-      } else if (gmailPassword === 'yourPassword') {
-        console.warn('   ❌ GMAIL_APP_PASSWORD todavía tiene el valor placeholder');
-        console.warn('   💡 Usa una App Password real de Gmail');
-      } else if (gmailPassword.length <= 10) {
-        console.warn('   ❌ GMAIL_APP_PASSWORD parece ser demasiado corto');
-        console.warn('   💡 Las App Passwords de Gmail tienen 16 caracteres');
-        console.warn('   💡 Formato: xxxx xxxx xxxx xxxx (sin espacios en .env)');
       }
       
       console.warn('📧 =====================================');
-      console.warn('📧 GUÍA RÁPIDA PARA CONFIGURAR GMAIL:');
+      console.warn('📧 GUÍA RÁPIDA PARA CONFIGURAR APPS SCRIPT:');
       console.warn('📧 =====================================');
-      console.warn('1. Ve a tu cuenta de Google');
-      console.warn('2. Configuración > Seguridad > Verificación en 2 pasos');
-      console.warn('3. Contraseñas de aplicaciones > Generar nueva');
-      console.warn('4. Copia la contraseña de 16 caracteres');
-      console.warn('5. En .env: GMAIL_APP_PASSWORD=xxxxxxxxxxxxxxxxxxxx');
-      console.warn('6. En .env: GMAIL_USER=tu-email@gmail.com');
-      console.warn('7. Reinicia el servidor');
+      console.warn('1. Ve a script.google.com');
+      console.warn('2. Crea un nuevo proyecto con el código proporcionado');
+      console.warn('3. Ejecuta setupScriptProperties() y copia el AUTH_TOKEN');
+      console.warn('4. Despliega como Web App (Deploy > New deployment)');
+      console.warn('5. Copia la URL de despliegue (termina en /exec)');
+      console.warn('6. En .env: GOOGLE_APPS_SCRIPT_URL=tu-url');
+      console.warn('7. En .env: GOOGLE_APPS_SCRIPT_TOKEN=tu-token');
+      console.warn('8. En .env: GMAIL_USER=tu-email@gmail.com');
+      console.warn('9. Reinicia el servidor');
       console.warn('📧 =====================================');
       
-      this.transporter = null;
       this.isConfigured = false;
     }
     
@@ -127,90 +102,89 @@ constructor() {
     console.log('📧 =====================================');
   }
 
-// ✅ NUEVO MÉTODO: Verificar configuración completa
-async verifyEmailConfiguration() {
-  console.log('🔍 =====================================');
-  console.log('🔍 VERIFICACIÓN COMPLETA DE EMAIL SERVICE');
-  console.log('🔍 =====================================');
-  
-  try {
-    if (!this.isConfigured) {
-      console.log('❌ Email service no está configurado');
-      return false;
-    }
-
-    console.log('1. ✅ Configuración básica: OK');
-    
-    // Verificar conexión SMTP
-    console.log('2. 🔗 Verificando conexión SMTP...');
-    const isVerified = await this.transporter.verify();
-    
-    if (isVerified) {
-      console.log('2. ✅ Conexión SMTP: OK');
-    } else {
-      console.log('2. ❌ Conexión SMTP: FAILED');
-      return false;
-    }
-    
-    // Verificar capacidad de envío (envío de prueba opcional)
-    console.log('3. 📧 Email service completamente verificado');
-    console.log('   💡 Usar .testEmailService() para enviar email de prueba');
-    
+  async verifyEmailConfiguration() {
     console.log('🔍 =====================================');
-    console.log('🔍 VERIFICACIÓN COMPLETADA: ✅ TODO OK');
+    console.log('🔍 VERIFICACIÓN COMPLETA DE EMAIL SERVICE');
     console.log('🔍 =====================================');
     
-    return true;
-    
-  } catch (error) {
-    console.error('❌ Error en verificación completa:', error.message);
-    console.log('🔍 =====================================');
-    console.log('🔍 VERIFICACIÓN COMPLETADA: ❌ ERRORES');
-    console.log('🔍 =====================================');
-    return false;
-  }
-}
-  // ✅ MEJORADO: Verificar configuración de Gmail con control de email de prueba
-  async verifyConfiguration(sendTestEmail = false) {
     try {
-      if (!this.transporter) {
-        console.warn('⚠️ No hay transporter de Gmail para verificar');
+      if (!this.isConfigured) {
+        console.log('❌ Email service no está configurado');
         return false;
       }
 
-      console.log('🔍 Verificando configuración de Gmail...');
+      console.log('1. ✅ Configuración básica: OK');
       
-      // Verificar que la conexión funcione
-      const isVerified = await this.transporter.verify();
+      console.log('2. 🔗 Verificando conexión con Apps Script...');
+      const isVerified = await this.verifyConfiguration(false);
       
       if (isVerified) {
-        console.log('✅ Configuración de Gmail verificada exitosamente');
-        console.log('   📧 SMTP Gmail conectado correctamente');
+        console.log('2. ✅ Conexión con Apps Script: OK');
+      } else {
+        console.log('2. ❌ Conexión con Apps Script: FAILED');
+        return false;
+      }
+      
+      console.log('3. 📧 Email service completamente verificado');
+      console.log('   💡 Usar .testEmailService() para enviar email de prueba');
+      
+      console.log('🔍 =====================================');
+      console.log('🔍 VERIFICACIÓN COMPLETADA: ✅ TODO OK');
+      console.log('🔍 =====================================');
+      
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Error en verificación completa:', error.message);
+      console.log('🔍 =====================================');
+      console.log('🔍 VERIFICACIÓN COMPLETADA: ❌ ERRORES');
+      console.log('🔍 =====================================');
+      return false;
+    }
+  }
+
+  async verifyConfiguration(sendTestEmail = false) {
+    try {
+      if (!this.isConfigured) {
+        console.warn('⚠️ No hay configuración de Apps Script para verificar');
+        return false;
+      }
+
+      console.log('🔍 Verificando configuración de Google Apps Script...');
+      
+      const response = await axios.get(this.appsScriptUrl, {
+        timeout: 10000,
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      
+      if (response.status === 200 && response.data) {
+        console.log('✅ Configuración de Apps Script verificada exitosamente');
+        console.log('   🌐 Endpoint respondiendo correctamente');
+        console.log('   📧 Service:', response.data.service || 'Online');
         
-        // ✅ CORREGIDO: Solo enviar email de prueba si se solicita explícitamente
         if (sendTestEmail) {
           await this.sendTestEmail();
         }
         
         return true;
       } else {
-        console.warn('⚠️ Error al verificar configuración de Gmail');
+        console.warn('⚠️ Error al verificar configuración de Apps Script');
         this.isConfigured = false;
         return false;
       }
     } catch (error) {
-      console.error('❌ Error al verificar configuración de Gmail:', error.message);
+      console.error('❌ Error al verificar configuración de Apps Script:', error.message);
       
-      // Diagnóstico específico del error
-      if (error.code === 'EAUTH') {
-        console.error('   🚨 Error de autenticación:');
-        console.error('      - Verifica que GMAIL_USER sea correcto');
-        console.error('      - Verifica que GMAIL_APP_PASSWORD sea una App Password válida');
-        console.error('      - Asegúrate de que 2FA esté habilitado en Gmail');
-      } else if (error.code === 'ECONNECTION') {
-        console.error('   🚨 Error de conexión con Gmail SMTP');
-      } else if (error.code === 'ETIMEDOUT') {
-        console.error('   🚨 Timeout conectando con Gmail');
+      if (error.code === 'ENOTFOUND') {
+        console.error('   🚨 URL de Apps Script no encontrada');
+      } else if (error.code === 'ECONNREFUSED') {
+        console.error('   🚨 Conexión rechazada por Apps Script');
+      } else if (error.response?.status === 401) {
+        console.error('   🚨 Error de autenticación - verifica el token');
+      } else if (error.response?.status === 403) {
+        console.error('   🚨 Acceso prohibido - verifica permisos del script');
       }
       
       this.isConfigured = false;
@@ -218,29 +192,24 @@ async verifyEmailConfiguration() {
     }
   }
 
-  // ✅ NUEVO: Enviar email de prueba para verificar funcionamiento
   async sendTestEmail() {
     try {
-      if (!this.isConfigured || !this.transporter) {
-        return { success: false, message: 'Gmail no configurado' };
+      if (!this.isConfigured) {
+        return { success: false, message: 'Apps Script no configurado' };
       }
 
       const testEmail = {
-        from: {
-          name: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
-          address: process.env.GMAIL_USER
-        },
-        to: process.env.GMAIL_USER, // Enviarse a sí mismo
-        subject: '✅ Test de configuración Gmail - Elite Fitness Club',
+        to: this.senderEmail,
+        subject: '✅ Test de Google Apps Script - Elite Fitness Club',
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">✅ Gmail configurado correctamente</h2>
-            <p>Este es un email de prueba para verificar que la configuración de Gmail está funcionando correctamente.</p>
+            <h2 style="color: #27ae60;">✅ Google Apps Script configurado correctamente</h2>
+            <p>Este es un email de prueba para verificar que la configuración de Apps Script está funcionando correctamente.</p>
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
               <h3>📋 Información de configuración:</h3>
               <ul>
-                <li><strong>Usuario:</strong> ${process.env.GMAIL_USER}</li>
-                <li><strong>Servidor:</strong> smtp.gmail.com:465</li>
+                <li><strong>Usuario:</strong> ${this.senderEmail}</li>
+                <li><strong>Servicio:</strong> Google Apps Script</li>
                 <li><strong>Fecha:</strong> ${new Date().toLocaleString('es-ES')}</li>
                 <li><strong>Sistema:</strong> Elite Fitness Club Management</li>
               </ul>
@@ -248,14 +217,19 @@ async verifyEmailConfiguration() {
             <p>Si recibes este email, ¡las notificaciones funcionarán correctamente! 🎉</p>
           </div>
         `,
-        text: `✅ Gmail configurado correctamente para Elite Fitness Club. Email de prueba enviado el ${new Date().toLocaleString('es-ES')}`
+        text: `✅ Google Apps Script configurado correctamente para Elite Fitness Club. Email de prueba enviado el ${new Date().toLocaleString('es-ES')}`
       };
 
-      const result = await this.transporter.sendMail(testEmail);
-      console.log('✅ Email de prueba enviado exitosamente:', result.messageId);
-      console.log('   📬 Revisa la bandeja de entrada de', process.env.GMAIL_USER);
+      const result = await this.sendEmail(testEmail);
       
-      return { success: true, messageId: result.messageId };
+      if (result.success) {
+        console.log('✅ Email de prueba enviado exitosamente');
+        console.log('   📬 Revisa la bandeja de entrada de', this.senderEmail);
+        return result;
+      } else {
+        console.error('❌ Error al enviar email de prueba:', result.error);
+        return result;
+      }
     } catch (error) {
       console.error('❌ Error al enviar email de prueba:', error.message);
       return { success: false, error: error.message };
@@ -269,75 +243,159 @@ async verifyEmailConfiguration() {
         return { success: false, message: 'Email deshabilitado en configuración' };
       }
 
-      if (!this.isConfigured || !this.transporter) {
-        console.warn('📧 Gmail no configurado correctamente - no se puede enviar email');
-        return { success: false, message: 'Gmail no configurado correctamente' };
+      if (!this.isConfigured) {
+        console.warn('📧 Apps Script no configurado correctamente - no se puede enviar email');
+        return { success: false, message: 'Apps Script no configurado correctamente' };
       }
-
-      // Preparar el email
-      const mailOptions = {
-        from: {
-          name: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
-          address: process.env.GMAIL_USER
-        },
-        to: to,
-        subject: subject,
-        text: text || undefined,
-        html: html || undefined,
-        attachments: attachments || undefined
-      };
 
       console.log(`📤 Enviando email a: ${to}`);
       console.log(`📄 Asunto: ${subject}`);
 
-      // Enviar email a través de Gmail
-      const result = await this.transporter.sendMail(mailOptions);
-      
-      console.log('✅ Email enviado exitosamente vía Gmail:', result.messageId);
-      console.log(`   📧 A: ${to}`);
-      console.log(`   📄 Asunto: ${subject}`);
-      
-      return { 
-        success: true, 
-        messageId: result.messageId,
-        provider: 'gmail',
-        response: result.response,
+      const payload = {
         to: to,
-        subject: subject
+        subject: subject,
+        html: html,
+        text: text || undefined,
+        attachments: attachments || undefined
       };
+
+      const response = await axios.post(
+        `${this.appsScriptUrl}?token=${encodeURIComponent(this.appsScriptToken)}`,
+        payload,
+        {
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      if (response.status === 200 && response.data?.success) {
+        console.log('✅ Email enviado exitosamente vía Apps Script');
+        console.log(`   📧 A: ${to}`);
+        console.log(`   📄 Asunto: ${subject}`);
+        
+        return {
+          success: true,
+          messageId: response.data.data?.messageId || 'apps-script-' + Date.now(),
+          provider: 'google-apps-script',
+          to: to,
+          subject: subject,
+          timestamp: response.data.timestamp
+        };
+      } else {
+        const errorMsg = response.data?.message || 'Error desconocido';
+        console.error('❌ Error al enviar email:', errorMsg);
+        
+        return {
+          success: false,
+          error: errorMsg,
+          provider: 'google-apps-script',
+          to: to,
+          subject: subject
+        };
+      }
+
     } catch (error) {
-      console.error('❌ Error al enviar email vía Gmail:', error);
+      console.error('❌ Error al enviar email vía Apps Script:', error.message);
       
-      // Manejar errores específicos de Gmail/SMTP
       let errorMessage = error.message;
-      let errorCode = error.code;
       
-      if (error.code === 'EAUTH') {
-        errorMessage = 'Error de autenticación con Gmail. Verifica las credenciales.';
-        console.error('   🔑 Verifica GMAIL_USER y GMAIL_APP_PASSWORD');
-      } else if (error.code === 'ECONNECTION') {
-        errorMessage = 'Error de conexión con el servidor de Gmail.';
-        console.error('   🌐 Problema de conectividad con smtp.gmail.com');
-      } else if (error.responseCode === 550) {
-        errorMessage = 'Email rechazado por el destinatario.';
-        console.error('   📭 El email fue rechazado:', to);
-      } else if (error.code === 'EMESSAGE') {
-        errorMessage = 'Error en el contenido del mensaje.';
-        console.error('   📝 Revisa el contenido del email');
+      if (error.code === 'ECONNREFUSED') {
+        errorMessage = 'No se pudo conectar con Apps Script. Verifica la URL.';
+      } else if (error.code === 'ETIMEDOUT') {
+        errorMessage = 'Timeout al conectar con Apps Script.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Token de autenticación inválido.';
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response?.data?.message || 'Datos del email inválidos.';
       }
       
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: errorMessage,
-        errorCode: errorCode,
-        provider: 'gmail',
+        provider: 'google-apps-script',
         to: to,
         subject: subject
       };
     }
   }
 
-  // Templates de email optimizados para Gmail (MANTIENEN EL DISEÑO ORIGINAL)
+  async testEmailService() {
+    try {
+      console.log('🧪 Iniciando prueba manual del servicio de Apps Script...');
+      
+      if (!this.isConfigured) {
+        console.log('❌ No se puede probar: Apps Script no configurado');
+        return { success: false, message: 'Apps Script no configurado' };
+      }
+
+      const verifyResult = await this.verifyConfiguration(false);
+      if (!verifyResult) {
+        console.log('❌ No se puede probar: Error en verificación');
+        return { success: false, message: 'Error en verificación de configuración' };
+      }
+
+      const testResult = await this.sendTestEmail();
+      
+      if (testResult.success) {
+        console.log('✅ Prueba del servicio Apps Script completada exitosamente');
+        return {
+          success: true,
+          message: 'Servicio Apps Script funcionando correctamente',
+          details: testResult
+        };
+      } else {
+        console.log('❌ Fallo en envío de email de prueba:', testResult.error);
+        return testResult;
+      }
+    } catch (error) {
+      console.error('❌ Error en prueba del servicio:', error);
+      return {
+        success: false,
+        message: 'Error en prueba del servicio',
+        error: error.message
+      };
+    }
+  }
+
+  async getEmailStats() {
+    try {
+      if (!this.isConfigured) {
+        return { success: false, message: 'Apps Script no configurado' };
+      }
+
+      return {
+        success: true,
+        stats: {
+          provider: 'Google Apps Script',
+          senderEmail: this.senderEmail,
+          senderName: this.senderName,
+          configured: true,
+          verified: this.isConfigured,
+          endpoint: this.appsScriptUrl.substring(0, 50) + '...'
+        }
+      };
+    } catch (error) {
+      console.error('Error al obtener estadísticas:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async sendEmailWithAttachment({ to, subject, html, text, attachmentPath, attachmentName }) {
+    try {
+      const attachments = attachmentPath ? [{
+        filename: attachmentName || 'archivo.pdf',
+        path: attachmentPath
+      }] : null;
+
+      return await this.sendEmail({ to, subject, html, text, attachments });
+    } catch (error) {
+      console.error('Error al enviar email con adjunto:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   generateWelcomeEmail(user) {
     const html = `
       <!DOCTYPE html>
@@ -387,7 +445,7 @@ async verifyEmailConfiguration() {
           </div>
           <div class="footer">
             <p>Este es un mensaje automático de Elite Fitness Club</p>
-            <p>📧 Email: ${process.env.GMAIL_USER} | 📞 Tel: ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p>📧 Email: ${this.senderEmail} | 📞 Tel: ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
           </div>
         </div>
       </body>
@@ -453,7 +511,7 @@ async verifyEmailConfiguration() {
             <p>¿Necesitas ayuda? Contáctanos:</p>
             <ul>
               <li>📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}</li>
-              <li>📧 Email: ${process.env.GMAIL_USER}</li>
+              <li>📧 Email: ${this.senderEmail}</li>
               <li>🏢 Visítanos en recepción</li>
             </ul>
             
@@ -461,7 +519,7 @@ async verifyEmailConfiguration() {
           </div>
           <div class="footer">
             <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
-            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p>📧 ${this.senderEmail} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
           </div>
         </div>
       </body>
@@ -528,7 +586,7 @@ async verifyEmailConfiguration() {
           </div>
           <div class="footer">
             <p>Elite Fitness Club - Tu mejor versión te está esperando</p>
-            <p>📧 ${process.env.GMAIL_USER} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p>📧 ${this.senderEmail} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
           </div>
         </div>
       </body>
@@ -542,7 +600,7 @@ async verifyEmailConfiguration() {
     };
   }
 
- generatePaymentConfirmationEmail(user, payment) {
+  generatePaymentConfirmationEmail(user, payment) {
     console.log('📧 Generando email de confirmación de compra...');
     console.log('👤 Usuario:', user ? user.email || user.getFullName?.() || 'Usuario' : 'Invitado');
     console.log('💰 Pago:', {
@@ -552,7 +610,6 @@ async verifyEmailConfiguration() {
       paymentMethod: payment.paymentMethod
     });
 
-    // ✅ Determinar tipo de pago para personalizar el mensaje
     let paymentTypeName = 'Compra';
     let paymentIcon = '🛍️';
     let paymentDescription = 'Tu compra';
@@ -581,7 +638,6 @@ async verifyEmailConfiguration() {
         paymentDescription = 'Tu pago';
     }
 
-    // ✅ HTML mejorado para email de confirmación
     const html = `
       <!DOCTYPE html>
       <html>
@@ -603,18 +659,13 @@ async verifyEmailConfiguration() {
       </head>
       <body>
         <div class="container">
-          <!-- Header de confirmación exitosa -->
           <div class="header">
             <h1>${paymentIcon} ¡Compra confirmada!</h1>
             <p style="margin: 10px 0 0 0; font-size: 18px;">
               ${paymentDescription} ha sido procesada exitosamente
             </p>
           </div>
-
-          <!-- Contenido principal -->
           <div class="content">
-            
-            <!-- Mensaje de éxito -->
             <div class="success-box">
               <h2 style="color: #155724; margin: 0 0 15px 0;">
                 ✅ ¡Pago confirmado exitosamente!
@@ -624,8 +675,6 @@ async verifyEmailConfiguration() {
                 hemos confirmado tu pago. ¡Gracias por tu compra!
               </p>
             </div>
-
-            <!-- Detalles del pago -->
             <div class="payment-details">
               <h3 style="color: #2c3e50; margin: 0 0 15px 0;">📋 Detalles del pago</h3>
               <table style="width: 100%; border-collapse: collapse;">
@@ -664,37 +713,32 @@ async verifyEmailConfiguration() {
               </table>
             </div>
 
-            <!-- Información específica según tipo de pago -->
             ${this.generateSpecificPaymentInfo(payment)}
 
-            <!-- Próximos pasos -->
             <div class="highlight">
               <h3 style="color: #856404; margin: 0 0 10px 0;">📋 Próximos pasos</h3>
               ${this.generateNextStepsInfo(payment)}
             </div>
 
-            <!-- Botón de acción -->
             <div style="text-align: center; margin: 30px 0;">
               <a href="${process.env.FRONTEND_URL || '#'}" class="button">
                 🏠 Ir a mi cuenta
               </a>
             </div>
 
-            <!-- Información de contacto -->
             <div style="background-color: #e8f4fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="color: #0c5460; margin: 0 0 10px 0;">📞 ¿Necesitas ayuda?</h3>
               <p style="color: #0c5460; margin: 0;">
                 Si tienes alguna pregunta sobre este pago, no dudes en contactarnos:
               </p>
               <ul style="color: #0c5460; margin: 10px 0;">
-                <li>📧 Email: ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'}</li>
+                <li>📧 Email: ${this.senderEmail || 'info@elitefitnessclub.com'}</li>
                 <li>📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}</li>
                 <li>🏢 Visítanos en recepción</li>
                 <li>💬 WhatsApp: Responde a este email</li>
               </ul>
             </div>
 
-            <!-- Mensaje de agradecimiento -->
             <div style="text-align: center; margin: 30px 0;">
               <h3 style="color: #2c3e50;">🙏 ¡Gracias por confiar en Elite Fitness Club!</h3>
               <p style="color: #6c757d;">
@@ -704,10 +748,9 @@ async verifyEmailConfiguration() {
 
           </div>
 
-          <!-- Footer -->
           <div class="footer">
             <p><strong>Elite Fitness Club</strong> - Tu mejor versión te está esperando</p>
-            <p>📧 ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
+            <p>📧 ${this.senderEmail || 'info@elitefitnessclub.com'} | 📞 ${process.env.GYM_PHONE || 'Contacta recepción'}</p>
             <p>Este es un email automático de confirmación de pago. Por favor no respondas a este mensaje.</p>
             <p>© ${new Date().getFullYear()} Elite Fitness Club. Todos los derechos reservados.</p>
           </div>
@@ -717,7 +760,6 @@ async verifyEmailConfiguration() {
       </html>
     `;
 
-    // ✅ Texto plano mejorado
     const text = `✅ ¡PAGO CONFIRMADO! - Elite Fitness Club
 
 Hola ${user ? (user.getFullName?.() || user.email || 'Cliente') : 'Cliente'},
@@ -735,7 +777,7 @@ ${payment.id ? `🆔 ID: ${payment.id}` : ''}
 ${this.generateSpecificPaymentInfoText(payment)}
 
 📞 CONTACTO:
-📧 Email: ${process.env.GMAIL_USER || 'info@elitefitnessclub.com'}
+📧 Email: ${this.senderEmail || 'info@elitefitnessclub.com'}
 📞 Teléfono: ${process.env.GYM_PHONE || 'Contacta recepción'}
 
 🙏 ¡Gracias por confiar en Elite Fitness Club!
@@ -753,7 +795,6 @@ Elite Fitness Club - Tu mejor versión te está esperando
     };
   }
 
-  // ✅ NUEVO: Generar información específica según tipo de pago (HTML)
   generateSpecificPaymentInfo(payment) {
     switch (payment.paymentType) {
       case 'membership':
@@ -808,7 +849,6 @@ Elite Fitness Club - Tu mejor versión te está esperando
     }
   }
 
-  // ✅ NUEVO: Generar próximos pasos según tipo de pago
   generateNextStepsInfo(payment) {
     switch (payment.paymentType) {
       case 'membership':
@@ -863,7 +903,6 @@ Elite Fitness Club - Tu mejor versión te está esperando
     }
   }
 
-  // ✅ NUEVO: Generar información específica para texto plano
   generateSpecificPaymentInfoText(payment) {
     switch (payment.paymentType) {
       case 'membership':
@@ -876,24 +915,24 @@ Elite Fitness Club - Tu mejor versión te está esperando
       case 'daily':
         return `
 🏃‍♂️ TU ENTRADA DIARIA CONFIRMADA:
-    ✅ Puedes acceder al gimnasio hoy
-    💪 Disfruta tu entrenamiento al máximo
-    🔄 Considera una membresía mensual para ahorrar`;
-          case 'store_online':
-          case 'store_cash_delivery':
-          case 'store_card_delivery':
-            return `
-    🛍️ TU PEDIDO EN PROCESO:
-    📦 Prepararemos tu pedido en las próximas horas
-    📱 Te contactaremos cuando esté listo
-    🚚 Recibirás actualizaciones del envío`;
-          default:
-            return `
-    💳 PAGO PROCESADO:
-    ✅ Tu pago ha sido confirmado y registrado
-    📧 Guarda este email como comprobante`;
-        }
-      }
+✅ Puedes acceder al gimnasio hoy
+💪 Disfruta tu entrenamiento al máximo
+🔄 Considera una membresía mensual para ahorrar`;
+      case 'store_online':
+      case 'store_cash_delivery':
+      case 'store_card_delivery':
+        return `
+🛍️ TU PEDIDO EN PROCESO:
+📦 Prepararemos tu pedido en las próximas horas
+📱 Te contactaremos cuando esté listo
+🚚 Recibirás actualizaciones del envío`;
+      default:
+        return `
+💳 PAGO PROCESADO:
+✅ Tu pago ha sido confirmado y registrado
+📧 Guarda este email como comprobante`;
+    }
+  }
 
   getPaymentMethodName(method) {
     const methods = {
@@ -904,105 +943,13 @@ Elite Fitness Club - Tu mejor versión te está esperando
     };
     return methods[method] || method;
   }
-
-  // Método para obtener estadísticas básicas (mejorado)
-  async getEmailStats() {
-    try {
-      if (!this.isConfigured) {
-        return { success: false, message: 'Gmail no configurado' };
-      }
-
-      // Información básica del servicio
-      return {
-        success: true,
-        stats: {
-          provider: 'Gmail',
-          senderEmail: process.env.GMAIL_USER,
-          senderName: process.env.GMAIL_SENDER_NAME || 'Elite Fitness Club',
-          configured: true,
-          verified: this.isConfigured,
-          host: 'smtp.gmail.com',
-          port: 465,
-          secure: true
-        }
-      };
-    } catch (error) {
-      console.error('Error al obtener estadísticas de Gmail:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // NUEVO: Método para enviar email con archivo adjunto
-  async sendEmailWithAttachment({ to, subject, html, text, attachmentPath, attachmentName }) {
-    try {
-      const attachments = attachmentPath ? [{
-        filename: attachmentName || 'archivo.pdf',
-        path: attachmentPath
-      }] : null;
-
-      return await this.sendEmail({ to, subject, html, text, attachments });
-    } catch (error) {
-      console.error('Error al enviar email con adjunto:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // ✅ NUEVO: Método para probar el servicio manualmente
-  async testEmailService() {
-    try {
-      console.log('🧪 Iniciando prueba manual del servicio de Gmail...');
-      
-      if (!this.isConfigured) {
-        console.log('❌ No se puede probar: Gmail no configurado');
-        return { success: false, message: 'Gmail no configurado' };
-      }
-
-      // Verificar conexión (con email de prueba)
-      const verifyResult = await this.verifyConfiguration(true); // true = enviar email de prueba
-      if (!verifyResult) {
-        console.log('❌ No se puede probar: Error en verificación');
-        return { success: false, message: 'Error en verificación de configuración' };
-      }
-
-      // Enviar email de prueba
-      const testResult = await this.sendTestEmail();
-      
-      if (testResult.success) {
-        console.log('✅ Prueba del servicio Gmail completada exitosamente');
-        console.log('   📧 Email de prueba enviado a:', process.env.GMAIL_USER);
-        console.log('   📬 Revisa tu bandeja de entrada para confirmar');
-        return {
-          success: true,
-          message: 'Servicio Gmail funcionando correctamente',
-          details: {
-            messageId: testResult.messageId,
-            testEmailSent: true,
-            recipientEmail: process.env.GMAIL_USER
-          }
-        };
-      } else {
-        console.log('❌ Fallo en envío de email de prueba:', testResult.error);
-        return {
-          success: false,
-          message: 'Error al enviar email de prueba',
-          error: testResult.error
-        };
-      }
-    } catch (error) {
-      console.error('❌ Error en prueba del servicio Gmail:', error);
-      return {
-        success: false,
-        message: 'Error en prueba del servicio',
-        error: error.message
-      };
-    }
-  }
 }
 
-// WhatsAppService se mantiene igual (sin cambios)
+// ==========================================
+// WhatsAppService (SIN CAMBIOS)
+// ==========================================
 class WhatsAppService {
   constructor() {
-    // El servicio de WhatsApp permanece igual usando Twilio
     const hasValidCredentials = 
       process.env.TWILIO_ACCOUNT_SID && 
       process.env.TWILIO_AUTH_TOKEN &&
@@ -1061,7 +1008,7 @@ class WhatsAppService {
     let cleaned = phone.replace(/\D/g, '');
     
     if (cleaned.length === 8) {
-      cleaned = '502' + cleaned; // Código de Guatemala
+      cleaned = '502' + cleaned;
     }
     
     if (!cleaned.startsWith('+')) {
@@ -1071,7 +1018,6 @@ class WhatsAppService {
     return cleaned;
   }
 
-  // Templates de WhatsApp (permanecen igual)
   generateWelcomeMessage(user) {
     return `¡Hola ${user.getFullName()}! 🏋️‍♂️
 
