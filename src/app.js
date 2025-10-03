@@ -1,4 +1,4 @@
-// src/app.js - CORREGIDO: Importación segura del rate limiter
+// src/app.js - CORREGIDO: CORS mejorado para Vercel
 
 const express = require('express');
 const cors = require('cors');
@@ -9,7 +9,7 @@ const passport = require('./config/passport');
 const routes = require('./routes');
 const errorHandler = require('./middleware/errorHandler');
 
-// ✅ CORREGIDO: Importación segura del rate limiter
+// Rate limiter con importación segura
 let rateLimiter;
 try {
   const rateLimiterModule = require('./middleware/rateLimiter');
@@ -17,7 +17,6 @@ try {
   console.log('✅ Rate limiter importado correctamente');
 } catch (error) {
   console.warn('⚠️ Rate limiter no disponible:', error.message);
-  // Middleware dummy que no hace nada
   rateLimiter = (req, res, next) => next();
 }
 
@@ -40,25 +39,56 @@ class App {
     // Compresión de respuestas
     this.app.use(compression());
 
-    // CORS configurado
+    // ✅ CORS MEJORADO: Parsear URLs separadas por comas
+    const parseUrls = (envVar) => {
+      if (!envVar) return [];
+      return envVar.split(',').map(url => url.trim()).filter(Boolean);
+    };
+
+    const allowedOrigins = [
+      ...parseUrls(process.env.FRONTEND_URL),
+      ...parseUrls(process.env.FRONTEND_CLIENT_URL),
+      ...parseUrls(process.env.ADMIN_PANEL_URL),
+      ...parseUrls(process.env.FRONTEND_ADMIN_URL),
+      'http://localhost:3000',
+      'http://localhost:3001'
+    ].filter(Boolean);
+
+    console.log('✅ CORS CONFIGURADO PARA:', allowedOrigins);
+
     this.app.use(cors({
-      origin: [
-        process.env.FRONTEND_URL,
-        process.env.ADMIN_PANEL_URL,
-        'http://localhost:3000',
-        'http://localhost:3001'
-      ].filter(Boolean),
+      origin: (origin, callback) => {
+        // Permitir requests sin origin (Postman, curl)
+        if (!origin) return callback(null, true);
+        
+        if (allowedOrigins.includes(origin)) {
+          console.log(`✅ CORS permitido: ${origin}`);
+          callback(null, true);
+        } else {
+          console.warn(`❌ CORS bloqueado: ${origin}`);
+          console.warn(`📋 Permitidos:`, allowedOrigins);
+          callback(null, false);
+        }
+      },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      exposedHeaders: ['Content-Length', 'Content-Type'],
+      maxAge: 86400
     }));
 
-    // ✅ CORREGIDO: Rate limiting con verificación
+    // Logging de requests
+    this.app.use((req, res, next) => {
+      console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'sin origin'}`);
+      next();
+    });
+
+    // Rate limiting
     if (rateLimiter && typeof rateLimiter === 'function') {
       this.app.use('/api', rateLimiter);
       console.log('✅ Rate limiter aplicado a /api');
     } else {
-      console.warn('⚠️ Rate limiter no aplicado - continuando sin límites');
+      console.warn('⚠️ Rate limiter no aplicado');
     }
 
     // Logging
@@ -98,9 +128,9 @@ class App {
           payments: '/api/payments',
           gym: '/api/gym',
           store: '/api/store',
-          localSales: '/api/local-sales',     // ✅ AGREGADO
-          inventory: '/api/inventory',        // ✅ AGREGADO  
-          orderManagement: '/api/order-management' // ✅ AGREGADO
+          localSales: '/api/local-sales',
+          inventory: '/api/inventory',
+          orderManagement: '/api/order-management'
         },
         documentation: 'https://docs.gym-system.com'
       });
@@ -109,7 +139,7 @@ class App {
     // Rutas de la API
     this.app.use('/api', routes);
 
-    // Manejo de rutas no encontradas a nivel de aplicación
+    // Manejo de rutas no encontradas
     this.app.use('*', (req, res) => {
       res.status(404).json({
         success: false,
@@ -125,11 +155,11 @@ class App {
           'GET /api/gym/config',
           'GET /api/gym/services',
           'GET /api/store/products',
-          'GET /api/inventory/stats',         // ✅ AGREGADO
-          'GET /api/inventory/dashboard',     // ✅ AGREGADO
-          'GET /api/local-sales/',           // ✅ AGREGADO
-          'POST /api/local-sales/cash',      // ✅ AGREGADO
-          'POST /api/local-sales/transfer'   // ✅ AGREGADO
+          'GET /api/inventory/stats',
+          'GET /api/inventory/dashboard',
+          'GET /api/local-sales/',
+          'POST /api/local-sales/cash',
+          'POST /api/local-sales/transfer'
         ]
       });
     });
