@@ -484,207 +484,211 @@ class StoreController {
 
   // ✅ MODIFICADO: Crear orden - Ahora recibe taxAmount y shippingAmount del frontend
   async createOrder(req, res) {
-    try {
-      const {
-        sessionId,
-        customerInfo,
-        shippingAddress,
-        paymentMethod,
-        deliveryTimeSlot,
-        notes,
-        // ✅ NUEVO: Recibir estos valores del frontend
-        taxAmount,
-        shippingAmount,
-        discountAmount = 0
-      } = req.body;
+  try {
+    const {
+      sessionId,
+      customerInfo,
+      shippingAddress,
+      paymentMethod,
+      deliveryTimeSlot,
+      notes,
+      // ✅ NUEVO: Recibir estos valores del frontend
+      taxAmount,
+      shippingAmount,
+      discountAmount = 0
+    } = req.body;
 
-      console.log('📦 Creando orden...', {
-        hasUser: !!req.user,
-        userId: req.user?.id,
-        sessionId,
-        paymentMethod,
-        taxAmount,
-        shippingAmount
-      });
+    console.log('📦 Creando orden...', {
+      hasUser: !!req.user,
+      userId: req.user?.id,
+      sessionId,
+      paymentMethod,
+      taxAmount,
+      shippingAmount
+    });
 
-      // ✅ VALIDAR que el frontend envíe taxAmount y shippingAmount
-      if (taxAmount === undefined || taxAmount === null) {
-        return res.status(400).json({
-          success: false,
-          message: 'taxAmount es requerido (debe enviarse desde el frontend)'
-        });
-      }
-
-      if (shippingAmount === undefined || shippingAmount === null) {
-        return res.status(400).json({
-          success: false,
-          message: 'shippingAmount es requerido (debe enviarse desde el frontend)'
-        });
-      }
-
-      // ✅ Obtener items del carrito
-      let cartItems;
-      if (req.user) {
-        cartItems = await StoreCart.getCartByUser(req.user.id);
-        console.log('✅ Items obtenidos para usuario logueado');
-      } else if (sessionId) {
-        cartItems = await StoreCart.getCartBySession(sessionId);
-        console.log('✅ Items obtenidos para usuario invitado');
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Carrito vacío o no encontrado'
-        });
-      }
-
-      if (cartItems.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'El carrito está vacío'
-        });
-      }
-
-      console.log(`📋 Procesando ${cartItems.length} items del carrito`);
-
-      // ✅ Verificar stock de todos los productos
-      for (const item of cartItems) {
-        if (item.product.stockQuantity < item.quantity) {
-          return res.status(400).json({
-            success: false,
-            message: `Stock insuficiente para ${item.product.name}`
-          });
-        }
-      }
-
-      // ✅ Calcular solo el subtotal, el resto viene del frontend
-      const subtotal = cartItems.reduce((sum, item) => 
-        sum + (parseFloat(item.unitPrice) * item.quantity), 0
-      );
-
-      // ✅ Usar los valores recibidos del frontend
-      const finalTaxAmount = parseFloat(taxAmount);
-      const finalShippingAmount = parseFloat(shippingAmount);
-      const finalDiscountAmount = parseFloat(discountAmount) || 0;
-      const totalAmount = subtotal + finalTaxAmount + finalShippingAmount - finalDiscountAmount;
-
-      console.log('💰 Totales recibidos del frontend:', {
-        subtotal: subtotal.toFixed(2),
-        taxAmount: finalTaxAmount.toFixed(2),
-        shippingAmount: finalShippingAmount.toFixed(2),
-        discountAmount: finalDiscountAmount.toFixed(2),
-        totalAmount: totalAmount.toFixed(2)
-      });
-
-      // ✅ Validación de cordura
-      if (totalAmount < 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'El total de la orden no puede ser negativo'
-        });
-      }
-
-      if (totalAmount < subtotal - finalDiscountAmount) {
-        return res.status(400).json({
-          success: false,
-          message: 'El total de la orden es inconsistente con el subtotal'
-        });
-      }
-
-      // ✅ Crear la orden con los valores del frontend
-      const orderData = {
-        userId: req.user?.id || null,
-        orderNumber: StoreOrder.generateOrderNumber(),
-        subtotal,
-        taxAmount: finalTaxAmount,
-        shippingAmount: finalShippingAmount,
-        discountAmount: finalDiscountAmount,
-        totalAmount,
-        paymentMethod,
-        paymentStatus: paymentMethod === 'cash_on_delivery' ? 'pending' : 'pending',
-        customerInfo: req.user ? null : customerInfo,
-        shippingAddress,
-        deliveryTimeSlot,
-        notes
-      };
-
-      const order = await StoreOrder.create(orderData);
-      console.log('✅ Orden creada:', order.id);
-
-      // ✅ Crear items de la orden
-      for (const cartItem of cartItems) {
-        await StoreOrderItem.create({
-          orderId: order.id,
-          productId: cartItem.productId,
-          productName: cartItem.product.name,
-          productSku: cartItem.product.sku,
-          quantity: cartItem.quantity,
-          unitPrice: cartItem.unitPrice,
-          totalPrice: cartItem.unitPrice * cartItem.quantity,
-          selectedVariants: cartItem.selectedVariants
-        });
-
-        // ✅ Reducir stock
-        cartItem.product.stockQuantity -= cartItem.quantity;
-        await cartItem.product.save();
-      }
-
-      console.log('✅ Items de orden creados y stock actualizado');
-
-      // ✅ Limpiar carrito
-      if (req.user) {
-        await StoreCart.clearCart(req.user.id);
-        console.log('✅ Carrito de usuario limpiado');
-      } else {
-        await StoreCart.clearCart(null, sessionId);
-        console.log('✅ Carrito de invitado limpiado');
-      }
-
-      // ✅ Crear movimiento financiero si es pago completado
-      if (paymentMethod !== 'cash_on_delivery') {
-        try {
-          await FinancialMovements.create({
-            type: 'income',
-            category: 'products_sale',
-            description: `Venta online - Orden ${order.orderNumber}`,
-            amount: totalAmount,
-            paymentMethod: paymentMethod === 'online_card' ? 'card' : paymentMethod,
-            referenceId: order.id,
-            referenceType: 'store_order',
-            registeredBy: req.user?.id || null
-          });
-          console.log('✅ Movimiento financiero creado');
-        } catch (financialError) {
-          console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
-        }
-      }
-
-      // ✅ Obtener orden completa para respuesta
-      const orderWithItems = await StoreOrder.findByPk(order.id, {
-        include: [
-          { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
-          { 
-            association: 'items',
-            include: [{ association: 'product', attributes: ['id', 'name', 'sku'] }]
-          }
-        ]
-      });
-
-      console.log('🎉 Orden completada exitosamente:', order.orderNumber);
-
-      res.status(201).json({
-        success: true,
-        message: 'Orden creada exitosamente',
-        data: { order: orderWithItems }
-      });
-    } catch (error) {
-      console.error('Error al crear orden:', error);
-      res.status(500).json({
+    // ✅ VALIDAR que el frontend envíe taxAmount y shippingAmount
+    if (taxAmount === undefined || taxAmount === null) {
+      return res.status(400).json({
         success: false,
-        message: 'Error al crear orden',
-        error: error.message
+        message: 'taxAmount es requerido (debe enviarse desde el frontend)'
       });
     }
+
+    if (shippingAmount === undefined || shippingAmount === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'shippingAmount es requerido (debe enviarse desde el frontend)'
+      });
+    }
+
+    // ✅ Obtener items del carrito
+    let cartItems;
+    if (req.user) {
+      cartItems = await StoreCart.getCartByUser(req.user.id);
+      console.log('✅ Items obtenidos para usuario logueado');
+    } else if (sessionId) {
+      cartItems = await StoreCart.getCartBySession(sessionId);
+      console.log('✅ Items obtenidos para usuario invitado');
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Carrito vacío o no encontrado'
+      });
+    }
+
+    if (cartItems.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El carrito está vacío'
+      });
+    }
+
+    console.log(`📋 Procesando ${cartItems.length} items del carrito`);
+
+    // ✅ Verificar stock de todos los productos
+    for (const item of cartItems) {
+      if (item.product.stockQuantity < item.quantity) {
+        return res.status(400).json({
+          success: false,
+          message: `Stock insuficiente para ${item.product.name}`
+        });
+      }
+    }
+
+    // ✅ Calcular solo el subtotal, el resto viene del frontend
+    const subtotal = cartItems.reduce((sum, item) => 
+      sum + (parseFloat(item.unitPrice) * item.quantity), 0
+    );
+
+    // ✅ El IVA es INFORMATIVO (ya está incluido en el subtotal), NO se suma
+    const finalTaxAmount = parseFloat(taxAmount);
+    const finalShippingAmount = parseFloat(shippingAmount);
+    const finalDiscountAmount = parseFloat(discountAmount) || 0;
+    
+    // ✅ CORREGIDO: Total SIN sumar IVA (ya está incluido en los precios)
+    const totalAmount = subtotal + finalShippingAmount - finalDiscountAmount;
+
+    console.log('💰 Totales de la orden:', {
+      subtotal: subtotal.toFixed(2),
+      taxAmount: finalTaxAmount.toFixed(2) + ' (informativo - ya incluido en subtotal)',
+      shippingAmount: finalShippingAmount.toFixed(2),
+      discountAmount: finalDiscountAmount.toFixed(2),
+      totalAmount: totalAmount.toFixed(2)
+    });
+
+    // ✅ Validación de cordura
+    if (totalAmount < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El total de la orden no puede ser negativo'
+      });
+    }
+
+    // ✅ Verificar que el total sea consistente (subtotal + envío - descuento)
+    const expectedTotal = subtotal + finalShippingAmount - finalDiscountAmount;
+    if (Math.abs(totalAmount - expectedTotal) > 0.01) {
+      return res.status(400).json({
+        success: false,
+        message: 'El total de la orden es inconsistente con el subtotal'
+      });
+    }
+
+    // ✅ Crear la orden con los valores del frontend
+    const orderData = {
+      userId: req.user?.id || null,
+      orderNumber: StoreOrder.generateOrderNumber(),
+      subtotal,
+      taxAmount: finalTaxAmount, // Solo informativo (ya incluido en subtotal)
+      shippingAmount: finalShippingAmount,
+      discountAmount: finalDiscountAmount,
+      totalAmount,
+      paymentMethod,
+      paymentStatus: paymentMethod === 'cash_on_delivery' ? 'pending' : 'pending',
+      customerInfo: req.user ? null : customerInfo,
+      shippingAddress,
+      deliveryTimeSlot,
+      notes
+    };
+
+    const order = await StoreOrder.create(orderData);
+    console.log('✅ Orden creada:', order.id);
+
+    // ✅ Crear items de la orden
+    for (const cartItem of cartItems) {
+      await StoreOrderItem.create({
+        orderId: order.id,
+        productId: cartItem.productId,
+        productName: cartItem.product.name,
+        productSku: cartItem.product.sku,
+        quantity: cartItem.quantity,
+        unitPrice: cartItem.unitPrice,
+        totalPrice: cartItem.unitPrice * cartItem.quantity,
+        selectedVariants: cartItem.selectedVariants
+      });
+
+      // ✅ Reducir stock
+      cartItem.product.stockQuantity -= cartItem.quantity;
+      await cartItem.product.save();
+    }
+
+    console.log('✅ Items de orden creados y stock actualizado');
+
+    // ✅ Limpiar carrito
+    if (req.user) {
+      await StoreCart.clearCart(req.user.id);
+      console.log('✅ Carrito de usuario limpiado');
+    } else {
+      await StoreCart.clearCart(null, sessionId);
+      console.log('✅ Carrito de invitado limpiado');
+    }
+
+    // ✅ Crear movimiento financiero si es pago completado
+    if (paymentMethod !== 'cash_on_delivery') {
+      try {
+        await FinancialMovements.create({
+          type: 'income',
+          category: 'products_sale',
+          description: `Venta online - Orden ${order.orderNumber}`,
+          amount: totalAmount,
+          paymentMethod: paymentMethod === 'online_card' ? 'card' : paymentMethod,
+          referenceId: order.id,
+          referenceType: 'store_order',
+          registeredBy: req.user?.id || null
+        });
+        console.log('✅ Movimiento financiero creado');
+      } catch (financialError) {
+        console.warn('⚠️ Error al crear movimiento financiero:', financialError.message);
+      }
+    }
+
+    // ✅ Obtener orden completa para respuesta
+    const orderWithItems = await StoreOrder.findByPk(order.id, {
+      include: [
+        { association: 'user', attributes: ['id', 'firstName', 'lastName', 'email'] },
+        { 
+          association: 'items',
+          include: [{ association: 'product', attributes: ['id', 'name', 'sku'] }]
+        }
+      ]
+    });
+
+    console.log('🎉 Orden completada exitosamente:', order.orderNumber);
+
+    res.status(201).json({
+      success: true,
+      message: 'Orden creada exitosamente',
+      data: { order: orderWithItems }
+    });
+  } catch (error) {
+    console.error('Error al crear orden:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al crear orden',
+      error: error.message
+    });
   }
+}
 
   // Obtener órdenes del usuario
   async getMyOrders(req, res) {
