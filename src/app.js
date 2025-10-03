@@ -1,4 +1,4 @@
-// src/app.js - CORREGIDO: CORS mejorado para Vercel
+// src/app.js - MEJORADO: CORS optimizado para Vercel deployments dinámicos
 
 const express = require('express');
 const cors = require('cors');
@@ -39,7 +39,7 @@ class App {
     // Compresión de respuestas
     this.app.use(compression());
 
-    // ✅ CORS MEJORADO: Parsear URLs separadas por comas
+    // ✅ CORS MEJORADO: Parsear URLs y permitir todos los deployments de Vercel
     const parseUrls = (envVar) => {
       if (!envVar) return [];
       return envVar.split(',').map(url => url.trim()).filter(Boolean);
@@ -54,21 +54,37 @@ class App {
       'http://localhost:3001'
     ].filter(Boolean);
 
-    console.log('✅ CORS CONFIGURADO PARA:', allowedOrigins);
+    console.log('✅ CORS - URLs exactas permitidas:', allowedOrigins);
 
     this.app.use(cors({
       origin: (origin, callback) => {
-        // Permitir requests sin origin (Postman, curl)
-        if (!origin) return callback(null, true);
-        
-        if (allowedOrigins.includes(origin)) {
-          console.log(`✅ CORS permitido: ${origin}`);
-          callback(null, true);
-        } else {
-          console.warn(`❌ CORS bloqueado: ${origin}`);
-          console.warn(`📋 Permitidos:`, allowedOrigins);
-          callback(null, false);
+        // Permitir requests sin origin (Postman, curl, mobile apps)
+        if (!origin) {
+          return callback(null, true);
         }
+        
+        // ✅ Método 1: Permitir URLs exactas desde .env
+        if (allowedOrigins.includes(origin)) {
+          console.log(`✅ CORS permitido (exacto): ${origin}`);
+          return callback(null, true);
+        }
+        
+        // ✅ Método 2: Permitir CUALQUIER deployment de Vercel con 'gym-frontend'
+        if (origin.includes('gym-frontend') && origin.endsWith('.vercel.app')) {
+          console.log(`✅ CORS permitido (Vercel pattern): ${origin}`);
+          return callback(null, true);
+        }
+        
+        // ✅ Método 3: Permitir localhost en cualquier puerto
+        if (origin.includes('localhost')) {
+          console.log(`✅ CORS permitido (localhost): ${origin}`);
+          return callback(null, true);
+        }
+        
+        // ❌ Bloquear todo lo demás
+        console.warn(`❌ CORS bloqueado: ${origin}`);
+        console.warn(`📋 Permitidos:`, allowedOrigins);
+        callback(new Error('Not allowed by CORS'));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
