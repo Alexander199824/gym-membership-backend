@@ -1,4 +1,4 @@
-// src/models/GymStatistics.js - MEJORADO: Estadísticas completamente configurables
+// src/models/GymStatistics.js - CORREGIDO: Sin error de columnas
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -116,7 +116,7 @@ GymStatistics.getActiveStats = async function() {
   });
 };
 
-// ✅ Método para obtener todas las estadísticas (admin)
+// ✅ CORREGIDO: Método para obtener todas las estadísticas (admin)
 GymStatistics.getAllStats = async function() {
   return await this.findAll({
     order: [['displayOrder', 'ASC']],
@@ -130,9 +130,8 @@ GymStatistics.getAllStats = async function() {
       'colorScheme',
       'displayOrder',
       'isActive',
-      'description',
-      'createdAt',
-      'updatedAt'
+      'description'
+      // ✅ REMOVIDO createdAt y updatedAt porque causan error con snake_case
     ]
   });
 };
