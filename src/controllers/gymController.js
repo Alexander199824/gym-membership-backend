@@ -186,32 +186,15 @@ class GymController {
         GymStatistics.getActiveStats()
       ]);
 
-      // ✅ Formatear estadísticas
-      const formattedStats = {
-        members: 500,
-        trainers: 8,
-        experience: 10,
-        satisfaction: 95
-      };
-
-      if (stats && stats.length > 0) {
-        stats.forEach(stat => {
-          switch(stat.statKey) {
-            case 'members_count':
-              formattedStats.members = parseInt(stat.statValue.replace(/\D/g, '')) || 500;
-              break;
-            case 'trainers_count':
-              formattedStats.trainers = parseInt(stat.statValue.replace(/\D/g, '')) || 8;
-              break;
-            case 'experience_years':
-              formattedStats.experience = parseInt(stat.statValue.replace(/\D/g, '')) || 10;
-              break;
-            case 'satisfaction_rate':
-              formattedStats.satisfaction = parseInt(stat.statValue.replace(/\D/g, '')) || 95;
-              break;
-          }
-        });
-      }
+      // ✅ ACTUALIZADO: Formatear estadísticas dinámicamente desde BD
+      const formattedStats = stats.map(stat => ({
+        id: stat.id,
+        number: stat.valueSuffix ? `${stat.statValue}${stat.valueSuffix}` : stat.statValue,
+        label: stat.label,
+        icon: stat.iconName,
+        color: stat.colorScheme,
+        description: stat.description || null
+      }));
 
       // ✅ Estructura exacta que espera ContentEditor.js
       const response = {
@@ -258,6 +241,7 @@ class GymController {
             full: this.generateHoursString(hours)
           },
           
+          // ✅ ACTUALIZADO: Estadísticas dinámicas completas
           stats: formattedStats
         }
       };
@@ -722,50 +706,25 @@ class GymController {
     }
   }
 
-  // ✅ ENDPOINT: /api/gym/stats (formato esperado por frontend)
+  // ✅ ENDPOINT: /api/gym/stats (ACTUALIZADO - formato dinámico desde BD)
   async getStatistics(req, res) {
     try {
       const statistics = await GymStatistics.getActiveStats();
       
-      // Convertir a formato que espera el frontend
-      const formattedStats = {
-        members: 0,
-        trainers: 0,
-        experience: 0,
-        satisfaction: 0,
-        facilities: 0,
-        customStats: []
-      };
-
-      statistics.forEach(stat => {
-        switch(stat.statKey) {
-          case 'members_count':
-            formattedStats.members = parseInt(stat.statValue.replace(/\D/g, '')) || 0;
-            break;
-          case 'trainers_count':
-            formattedStats.trainers = parseInt(stat.statValue.replace(/\D/g, '')) || 0;
-            break;
-          case 'experience_years':
-            formattedStats.experience = parseInt(stat.statValue.replace(/\D/g, '')) || 0;
-            break;
-          case 'satisfaction_rate':
-            formattedStats.satisfaction = parseInt(stat.statValue.replace(/\D/g, '')) || 0;
-            break;
-          case 'equipment_count':
-            formattedStats.facilities = parseInt(stat.statValue.replace(/\D/g, '')) || 0;
-            break;
-          default:
-            formattedStats.customStats.push({
-              label: stat.statKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-              value: parseInt(stat.statValue.replace(/\D/g, '')) || 0,
-              icon: "Trophy"
-            });
-        }
-      });
+      // ✅ NUEVO: Formatear estadísticas dinámicamente desde la BD
+      const formattedStats = statistics.map(stat => ({
+        id: stat.id,
+        number: stat.valueSuffix ? `${stat.statValue}${stat.valueSuffix}` : stat.statValue,
+        label: stat.label,
+        icon: stat.iconName,
+        color: stat.colorScheme,
+        description: stat.description || null
+      }));
 
       res.json({
         success: true,
-        data: formattedStats
+        data: formattedStats,
+        total: formattedStats.length
       });
     } catch (error) {
       console.error('Error en getStatistics:', error);
@@ -773,14 +732,13 @@ class GymController {
       // ✅ FALLBACK: Estadísticas por defecto
       res.json({
         success: true,
-        data: {
-          members: 500,
-          trainers: 15,
-          experience: 10,
-          satisfaction: 98,
-          facilities: 50,
-          customStats: []
-        },
+        data: [
+          { number: '500+', label: 'Miembros', icon: 'Users', color: 'primary' },
+          { number: '15+', label: 'Entrenadores', icon: 'Award', color: 'secondary' },
+          { number: '10+', label: 'Años', icon: 'Trophy', color: 'warning' },
+          { number: '98%', label: 'Satisfacción', icon: 'Star', color: 'success' }
+        ],
+        total: 4,
         fallback: true
       });
     }
@@ -1043,6 +1001,16 @@ class GymController {
 
       const isOpenNow = await GymHours.isOpenNow();
 
+      // ✅ ACTUALIZADO: Formatear estadísticas dinámicamente
+      const formattedStats = statistics.map(stat => ({
+        id: stat.id,
+        number: stat.valueSuffix ? `${stat.statValue}${stat.valueSuffix}` : stat.statValue,
+        label: stat.label,
+        icon: stat.iconName,
+        color: stat.colorScheme,
+        description: stat.description || null
+      }));
+
       // ✅ Formatear respuesta completa con URLs de BD
       const response = {
         configuration: {
@@ -1070,7 +1038,7 @@ class GymController {
             mapsUrl: contactInfo.mapsUrl
           }
         },
-        statistics,
+        statistics: formattedStats, // ✅ ACTUALIZADO: Estadísticas dinámicas
         services: services.map(service => ({
           ...service.toJSON(),
           imageUrl: service.imageUrl || "" // Usar URL de BD (vacía por defecto)
