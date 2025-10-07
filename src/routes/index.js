@@ -18,6 +18,9 @@ const membershipPlansRoutes = require('./membershipPlansRoutes');
 // ✅ === NUEVAS RUTAS DE STATISTICS ===
 const statisticsRoutes = require('./statisticsRoutes');
 
+// ✅ === NUEVA RUTA: CONTACTO Y REDES SOCIALES === 👈 AGREGAR AQUÍ
+const gymContactSocialRoutes = require('./gymContactSocialRoutes');
+
 // ✅ === RUTAS DE TIENDA ===
 const storeRoutes = require('./storeRoutes');
 
@@ -137,6 +140,8 @@ router.get('/health', async (req, res) => {
       auth: 'Active',
       gym: 'Active',
       membershipPlans: 'Active',
+      gymContact: 'Active', // 👈 AGREGAR ESTA LÍNEA
+      gymSocial: 'Active',  // 👈 AGREGAR ESTA LÍNEA
       statistics: 'Active', // ✅ NUEVA
       store: 'Active',
       storeManagement: 'Active',
@@ -151,8 +156,8 @@ router.get('/health', async (req, res) => {
       stripe: stripeConfig.enabled ? 'Active' : 'Disabled'
     },
     endpoints: {
-      total: 14, // ✅ ACTUALIZADO
-      responding: 14
+      total: 15, // ✅ ACTUALIZADO
+      responding: 15
     }
   });
 });
@@ -197,7 +202,15 @@ router.get('/endpoints', (req, res) => {
         stats: 'GET /api/gym/stats (frontend)',
         plans: 'GET /api/gym/plans',
         contact: 'GET /api/gym/contact',
-        hours: 'GET /api/gym/hours'
+        hours: 'GET /api/gym/hours',
+        updateContact: 'PUT /api/gym/contact (admin)',
+        socialMediaAll: 'GET /api/gym/social-media/all (admin)',
+        socialMediaPublic: 'GET /api/gym/social-media/:platform',
+        createSocial: 'POST /api/gym/social-media (admin)',
+        updateSocial: 'PUT /api/gym/social-media/:platform (admin)',
+        toggleSocial: 'PATCH /api/gym/social-media/:platform/toggle (admin)'
+
+
       },
       
       // === MEMBRESÍAS ===
@@ -407,6 +420,9 @@ router.use('/data-cleanup', dataCleanupRoutes);
 router.use('/membership-plans', membershipPlansRoutes);
 router.use('/statistics', statisticsRoutes); // ✅ NUEVA RUTA DE ESTADÍSTICAS
 
+// ✅ === NUEVA RUTA: CONTACTO Y REDES SOCIALES === 👈 AGREGAR AQUÍ
+router.use('/gym', gymContactSocialRoutes);
+
 // Rutas de tienda (incluye gestión en /management)
 router.use('/store', storeRoutes);
 
@@ -436,6 +452,7 @@ console.log('   🔐 Autenticación y usuarios');
 console.log('   🏋️ Gimnasio y membresías');
 console.log('   📋 Planes de membresía (CRUD)');
 console.log('   📊 Estadísticas configurables (CRUD)'); // ✅ NUEVA
+console.log('   📞 Contacto y redes sociales (CRUD)');
 console.log('   🛒 Tienda online completa');
 console.log('   🏪 Ventas locales (efectivo/transferencia)');
 console.log('   📦 Gestión avanzada de órdenes');
