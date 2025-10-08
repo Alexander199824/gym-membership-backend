@@ -1,4 +1,5 @@
 // src/controllers/servicesController.js - CRUD COMPLETO de servicios del gimnasio
+// ✅ CORREGIDO: Sin el ORDER BY problemático
 
 const { GymServices } = require('../models');
 const { validationResult } = require('express-validator');
@@ -23,7 +24,7 @@ class ServicesController {
   async getAllServices(req, res) {
     try {
       const services = await GymServices.findAll({
-        order: [['displayOrder', 'ASC'], ['createdAt', 'DESC']]
+        order: [['displayOrder', 'ASC']] // ⚠️ QUITADO: ['createdAt', 'DESC']
       });
 
       const formattedServices = services.map(service => ({
