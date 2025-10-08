@@ -1,4 +1,4 @@
-// src/models/index.js - REPARADO: Carga completa y asociaciones correctas
+// src/models/index.js - ACTUALIZADO: Con modelo Expense integrado
 'use strict';
 
 const fs = require('fs');
@@ -87,6 +87,7 @@ const modelLoadOrder = [
   'Payment',
   'FinancialMovements',
   'DailyIncome',
+  'Expense', // ✅ NUEVO: Modelo de gastos
   
   // Ventas locales
   'LocalSale',
@@ -133,7 +134,7 @@ if (additionalModels.length > 0) {
 }
 
 // ============================================================================
-// CONFIGURACIÓN DE ASOCIACIONES REPARADAS
+// CONFIGURACIÓN DE ASOCIACIONES
 // ============================================================================
 
 console.log('\n🔗 CONFIGURANDO ASOCIACIONES...');
@@ -167,7 +168,7 @@ const configureAssociations = () => {
     }
   });
   
-  // ✅ 2. CREAR ASOCIACIONES MANUALES CRÍTICAS (REPARADAS)
+  // ✅ 2. CREAR ASOCIACIONES MANUALES CRÍTICAS
   console.log('\n🔧 Creando asociaciones manuales críticas...');
   
   try {
@@ -282,17 +283,16 @@ const configureAssociations = () => {
       console.log('   ✅ StoreOrderItem -> StoreProduct');
     }
     
-    // === VENTAS LOCALES (REPARADAS) ===
+    // === VENTAS LOCALES ===
     if (db.LocalSale && db.User) {
       if (!db.LocalSale.associations?.employee) {
         db.LocalSale.belongsTo(db.User, { foreignKey: 'employeeId', as: 'employee' });
       }
       
-      // ✅ CRÍTICO: ASOCIACIÓN REPARADA PARA TRANSFERCONFIRMER
       if (!db.LocalSale.associations?.transferConfirmer) {
         db.LocalSale.belongsTo(db.User, { 
           foreignKey: 'transferConfirmedBy', 
-          as: 'transferConfirmer' // ✅ NOMBRE CORRECTO
+          as: 'transferConfirmer'
         });
       }
       console.log('   ✅ LocalSale -> User (employee, transferConfirmer)');
@@ -407,7 +407,7 @@ const configureAssociations = () => {
       console.log('   ✅ UserSchedulePreferences -> User');
     }
     
-    // === ASOCIACIONES ADICIONALES DE PAYMENT Y MEMBERSHIP (CRÍTICAS) ===
+    // === ASOCIACIONES ADICIONALES DE PAYMENT Y MEMBERSHIP ===
     if (db.Membership && db.User) {
       if (!db.Membership.associations?.registeredByUser) {
         db.Membership.belongsTo(db.User, { 
@@ -436,6 +436,56 @@ const configureAssociations = () => {
         });
       }
       console.log('   ✅ Payment -> registeredByUser, transferValidator');
+    }
+    
+    // === ✅ GASTOS (EXPENSES) - NUEVAS ASOCIACIONES ===
+    if (db.Expense && db.User) {
+      if (!db.Expense.associations?.registeredByUser) {
+        db.Expense.belongsTo(db.User, {
+          foreignKey: 'registeredBy',
+          as: 'registeredByUser'
+        });
+      }
+      if (!db.Expense.associations?.approvedByUser) {
+        db.Expense.belongsTo(db.User, {
+          foreignKey: 'approvedBy',
+          as: 'approvedByUser'
+        });
+      }
+      
+      // Usuario puede tener múltiples gastos registrados
+      if (!db.User.associations?.registeredExpenses) {
+        db.User.hasMany(db.Expense, {
+          foreignKey: 'registeredBy',
+          as: 'registeredExpenses'
+        });
+      }
+      
+      // Usuario puede tener múltiples gastos aprobados
+      if (!db.User.associations?.approvedExpenses) {
+        db.User.hasMany(db.Expense, {
+          foreignKey: 'approvedBy',
+          as: 'approvedExpenses'
+        });
+      }
+      
+      console.log('   ✅ Expense <-> User (registeredByUser, approvedByUser)');
+    }
+    
+    if (db.Expense && db.FinancialMovements) {
+      if (!db.Expense.associations?.financialMovement) {
+        db.Expense.belongsTo(db.FinancialMovements, {
+          foreignKey: 'financialMovementId',
+          as: 'financialMovement'
+        });
+      }
+      if (!db.FinancialMovements.associations?.expense) {
+        db.FinancialMovements.hasOne(db.Expense, {
+          foreignKey: 'financialMovementId',
+          as: 'expense'
+        });
+      }
+      console.log('   ✅ Expense <-> FinancialMovements');
     }
     
   } catch (error) {
@@ -507,7 +557,8 @@ const syncDatabase = async (options = {}) => {
       'User', 'MembershipPlans', 'StoreCategory', 'StoreBrand', 
       'GymConfiguration', 'GymContactInfo', 'GymHours', 'GymTimeSlots',
       'StoreProduct', 'StoreProductImage', 'Membership', 'Payment', 
-      'FinancialMovements', 'StoreCart', 'StoreOrder', 'StoreOrderItem',
+      'FinancialMovements', 'DailyIncome', 'Expense', // ✅ NUEVO
+      'StoreCart', 'StoreOrder', 'StoreOrderItem',
       'LocalSale', 'LocalSaleItem', 'TransferConfirmation'
     ];
 
@@ -579,7 +630,7 @@ console.log(`✅ Total de modelos cargados: ${finalModels.length}`);
 console.log(`🔗 Funciones disponibles: diagnose, syncDatabase, resetDatabase`);
 
 // ✅ MOSTRAR MODELOS CRÍTICOS CARGADOS
-const criticalModels = ['User', 'LocalSale', 'StoreProduct', 'StoreCategory', 'Membership'];
+const criticalModels = ['User', 'Expense', 'FinancialMovements', 'LocalSale', 'StoreProduct', 'Membership'];
 const criticalLoaded = criticalModels.filter(model => db[model]);
 const criticalMissing = criticalModels.filter(model => !db[model]);
 

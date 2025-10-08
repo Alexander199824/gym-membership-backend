@@ -11,6 +11,7 @@ const financialRoutes = require('./financialRoutes');
 const scheduleRoutes = require('./scheduleRoutes');
 const dashboardRoutes = require('./dashboardRoutes');
 const dataCleanupRoutes = require('./dataCleanupRoutes');
+const expenseRoutes = require('./expenseRoutes');
 
 // ✅ === NUEVAS RUTAS DE MEMBERSHIP PLANS ===
 const membershipPlansRoutes = require('./membershipPlansRoutes');
@@ -340,6 +341,24 @@ router.get('/endpoints', (req, res) => {
         lowStockReport: 'GET /api/inventory/low-stock',
         employeePerformance: 'GET /api/inventory/employee-performance (admin)'
       },
+
+      expenses: {
+      create: 'POST /api/expenses (admin, colaborador)',
+      list: 'GET /api/expenses (admin, colaborador)',
+      getById: 'GET /api/expenses/:id (admin, colaborador)',
+      update: 'PUT /api/expenses/:id (admin, colaborador)',
+      delete: 'DELETE /api/expenses/:id (admin)',
+      approve: 'POST /api/expenses/:id/approve (admin, colaborador)',
+      reject: 'POST /api/expenses/:id/reject (admin, colaborador)',
+      cancel: 'POST /api/expenses/:id/cancel (admin, colaborador)',
+      pendingApproval: 'GET /api/expenses/pending/approval (admin, colaborador)',
+      byCategory: 'GET /api/expenses/category/:category (admin, colaborador)',
+      stats: 'GET /api/expenses/stats/summary (admin, colaborador)',
+      breakdown: 'GET /api/expenses/stats/breakdown (admin, colaborador)',
+      vendors: 'GET /api/expenses/stats/vendors (admin, colaborador)',
+      recurring: 'GET /api/expenses/recurring/upcoming (admin, colaborador)',
+      processRecurring: 'POST /api/expenses/recurring/process (admin)'
+      },
       
      // === TESTIMONIOS ===
       testimonials: {
@@ -454,8 +473,10 @@ router.use('/data-cleanup', dataCleanupRoutes);
 // ✅ === NUEVAS RUTAS ===
 router.use('/membership-plans', membershipPlansRoutes);
 router.use('/statistics', statisticsRoutes);
-router.use('/services', servicesRoutes); // 👈 NUEVA LÍNEA
+router.use('/services', servicesRoutes); 
 router.use('/gym', gymContactSocialRoutes);
+router.use('/expenses', expenseRoutes);
+
 
 // Rutas de tienda (incluye gestión en /management)
 router.use('/store', storeRoutes);
@@ -497,6 +518,7 @@ console.log('   🎬 Multimedia (Cloudinary)');
 console.log('   💬 Testimonios');
 console.log('   🎨 Frontend (branding/contenido)');
 console.log('   💰 Finanzas y reportes');
+console.log('   💰 Gastos (Expenses)');
 
 // ✅ === MANEJO DE RUTAS NO ENCONTRADAS ===
 router.use('*', (req, res) => {
