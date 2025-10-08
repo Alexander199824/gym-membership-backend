@@ -1,4 +1,4 @@
-// src/config/cloudinary.js - CONFIGURACIÓN COMPLETA CON VIDEOS
+// src/config/cloudinary.js - CONFIGURACIÓN COMPLETA CON VIDEOS - LÍMITE 500MB
 const cloudinary = require('cloudinary').v2;
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const multer = require('multer');
@@ -143,7 +143,7 @@ const uploadProductImage = multer({
   }
 });
 
-// ✅ STORAGE PARA VIDEOS DE HERO SECTION
+// ✅ STORAGE PARA VIDEOS DE HERO SECTION - ⚡ LÍMITE AUMENTADO A 500MB
 const heroVideoStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -165,7 +165,7 @@ const heroVideoStorage = new CloudinaryStorage({
 const uploadHeroVideo = multer({
   storage: heroVideoStorage,
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB para videos
+    fileSize: 500 * 1024 * 1024 // ⚡ 500MB PARA VIDEOS (AUMENTADO DESDE 50MB)
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/avi'];
@@ -211,7 +211,7 @@ const uploadTestimonialImage = multer({
 });
 
 
-// ✅ STORAGE PARA LOGOS DE MARCAS - NUEVO
+// ✅ STORAGE PARA LOGOS DE MARCAS
 const brandLogoStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
@@ -383,7 +383,7 @@ module.exports = {
   uploadTransferProof,
   uploadGeneral,
   uploadProductImage,
-  uploadHeroVideo,
+  uploadHeroVideo,        // ⚡ CON LÍMITE DE 500MB
   uploadTestimonialImage,
   uploadBrandLogo,
   

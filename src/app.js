@@ -115,8 +115,8 @@ class App {
     }
 
     // Parsear JSON
-    this.app.use(express.json({ limit: '10mb' }));
-    this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    this.app.use(express.json({ limit: '500mb' }));
+    this.app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 
     // Inicializar Passport
     this.app.use(passport.initialize());
