@@ -341,14 +341,32 @@ router.get('/endpoints', (req, res) => {
         employeePerformance: 'GET /api/inventory/employee-performance (admin)'
       },
       
-      // === TESTIMONIOS ===
+     // === TESTIMONIOS ===
       testimonials: {
+        // Públicos
+        getActive: 'GET /api/testimonials/active (público)',
+        getFeatured: 'GET /api/testimonials/featured (público)',
+        
+        // Clientes
         create: 'POST /api/testimonials (clientes)',
-        myTestimonials: 'GET /api/testimonials/my-testimonials',
-        update: 'PATCH /api/testimonials/:id',
+        myTestimonials: 'GET /api/testimonials/my-testimonials (clientes)',
+        
+        // Admin - Gestión
         pending: 'GET /api/testimonials/pending (admin)',
         approve: 'POST /api/testimonials/:id/approve (admin)',
-        stats: 'GET /api/testimonials/stats (admin)'
+        markNotPublic: 'POST /api/testimonials/:id/mark-not-public (admin)',
+        analysis: 'GET /api/testimonials/analysis (admin)',
+        stats: 'GET /api/testimonials/stats (admin)',
+        
+        // Admin - CRUD Completo
+        listAll: 'GET /api/testimonials/all (admin)',
+        getById: 'GET /api/testimonials/:id/details (admin)',
+        createAdmin: 'POST /api/testimonials/admin/create (admin)',
+        update: 'PUT /api/testimonials/:id (admin)',
+        delete: 'DELETE /api/testimonials/:id (admin)',
+        toggleActive: 'PATCH /api/testimonials/:id/toggle-active (admin)',
+        toggleFeatured: 'PATCH /api/testimonials/:id/toggle-featured (admin)',
+        reorder: 'PUT /api/testimonials/reorder/batch (admin)'
       },
       
       // === MULTIMEDIA ===

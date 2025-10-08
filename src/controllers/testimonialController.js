@@ -1,19 +1,20 @@
-// src/controllers/testimonialController.js - NUEVO ARCHIVO (SIN modificar modelo)
+// src/controllers/testimonialController.js - COMPLETO CON TODAS LAS FUNCIONALIDADES
 const { GymTestimonials, User } = require('../models');
 const { Op } = require('sequelize');
 
-// ✅ CONTROLADOR MODIFICADO - Permitir múltiples testimonios y ver pendientes
-
 class TestimonialController {
 
-  // ✅ CREAR TESTIMONIO - SIN restricción de "solo uno"
+  // ========== FUNCIONALIDAD EXISTENTE (CLIENTES) ==========
+
+  // Crear testimonio (clientes)
   async createTestimony(req, res) {
     try {
       const { text, rating, role } = req.body;
       const userId = req.user.id;
-      const userName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email || `Usuario ${req.user.id}`;
+      const userName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || 
+                       req.user.email || 
+                       `Usuario ${req.user.id}`;
 
-      // Verificar que el usuario sea cliente
       if (req.user.role !== 'cliente') {
         return res.status(403).json({
           success: false,
@@ -21,22 +22,18 @@ class TestimonialController {
         });
       }
 
-      // ✅ REMOVIDO: La verificación de testimonio existente
-      // Ahora los usuarios pueden enviar múltiples testimonios
-
-      // Crear testimonio con isActive: false (pendiente hasta aprobación)
       const testimonial = await GymTestimonials.create({
         name: userName,
         role: role || 'Miembro',
         text,
         rating,
-        imageUrl: '', // Vacío por defecto
+        imageUrl: '',
         isFeatured: false,
-        isActive: false, // ✅ Pendiente hasta que admin apruebe
-        displayOrder: 999 // Al final hasta que admin lo ordene
+        isActive: false,
+        displayOrder: 999
       });
 
-      console.log(`📝 Cliente ${userName} envió nuevo testimonio (ID: ${testimonial.id})`);
+      console.log(`Cliente ${userName} envió nuevo testimonio (ID: ${testimonial.id})`);
 
       res.status(201).json({
         success: true,
@@ -61,22 +58,18 @@ class TestimonialController {
     }
   }
 
-  // ✅ VER MIS TESTIMONIOS - Mostrar TODOS (activos Y pendientes)
+  // Ver mis testimonios (clientes)
   async getMyTestimonials(req, res) {
     try {
       const userName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || 
                        req.user.email || 
                        `Usuario ${req.user.id}`;
 
-      console.log(`💬 Buscando TODOS los testimonios para usuario: ${userName} (ID: ${req.user.id})`);
+      console.log(`Buscando TODOS los testimonios para usuario: ${userName} (ID: ${req.user.id})`);
 
-      // ✅ CAMBIO CRÍTICO: Buscar TODOS los testimonios (activos Y pendientes)
       const allTestimonials = await GymTestimonials.findAll({
-        where: { 
-          name: userName
-          // ✅ REMOVIDO: isActive: true - Ahora mostrar todos
-        },
-        order: [['created_at', 'DESC']] // Más recientes primero
+        where: { name: userName },
+        order: [['created_at', 'DESC']]
       });
 
       const formattedTestimonials = allTestimonials.map(t => ({
@@ -84,20 +77,18 @@ class TestimonialController {
         text: t.text,
         rating: t.rating,
         role: t.role,
-        // ✅ NUEVO: Estado dinámico basado en isActive
         status: t.isActive ? 'Publicado' : 'En revisión',
         featured: t.isFeatured,
         submittedAt: t.created_at,
         publishedAt: t.isActive ? t.updated_at : null,
-        canEdit: false,     // ✅ Nunca editable
-        canDelete: false    // ✅ Nunca eliminable
+        canEdit: false,
+        canDelete: false
       }));
 
-      // ✅ NUEVO: Calcular estadísticas
       const publishedCount = allTestimonials.filter(t => t.isActive).length;
       const pendingCount = allTestimonials.filter(t => !t.isActive).length;
 
-      console.log(`💬 Encontrados: ${publishedCount} publicados, ${pendingCount} pendientes para ${userName}`);
+      console.log(`Encontrados: ${publishedCount} publicados, ${pendingCount} pendientes para ${userName}`);
 
       res.json({
         success: true,
@@ -108,7 +99,7 @@ class TestimonialController {
           pendingCount,
           hasActiveTestimonial: publishedCount > 0,
           hasPendingTestimonial: pendingCount > 0,
-          canSubmitNew: true, // ✅ SIEMPRE puede enviar más testimonios
+          canSubmitNew: true,
           thankYouMessage: pendingCount > 0 ? 
             `¡Gracias por tus ${allTestimonials.length} testimonios! ${pendingCount} están en revisión.` :
             publishedCount > 0 ? 
@@ -118,8 +109,8 @@ class TestimonialController {
       });
 
     } catch (error) {
-      console.error('❌ Error al obtener testimonios del usuario:', error);
-      console.error('📋 Stack trace completo:', error.stack);
+      console.error('Error al obtener testimonios del usuario:', error);
+      console.error('Stack trace completo:', error.stack);
       
       res.status(500).json({
         success: false,
@@ -129,7 +120,9 @@ class TestimonialController {
     }
   }
 
-  // ✅ ADMIN: Obtener testimonios pendientes (sin cambios)
+  // ========== FUNCIONALIDAD EXISTENTE (ADMIN - GESTIÓN) ==========
+
+  // Ver testimonios pendientes (admin)
   async getPendingTestimonials(req, res) {
     try {
       const testimonials = await GymTestimonials.findAll({
@@ -163,7 +156,7 @@ class TestimonialController {
     }
   }
 
-  // ✅ ADMIN: Aprobar testimonio (sin cambios)
+  // Aprobar testimonio (admin)
   async approveTestimony(req, res) {
     try {
       const { id } = req.params;
@@ -178,7 +171,6 @@ class TestimonialController {
         });
       }
 
-      // Aprobar testimonio
       testimonial.isActive = true;
       testimonial.isFeatured = featured;
 
@@ -188,7 +180,7 @@ class TestimonialController {
 
       await testimonial.save();
 
-      console.log(`✅ Admin ${req.user.firstName} ${req.user.lastName} aprobó testimonio de ${testimonial.name} (ID: ${id})`);
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} aprobó testimonio de ${testimonial.name} (ID: ${id})`);
 
       res.json({
         success: true,
@@ -214,7 +206,7 @@ class TestimonialController {
     }
   }
 
-  // ✅ ADMIN: Marcar como no público
+  // Marcar como no público (admin)
   async markAsNotPublic(req, res) {
     try {
       const { id } = req.params;
@@ -228,9 +220,6 @@ class TestimonialController {
           message: 'Testimonio no encontrado'
         });
       }
-
-      // NO cambiar isActive (se queda en false)
-      // El cliente nunca sabrá que no fue aprobado
 
       res.json({
         success: true,
@@ -257,7 +246,7 @@ class TestimonialController {
     }
   }
 
-  // ✅ ADMIN: Ver testimonios para análisis
+  // Ver testimonios para análisis (admin)
   async getTestimonialsForAnalysis(req, res) {
     try {
       const testimonials = await GymTestimonials.findAll({
@@ -294,7 +283,7 @@ class TestimonialController {
     }
   }
 
-  // ✅ ADMIN: Estadísticas
+  // Estadísticas (admin)
   async getTestimonialStats(req, res) {
     try {
       const [total, published, pending] = await Promise.all([
@@ -310,7 +299,6 @@ class TestimonialController {
         where: { isActive: true }
       });
 
-      // ✅ NUEVO: Estadísticas por usuario
       const uniqueUsers = await GymTestimonials.findAll({
         attributes: ['name'],
         group: ['name']
@@ -319,6 +307,28 @@ class TestimonialController {
       const totalUniqueUsers = uniqueUsers.length;
       const avgTestimonialsPerUser = totalUniqueUsers > 0 ? (total / totalUniqueUsers).toFixed(1) : 0;
 
+      // Contar destacados
+      const featured = await GymTestimonials.count({ 
+        where: { 
+          isActive: true,
+          isFeatured: true 
+        } 
+      });
+
+      // Distribución por rating
+      const ratingDistribution = await GymTestimonials.findAll({
+        attributes: [
+          'rating',
+          [GymTestimonials.sequelize.fn('COUNT', GymTestimonials.sequelize.col('rating')), 'count']
+        ],
+        where: { isActive: true },
+        group: ['rating'],
+        order: [['rating', 'DESC']],
+        raw: true
+      });
+
+      const averageRating = parseFloat(avgRating[0]?.dataValues?.avgRating || 0).toFixed(1);
+
       res.json({
         success: true,
         data: {
@@ -326,18 +336,24 @@ class TestimonialController {
             total,
             published,
             pending,
+            featured,
             totalUniqueUsers,
             avgTestimonialsPerUser,
-            averageRating: parseFloat(avgRating[0]?.dataValues?.avgRating || 0).toFixed(1)
+            averageRating
           },
           percentages: {
             publishedRate: total > 0 ? ((published / total) * 100).toFixed(1) + '%' : '0%',
-            pendingRate: total > 0 ? ((pending / total) * 100).toFixed(1) + '%' : '0%'
+            pendingRate: total > 0 ? ((pending / total) * 100).toFixed(1) + '%' : '0%',
+            featuredRate: published > 0 ? ((featured / published) * 100).toFixed(1) + '%' : '0%'
           },
+          ratingDistribution: ratingDistribution.map(r => ({
+            rating: r.rating,
+            count: parseInt(r.count)
+          })),
           insights: {
             allowsMultipleTestimonials: true,
             needsAttention: pending > 10,
-            goodRating: parseFloat(avgRating[0]?.dataValues?.avgRating || 0) >= 4.0,
+            goodRating: parseFloat(averageRating) >= 4.0,
             hasAnalysisData: pending > 0,
             positiveCustomerExperience: true
           },
@@ -353,6 +369,468 @@ class TestimonialController {
       res.status(500).json({
         success: false,
         message: 'Error al obtener estadísticas',
+        error: error.message
+      });
+    }
+  }
+
+  // ========== NUEVAS FUNCIONES CRUD (ADMIN) ==========
+
+  // LISTAR TODOS con filtros y paginación (Admin)
+  async getAllTestimonials(req, res) {
+    try {
+      const { 
+        page = 1, 
+        limit = 10, 
+        isActive, 
+        isFeatured,
+        minRating,
+        search,
+        sortBy = 'createdAt',
+        sortOrder = 'DESC'
+      } = req.query;
+
+      const offset = (page - 1) * limit;
+      const where = {};
+
+      if (isActive !== undefined) {
+        where.isActive = isActive === 'true';
+      }
+      if (isFeatured !== undefined) {
+        where.isFeatured = isFeatured === 'true';
+      }
+      if (minRating) {
+        where.rating = { [Op.gte]: parseInt(minRating) };
+      }
+      if (search) {
+        where[Op.or] = [
+          { name: { [Op.like]: `%${search}%` } },
+          { role: { [Op.like]: `%${search}%` } },
+          { text: { [Op.like]: `%${search}%` } }
+        ];
+      }
+
+      // Mapear campos camelCase a snake_case para la BD
+      const fieldMapping = {
+        'createdAt': 'created_at',
+        'updatedAt': 'updated_at',
+        'displayOrder': 'display_order',
+        'isFeatured': 'is_featured',
+        'isActive': 'is_active',
+        'name': 'name',
+        'rating': 'rating'
+      };
+
+      const dbSortField = fieldMapping[sortBy] || sortBy;
+      
+      let orderClause = [[dbSortField, sortOrder]];
+      if (sortBy !== 'displayOrder') {
+        orderClause.unshift(['is_featured', 'DESC'], ['display_order', 'ASC']);
+      }
+
+      const { count, rows } = await GymTestimonials.findAndCountAll({
+        where,
+        order: orderClause,
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      });
+
+      const totalPages = Math.ceil(count / limit);
+
+      res.json({
+        success: true,
+        data: rows,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages,
+          hasNext: page < totalPages,
+          hasPrev: page > 1
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener testimonios:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener testimonios',
+        error: error.message
+      });
+    }
+  }
+
+  // OBTENER POR ID (Admin)
+  async getTestimonialById(req, res) {
+    try {
+      const { id } = req.params;
+
+      const testimonial = await GymTestimonials.findByPk(id);
+
+      if (!testimonial) {
+        return res.status(404).json({
+          success: false,
+          message: 'Testimonio no encontrado'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: testimonial
+      });
+    } catch (error) {
+      console.error('Error al obtener testimonio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener testimonio',
+        error: error.message
+      });
+    }
+  }
+
+  // CREAR TESTIMONIO ADMIN (Admin) - Directamente aprobado
+  async createTestimonialAdmin(req, res) {
+    try {
+      const {
+        name,
+        role,
+        text,
+        rating,
+        imageUrl,
+        isFeatured,
+        isActive,
+        displayOrder
+      } = req.body;
+
+      if (!name || !text) {
+        return res.status(400).json({
+          success: false,
+          message: 'Nombre y texto son requeridos'
+        });
+      }
+
+      if (rating && (rating < 1 || rating > 5)) {
+        return res.status(400).json({
+          success: false,
+          message: 'El rating debe estar entre 1 y 5'
+        });
+      }
+
+      const testimonial = await GymTestimonials.create({
+        name,
+        role: role || 'Miembro',
+        text,
+        rating: rating || 5,
+        imageUrl: imageUrl || '',
+        isFeatured: isFeatured || false,
+        isActive: isActive !== false,
+        displayOrder: displayOrder || 0
+      });
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} creó testimonio (ID: ${testimonial.id})`);
+
+      res.status(201).json({
+        success: true,
+        message: 'Testimonio creado exitosamente',
+        data: testimonial
+      });
+    } catch (error) {
+      console.error('Error al crear testimonio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al crear testimonio',
+        error: error.message
+      });
+    }
+  }
+
+  // ACTUALIZAR TESTIMONIO (Admin)
+  async updateTestimonial(req, res) {
+    try {
+      const { id } = req.params;
+      const {
+        name,
+        role,
+        text,
+        rating,
+        imageUrl,
+        isFeatured,
+        isActive,
+        displayOrder
+      } = req.body;
+
+      const testimonial = await GymTestimonials.findByPk(id);
+
+      if (!testimonial) {
+        return res.status(404).json({
+          success: false,
+          message: 'Testimonio no encontrado'
+        });
+      }
+
+      if (rating !== undefined && (rating < 1 || rating > 5)) {
+        return res.status(400).json({
+          success: false,
+          message: 'El rating debe estar entre 1 y 5'
+        });
+      }
+
+      if (name !== undefined) testimonial.name = name;
+      if (role !== undefined) testimonial.role = role;
+      if (text !== undefined) testimonial.text = text;
+      if (rating !== undefined) testimonial.rating = rating;
+      if (imageUrl !== undefined) testimonial.imageUrl = imageUrl;
+      if (isFeatured !== undefined) testimonial.isFeatured = isFeatured;
+      if (isActive !== undefined) testimonial.isActive = isActive;
+      if (displayOrder !== undefined) testimonial.displayOrder = displayOrder;
+
+      await testimonial.save();
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} actualizó testimonio (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Testimonio actualizado exitosamente',
+        data: testimonial
+      });
+    } catch (error) {
+      console.error('Error al actualizar testimonio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al actualizar testimonio',
+        error: error.message
+      });
+    }
+  }
+
+  // ELIMINAR TESTIMONIO (Admin)
+  async deleteTestimonial(req, res) {
+    try {
+      const { id } = req.params;
+
+      const testimonial = await GymTestimonials.findByPk(id);
+
+      if (!testimonial) {
+        return res.status(404).json({
+          success: false,
+          message: 'Testimonio no encontrado'
+        });
+      }
+
+      const testimonialName = testimonial.name;
+      await testimonial.destroy();
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} eliminó testimonio de ${testimonialName} (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: 'Testimonio eliminado exitosamente',
+        data: { id, name: testimonialName }
+      });
+    } catch (error) {
+      console.error('Error al eliminar testimonio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al eliminar testimonio',
+        error: error.message
+      });
+    }
+  }
+
+  // TOGGLE ACTIVO/INACTIVO (Admin)
+  async toggleActive(req, res) {
+    try {
+      const { id } = req.params;
+
+      const testimonial = await GymTestimonials.findByPk(id);
+
+      if (!testimonial) {
+        return res.status(404).json({
+          success: false,
+          message: 'Testimonio no encontrado'
+        });
+      }
+
+      testimonial.isActive = !testimonial.isActive;
+      await testimonial.save();
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} ${testimonial.isActive ? 'activó' : 'desactivó'} testimonio (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: `Testimonio ${testimonial.isActive ? 'activado' : 'desactivado'} exitosamente`,
+        data: {
+          id: testimonial.id,
+          name: testimonial.name,
+          isActive: testimonial.isActive
+        }
+      });
+    } catch (error) {
+      console.error('Error al cambiar estado del testimonio:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al cambiar estado del testimonio',
+        error: error.message
+      });
+    }
+  }
+
+  // TOGGLE DESTACADO (Admin)
+  async toggleFeatured(req, res) {
+    try {
+      const { id } = req.params;
+
+      const testimonial = await GymTestimonials.findByPk(id);
+
+      if (!testimonial) {
+        return res.status(404).json({
+          success: false,
+          message: 'Testimonio no encontrado'
+        });
+      }
+
+      testimonial.isFeatured = !testimonial.isFeatured;
+      await testimonial.save();
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} ${testimonial.isFeatured ? 'marcó como destacado' : 'desmarcó'} testimonio (ID: ${id})`);
+
+      res.json({
+        success: true,
+        message: `Testimonio ${testimonial.isFeatured ? 'marcado como destacado' : 'desmarcado'}`,
+        data: {
+          id: testimonial.id,
+          name: testimonial.name,
+          isFeatured: testimonial.isFeatured
+        }
+      });
+    } catch (error) {
+      console.error('Error al cambiar estado destacado:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al cambiar estado destacado',
+        error: error.message
+      });
+    }
+  }
+
+  // REORDENAR TESTIMONIOS (Admin)
+  async reorderTestimonials(req, res) {
+    try {
+      const { testimonials } = req.body;
+
+      if (!Array.isArray(testimonials)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Se requiere un array de testimonios con {id, displayOrder}'
+        });
+      }
+
+      const updatePromises = testimonials.map(item =>
+        GymTestimonials.update(
+          { displayOrder: item.displayOrder },
+          { where: { id: item.id } }
+        )
+      );
+
+      await Promise.all(updatePromises);
+
+      console.log(`Admin ${req.user.firstName} ${req.user.lastName} reordenó ${testimonials.length} testimonios`);
+
+      res.json({
+        success: true,
+        message: 'Testimonios reordenados exitosamente',
+        data: { updated: testimonials.length }
+      });
+    } catch (error) {
+      console.error('Error al reordenar testimonios:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al reordenar testimonios',
+        error: error.message
+      });
+    }
+  }
+
+  // ========== ENDPOINTS PÚBLICOS ==========
+
+  // Obtener testimonios activos (público)
+  async getActiveTestimonials(req, res) {
+    try {
+      const { limit } = req.query;
+      
+      const query = {
+        where: { isActive: true },
+        order: [
+          ['is_featured', 'DESC'],
+          ['display_order', 'ASC'],
+          ['created_at', 'DESC']
+        ]
+      };
+
+      if (limit) {
+        query.limit = parseInt(limit);
+      }
+
+      const testimonials = await GymTestimonials.findAll(query);
+
+      const formattedTestimonials = testimonials.map(testimonial => ({
+        id: testimonial.id,
+        name: testimonial.name,
+        role: testimonial.role || 'Miembro',
+        text: testimonial.text,
+        rating: testimonial.rating,
+        image: {
+          url: testimonial.imageUrl || "",
+          alt: testimonial.name,
+          cloudinaryPublicId: testimonial.imageUrl 
+            ? testimonial.imageUrl.split('/').pop().split('.')[0] 
+            : ""
+        },
+        verified: true,
+        isFeatured: testimonial.isFeatured,
+        date: testimonial.created_at instanceof Date 
+          ? testimonial.created_at.toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0]
+      }));
+
+      res.json({
+        success: true,
+        data: formattedTestimonials,
+        total: formattedTestimonials.length
+      });
+    } catch (error) {
+      console.error('Error al obtener testimonios activos:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener testimonios activos',
+        error: error.message
+      });
+    }
+  }
+
+  // Obtener testimonios destacados (público)
+  async getFeaturedTestimonials(req, res) {
+    try {
+      const { limit = 3 } = req.query;
+
+      const testimonials = await GymTestimonials.findAll({
+        where: { 
+          isActive: true, 
+          isFeatured: true 
+        },
+        order: [['display_order', 'ASC']],
+        limit: parseInt(limit)
+      });
+
+      res.json({
+        success: true,
+        data: testimonials,
+        total: testimonials.length
+      });
+    } catch (error) {
+      console.error('Error al obtener testimonios destacados:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener testimonios destacados',
         error: error.message
       });
     }
