@@ -1,8 +1,8 @@
-// src/routes/expenseRoutes.js - RUTAS DE GASTOS
+// src/routes/expenseRoutes.js - RUTAS DE GASTOS (CORREGIDO)
 const express = require('express');
 const router = express.Router();
 const expenseController = require('../controllers/expenseController');
-const { authenticate, authorize } = require('../middleware/auth');
+const { authenticateToken, requireRole, requireStaff, requireAdmin } = require('../middleware/auth');
 
 // ============================================================================
 // RUTAS PÚBLICAS (Ninguna - todos requieren autenticación)
@@ -13,7 +13,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 // ============================================================================
 
 // Aplicar autenticación a todas las rutas
-router.use(authenticate);
+router.use(authenticateToken);
 
 // ========================================
 // CRUD BÁSICO
@@ -26,7 +26,7 @@ router.use(authenticate);
  */
 router.post(
   '/',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.createExpense
 );
 
@@ -38,7 +38,7 @@ router.post(
  */
 router.get(
   '/',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getAllExpenses
 );
 
@@ -49,7 +49,7 @@ router.get(
  */
 router.get(
   '/:id',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getExpenseById
 );
 
@@ -60,7 +60,7 @@ router.get(
  */
 router.put(
   '/:id',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.updateExpense
 );
 
@@ -71,7 +71,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize(['admin']),
+  requireAdmin,
   expenseController.deleteExpense
 );
 
@@ -86,7 +86,7 @@ router.delete(
  */
 router.post(
   '/:id/approve',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.approveExpense
 );
 
@@ -97,7 +97,7 @@ router.post(
  */
 router.post(
   '/:id/reject',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.rejectExpense
 );
 
@@ -108,7 +108,7 @@ router.post(
  */
 router.post(
   '/:id/cancel',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.cancelExpense
 );
 
@@ -124,7 +124,7 @@ router.post(
  */
 router.get(
   '/pending/approval',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getPendingApproval
 );
 
@@ -136,7 +136,7 @@ router.get(
  */
 router.get(
   '/category/:category',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getByCategory
 );
 
@@ -148,7 +148,7 @@ router.get(
  */
 router.get(
   '/recurring/upcoming',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getRecurringExpenses
 );
 
@@ -159,7 +159,7 @@ router.get(
  */
 router.post(
   '/recurring/process',
-  authorize(['admin']),
+  requireAdmin,
   expenseController.processRecurring
 );
 
@@ -175,7 +175,7 @@ router.post(
  */
 router.get(
   '/stats/summary',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getExpenseStats
 );
 
@@ -187,7 +187,7 @@ router.get(
  */
 router.get(
   '/stats/breakdown',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getCategoryBreakdown
 );
 
@@ -199,7 +199,7 @@ router.get(
  */
 router.get(
   '/stats/vendors',
-  authorize(['admin', 'colaborador']),
+  requireStaff,
   expenseController.getTopVendors
 );
 
