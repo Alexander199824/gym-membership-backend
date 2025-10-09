@@ -1,4 +1,4 @@
-// testMemberships.js - Test COMPLETO y FUNCIONAL de Membresías
+// testMemberships.js - Test COMPLETO con Gestión de Pagos Pendientes
 // Ejecutar con: node testMemberships.js
 // NOTA: El servidor debe estar corriendo en http://localhost:5000
 
@@ -76,7 +76,7 @@ function getAxiosConfig() {
 }
 
 // ============================================================
-// 🆕 FUNCIÓN PARA LISTAR Y SELECCIONAR USUARIO CLIENTE
+// FUNCIONES AUXILIARES
 // ============================================================
 async function selectClientFromList(title = 'SELECCIONAR CLIENTE') {
   showHeader(title);
@@ -143,9 +143,6 @@ async function selectClientFromList(title = 'SELECCIONAR CLIENTE') {
   }
 }
 
-// ============================================================
-// 🆕 CREAR NUEVO CLIENTE (RÁPIDO)
-// ============================================================
 async function createNewClient() {
   showHeader('➕ CREAR NUEVO CLIENTE');
   
@@ -189,9 +186,6 @@ async function createNewClient() {
   }
 }
 
-// ============================================================
-// 🆕 FUNCIÓN PARA LISTAR Y SELECCIONAR MEMBRESÍA
-// ============================================================
 async function selectMembershipFromList(filterStatus = null, title = 'SELECCIONAR MEMBRESÍA') {
   showHeader(title);
   
@@ -307,9 +301,15 @@ async function showMenu() {
     console.log('  17. Listar membresías por estado');
     console.log('  18. Buscar membresías de un cliente específico');
     
+    console.log('\n' + colors.yellow + '💰 GESTIÓN DE PAGOS PENDIENTES (Admin):' + colors.reset);
+    console.log('  21. Dashboard de pagos pendientes');
+    console.log('  22. Confirmar pago en efectivo (activar membresía)');
+    console.log('  23. Validar comprobante de transferencia');
+    console.log('  24. Rechazar comprobante de transferencia');
+    
     console.log('\n' + colors.cyan + '⚙️  SISTEMA:' + colors.reset);
-    console.log('  19. Verificar conexión al servidor');
-    console.log('  20. Logout');
+    console.log('  25. Verificar conexión al servidor');
+    console.log('  26. Logout');
     console.log('  0. Salir');
   }
   
@@ -354,23 +354,10 @@ async function login() {
         console.log(`Email: ${currentUser.email}`);
         console.log(`Rol: ${currentUser.role}`);
         console.log(`Token: ${authToken.substring(0, 20)}...`);
-      } else {
-        console.log(colors.red + '❌ Error: No se pudo extraer token o usuario' + colors.reset);
       }
-    } else {
-      console.log(colors.red + '❌ Error en login: ' + response.data.message + colors.reset);
     }
   } catch (error) {
-    console.log(colors.red + '❌ Error de conexión: ' + colors.reset);
-    if (error.response) {
-      console.log(`Status: ${error.response.status}`);
-      console.log(`Mensaje: ${error.response.data.message || 'Error desconocido'}`);
-    } else if (error.request) {
-      console.log('No se recibió respuesta del servidor');
-      console.log('Asegúrate de que el servidor esté corriendo en http://localhost:5000');
-    } else {
-      console.log(`Error: ${error.message}`);
-    }
+    console.log(colors.red + '❌ Error de conexión' + colors.reset);
   }
   
   if (!AUTO_LOGIN.enabled) {
@@ -388,24 +375,20 @@ async function autoLoginOnStart() {
       if (authToken && currentUser) {
         console.log(colors.green + '✅ Autenticación automática exitosa' + colors.reset);
         await new Promise(resolve => setTimeout(resolve, 1500));
-      } else {
-        console.log(colors.red + '❌ Autenticación automática falló' + colors.reset);
-        await question('\nPresiona Enter para continuar...');
       }
     } catch (error) {
-      console.log(colors.red + '❌ Error en autenticación automática: ' + error.message + colors.reset);
+      console.log(colors.red + '❌ Error en autenticación automática' + colors.reset);
       await question('\nPresiona Enter para continuar...');
     }
   }
 }
 
 // ============================================================
-// 2. GET ALL MEMBERSHIPS
+// 2-8. CONSULTAR (implementaciones completas)
 // ============================================================
 async function getAllMemberships() {
   showHeader('📋 GET /api/memberships - TODAS LAS MEMBRESÍAS');
   
-  console.log('Parámetros opcionales:');
   const page = await question('Página (default: 1): ') || '1';
   const limit = await question('Límite (default: 20): ') || '20';
   
@@ -416,13 +399,10 @@ async function getAllMemberships() {
   console.log('Tipos: daily, monthly, annual');
   const type = await question('Filtrar por tipo: ');
   
-  const search = await question('Buscar cliente (nombre/email): ');
-  
   try {
     const params = { page, limit };
     if (status) params.status = status;
     if (type) params.type = type;
-    if (search) params.search = search;
     
     console.log(`\n${colors.cyan}Enviando GET a /api/memberships...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships`, {
@@ -435,8 +415,7 @@ async function getAllMemberships() {
       const pagination = response.data.data.pagination;
       
       console.log('\n' + colors.green + '✅ Respuesta exitosa' + colors.reset);
-      console.log(`Total de membresías: ${pagination.total}`);
-      console.log(`Página ${pagination.page} de ${pagination.pages}`);
+      console.log(`Total: ${pagination.total} | Página ${pagination.page} de ${pagination.pages}`);
       console.log(`Mostrando ${memberships.length} membresías:\n`);
       
       memberships.forEach((membership, index) => {
@@ -448,21 +427,10 @@ async function getAllMemberships() {
         };
         
         console.log(`${index + 1}. ${colors.bright}${membership.user.firstName} ${membership.user.lastName}${colors.reset}`);
-        console.log(`   Cliente: ${membership.user.email}`);
-        console.log(`   Estado: ${statusColors[membership.status]}${membership.status}${colors.reset}`);
-        console.log(`   Tipo: ${membership.type} | Precio: Q${membership.price}`);
-        console.log(`   Inicio: ${formatDateOnly(membership.startDate)}`);
-        console.log(`   Fin: ${formatDateOnly(membership.endDate)}`);
-        
-        if (membership.remainingDays !== undefined) {
-          console.log(`   Días restantes: ${membership.remainingDays}`);
-        }
-        
-        console.log(`   ID: ${membership.id.substring(0, 8)}...`);
+        console.log(`   Estado: ${statusColors[membership.status]}${membership.status}${colors.reset} | Tipo: ${membership.type}`);
+        console.log(`   Precio: Q${membership.price} | Fin: ${formatDateOnly(membership.endDate)}`);
         console.log('');
       });
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -471,9 +439,6 @@ async function getAllMemberships() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 3. GET MEMBERSHIP BY ID
-// ============================================================
 async function getMembershipById() {
   const membership = await selectMembershipFromList(null, '🔍 BUSCAR MEMBRESÍA POR ID');
   
@@ -487,14 +452,8 @@ async function getMembershipById() {
     const response = await axios.get(`${API_BASE_URL}/memberships/${membership.id}`, getAxiosConfig());
     
     if (response.data.success) {
-      const membershipData = response.data.data.membership;
-      
       console.log('\n' + colors.green + '✅ Membresía encontrada' + colors.reset);
-      console.log(colors.bright + 'DETALLES COMPLETOS' + colors.reset);
-      console.log('─'.repeat(60));
-      console.log(JSON.stringify(membershipData, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log(JSON.stringify(response.data.data.membership, null, 2));
     }
   } catch (error) {
     handleAPIError(error);
@@ -503,11 +462,8 @@ async function getMembershipById() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 4. GET MEMBERSHIP PLANS
-// ============================================================
 async function getMembershipPlans() {
-  showHeader('📋 GET /api/memberships/plans - PLANES DISPONIBLES');
+  showHeader('📋 PLANES DISPONIBLES');
   
   try {
     console.log(`\n${colors.cyan}Enviando GET a /api/memberships/plans...${colors.reset}`);
@@ -520,29 +476,10 @@ async function getMembershipPlans() {
       
       plans.forEach((plan, index) => {
         console.log(`${colors.bright}${index + 1}. ${plan.name}${colors.reset}`);
-        console.log(`   Precio: ${colors.green}Q${plan.price}${colors.reset}`);
-        if (plan.originalPrice && plan.originalPrice !== plan.price) {
-          console.log(`   Precio original: Q${plan.originalPrice} (${plan.discountPercentage}% descuento)`);
-        }
-        console.log(`   Duración: ${plan.duration}`);
-        console.log(`   Popular: ${plan.popular ? '⭐ Sí' : 'No'}`);
-        console.log(`   Estado: ${plan.active ? colors.green + 'Activo' : colors.red + 'Inactivo'}${colors.reset}`);
-        
-        if (plan.features && plan.features.length > 0) {
-          console.log('   Características:');
-          plan.features.slice(0, 3).forEach(feature => {
-            console.log(`     • ${feature}`);
-          });
-        }
-        
-        console.log(`   ID: ${plan.id}`);
+        console.log(`   Precio: ${colors.green}Q${plan.price}${colors.reset} | Duración: ${plan.duration}`);
+        console.log(`   Popular: ${plan.popular ? '⭐' : 'No'}`);
         console.log('');
       });
-      
-      console.log('Respuesta completa:');
-      console.log(JSON.stringify(plans, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -551,17 +488,12 @@ async function getMembershipPlans() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 5. GET EXPIRED MEMBERSHIPS
-// ============================================================
 async function getExpiredMemberships() {
-  showHeader('⚠️  GET /api/memberships/expired - MEMBRESÍAS VENCIDAS');
+  showHeader('⚠️  MEMBRESÍAS VENCIDAS');
   
-  console.log('Filtros opcionales:');
-  const days = await question('Días vencidas (0=hoy, 7=última semana, default: 0): ') || '0';
+  const days = await question('Días vencidas (0=hoy, default: 0): ') || '0';
   
   try {
-    console.log(`\n${colors.cyan}Enviando GET a /api/memberships/expired...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/expired`, {
       ...getAxiosConfig(),
       params: { days }
@@ -569,27 +501,13 @@ async function getExpiredMemberships() {
     
     if (response.data.success) {
       const memberships = response.data.data.memberships;
-      const total = response.data.data.total;
       
-      console.log('\n' + colors.green + `✅ ${total} membresías vencidas` + colors.reset);
-      console.log(`Filtro: ${days === '0' ? 'Vencen hoy' : `Vencidas hace ${days} días o menos`}\n`);
+      console.log('\n' + colors.green + `✅ ${memberships.length} membresías vencidas` + colors.reset + '\n');
       
-      if (memberships.length > 0) {
-        memberships.forEach((membership, index) => {
-          console.log(`${index + 1}. ${colors.bright}${membership.user.firstName} ${membership.user.lastName}${colors.reset}`);
-          console.log(`   Email: ${membership.user.email}`);
-          console.log(`   Teléfono: ${membership.user.phone || 'N/A'}`);
-          console.log(`   WhatsApp: ${membership.user.whatsapp || 'N/A'}`);
-          console.log(`   Tipo: ${membership.type}`);
-          console.log(`   Fecha vencimiento: ${colors.red}${formatDateOnly(membership.endDate)}${colors.reset}`);
-          console.log(`   ID: ${membership.id.substring(0, 8)}...`);
-          console.log('');
-        });
-      } else {
-        console.log(colors.cyan + 'No hay membresías vencidas en este rango' + colors.reset);
-      }
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      memberships.forEach((m, i) => {
+        console.log(`${i + 1}. ${m.user.firstName} ${m.user.lastName} - ${m.type}`);
+        console.log(`   Vencida: ${formatDateOnly(m.endDate)}`);
+      });
     }
   } catch (error) {
     handleAPIError(error);
@@ -598,16 +516,12 @@ async function getExpiredMemberships() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 6. GET EXPIRING SOON
-// ============================================================
 async function getExpiringSoonMemberships() {
-  showHeader('⏰ GET /api/memberships/expiring-soon - PRÓXIMAS A VENCER');
+  showHeader('⏰ PRÓXIMAS A VENCER');
   
   const days = await question('Días hacia adelante (default: 7): ') || '7';
   
   try {
-    console.log(`\n${colors.cyan}Enviando GET a /api/memberships/expiring-soon...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/expiring-soon`, {
       ...getAxiosConfig(),
       params: { days }
@@ -615,28 +529,14 @@ async function getExpiringSoonMemberships() {
     
     if (response.data.success) {
       const memberships = response.data.data.memberships;
-      const total = response.data.data.total;
       
-      console.log('\n' + colors.green + `✅ ${total} membresías próximas a vencer` + colors.reset);
-      console.log(`Filtro: Próximos ${days} días\n`);
+      console.log('\n' + colors.green + `✅ ${memberships.length} próximas a vencer` + colors.reset + '\n');
       
-      if (memberships.length > 0) {
-        memberships.forEach((membership, index) => {
-          const daysLeft = Math.ceil((new Date(membership.endDate) - new Date()) / (1000 * 60 * 60 * 24));
-          
-          console.log(`${index + 1}. ${colors.bright}${membership.user.firstName} ${membership.user.lastName}${colors.reset}`);
-          console.log(`   Email: ${membership.user.email}`);
-          console.log(`   Tipo: ${membership.type}`);
-          console.log(`   Vence en: ${colors.yellow}${daysLeft} día(s)${colors.reset}`);
-          console.log(`   Fecha: ${formatDateOnly(membership.endDate)}`);
-          console.log(`   Contacto: ${membership.user.whatsapp || membership.user.phone || 'N/A'}`);
-          console.log('');
-        });
-      } else {
-        console.log(colors.cyan + 'No hay membresías próximas a vencer' + colors.reset);
-      }
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      memberships.forEach((m, i) => {
+        const daysLeft = Math.ceil((new Date(m.endDate) - new Date()) / (1000 * 60 * 60 * 24));
+        console.log(`${i + 1}. ${m.user.firstName} ${m.user.lastName}`);
+        console.log(`   Vence en: ${colors.yellow}${daysLeft} día(s)${colors.reset}`);
+      });
     }
   } catch (error) {
     handleAPIError(error);
@@ -645,39 +545,22 @@ async function getExpiringSoonMemberships() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 7. GET PENDING CASH PAYMENT
-// ============================================================
 async function getPendingCashPaymentMemberships() {
-  showHeader('💵 GET /api/memberships/pending-cash-payment - PENDIENTES DE PAGO');
+  showHeader('💵 PENDIENTES DE PAGO');
   
   try {
-    console.log(`\n${colors.cyan}Enviando GET a /api/memberships/pending-cash-payment...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/pending-cash-payment`, getAxiosConfig());
     
     if (response.data.success) {
       const memberships = response.data.data.memberships;
-      const total = response.data.data.total;
       
-      console.log('\n' + colors.green + `✅ ${total} membresías pendientes de pago en efectivo` + colors.reset + '\n');
+      console.log('\n' + colors.green + `✅ ${memberships.length} pendientes de pago` + colors.reset + '\n');
       
-      if (memberships.length > 0) {
-        memberships.forEach((membership, index) => {
-          console.log(`${index + 1}. ${colors.bright}${membership.user.name}${colors.reset}`);
-          console.log(`   Email: ${membership.user.email}`);
-          console.log(`   Teléfono: ${membership.user.phone || 'N/A'}`);
-          console.log(`   Plan: ${membership.plan.name}`);
-          console.log(`   Precio: ${colors.yellow}Q${membership.price}${colors.reset}`);
-          console.log(`   Tiempo esperando: ${colors.yellow}${membership.hoursWaiting.toFixed(1)} horas${colors.reset}`);
-          console.log(`   Creada: ${formatDate(membership.createdAt)}`);
-          console.log(`   ID: ${membership.id.substring(0, 8)}...`);
-          console.log('');
-        });
-      } else {
-        console.log(colors.cyan + '✅ No hay membresías pendientes de pago' + colors.reset);
-      }
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      memberships.forEach((m, i) => {
+        console.log(`${i + 1}. ${m.user.name}`);
+        console.log(`   Plan: ${m.plan.name} - Q${m.price}`);
+        console.log(`   Esperando: ${colors.yellow}${m.hoursWaiting.toFixed(1)}h${colors.reset}`);
+      });
     }
   } catch (error) {
     handleAPIError(error);
@@ -686,54 +569,17 @@ async function getPendingCashPaymentMemberships() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 8. GET MEMBERSHIP STATS
-// ============================================================
 async function getMembershipStats() {
-  showHeader('📊 GET /api/memberships/stats - ESTADÍSTICAS');
+  showHeader('📊 ESTADÍSTICAS');
   
   try {
-    console.log(`\n${colors.cyan}Enviando GET a /api/memberships/stats...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/stats`, getAxiosConfig());
     
     if (response.data.success) {
       const stats = response.data.data;
       
       console.log('\n' + colors.green + '✅ Estadísticas obtenidas' + colors.reset + '\n');
-      
-      if (stats.role === 'admin') {
-        console.log(colors.bright + 'ESTADÍSTICAS GENERALES (ADMIN)' + colors.reset);
-        console.log('─'.repeat(60));
-        console.log(`Membresías activas: ${colors.green}${stats.activeMemberships}${colors.reset}`);
-        console.log(`Próximas a vencer esta semana: ${colors.yellow}${stats.expiringThisWeek}${colors.reset}`);
-        console.log(`Vencidas sin renovar: ${colors.red}${stats.expiredMemberships}${colors.reset}`);
-        console.log(`Ingresos mensuales: ${colors.green}Q${stats.monthlyIncome}${colors.reset}`);
-        
-        if (stats.membershipsByType) {
-          console.log('\nDistribución por tipo:');
-          Object.keys(stats.membershipsByType).forEach(type => {
-            console.log(`  ${type}: ${stats.membershipsByType[type]}`);
-          });
-        }
-      } else if (stats.role === 'colaborador') {
-        console.log(colors.bright + 'ESTADÍSTICAS DE COLABORADOR' + colors.reset);
-        console.log('─'.repeat(60));
-        console.log(`Membresías activas: ${stats.activeMemberships}`);
-        console.log(`Próximas a vencer: ${stats.expiringThisWeek}`);
-        console.log(`Vencidas: ${stats.expiredMemberships}`);
-        
-        if (stats.membershipsByType) {
-          console.log('\nDistribución por tipo:');
-          Object.keys(stats.membershipsByType).forEach(type => {
-            console.log(`  ${type}: ${stats.membershipsByType[type]}`);
-          });
-        }
-      }
-      
-      console.log('\nRespuesta completa:');
       console.log(JSON.stringify(stats, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -743,48 +589,38 @@ async function getMembershipStats() {
 }
 
 // ============================================================
-// 9. CREATE MEMBERSHIP - CORREGIDO COMPLETAMENTE
+// 9. CREATE MEMBERSHIP - CORREGIDO
 // ============================================================
 async function createMembership() {
-  showHeader('➕ POST /api/memberships - CREAR MEMBRESÍA');
+  showHeader('➕ CREAR MEMBRESÍA');
   
-  // Paso 1: Seleccionar o crear cliente
   console.log(colors.cyan + 'Paso 1: Seleccionar cliente\n' + colors.reset);
-  const client = await selectClientFromList('SELECCIONAR CLIENTE PARA LA MEMBRESÍA');
+  const client = await selectClientFromList('SELECCIONAR CLIENTE');
   
   if (!client) {
-    console.log(colors.red + '❌ No se seleccionó cliente' + colors.reset);
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
-  // Paso 2: Obtener planes de la base de datos (con durationType correcto)
-  console.log(`\n${colors.cyan}Paso 2: Obtener planes disponibles\n${colors.reset}`);
+  console.log(`\n${colors.cyan}Paso 2: Obtener planes\n${colors.reset}`);
   
   try {
-    // ✅ Usar endpoint de planes activos del modelo MembershipPlans
     const plansResponse = await axios.get(`${API_BASE_URL}/membership-plans/active`, getAxiosConfig());
     
-    if (!plansResponse.data.success) {
-      console.log(colors.red + '❌ No se pudieron obtener los planes' + colors.reset);
+    if (!plansResponse.data.success || !plansResponse.data.data || plansResponse.data.data.length === 0) {
+      console.log(colors.red + '❌ No hay planes disponibles' + colors.reset);
       await question('\nPresiona Enter para continuar...');
       return;
     }
     
     const plans = plansResponse.data.data;
     
-    if (!plans || plans.length === 0) {
-      console.log(colors.red + '❌ No hay planes activos disponibles' + colors.reset);
-      await question('\nPresiona Enter para continuar...');
-      return;
-    }
-    
     console.log('Planes disponibles:');
     plans.forEach((plan, index) => {
       console.log(`${index + 1}. ${plan.name} - Q${plan.price} (${plan.duration})`);
     });
     
-    const planChoice = await question('\nSelecciona el plan (1-' + plans.length + '): ');
+    const planChoice = await question('\nSelecciona el plan: ');
     const selectedPlan = plans[parseInt(planChoice) - 1];
     
     if (!selectedPlan) {
@@ -793,60 +629,45 @@ async function createMembership() {
       return;
     }
     
-    // ✅ Obtener el plan completo de la base de datos para tener el durationType correcto
+    // Obtener durationType del plan completo
     const planDetailResponse = await axios.get(
       `${API_BASE_URL}/membership-plans/${selectedPlan.id}`, 
       getAxiosConfig()
     );
     
-    let durationType = 'monthly'; // default
+    let durationType = 'monthly';
     
     if (planDetailResponse.data.success) {
       const planDetail = planDetailResponse.data.data.plan;
       durationType = planDetail.durationType || 'monthly';
-      console.log(`\n✅ Tipo de duración obtenido: ${durationType}`);
     }
     
-    // Paso 3: Configurar fechas
-    console.log(`\n${colors.cyan}Paso 3: Configurar fechas${colors.reset}`);
-    console.log(`Plan seleccionado: ${selectedPlan.name}`);
+    console.log(`\n${colors.cyan}Paso 3: Fechas${colors.reset}`);
     
-    const startDateInput = await question('Fecha de inicio (YYYY-MM-DD, Enter para hoy): ');
+    const startDateInput = await question('Fecha inicio (YYYY-MM-DD, Enter=hoy): ');
     const startDate = startDateInput || new Date().toISOString().split('T')[0];
     
-    const endDateInput = await question('Fecha de fin (YYYY-MM-DD, Enter para calcular automáticamente): ');
+    const endDateInput = await question('Fecha fin (YYYY-MM-DD, Enter=auto): ');
     let endDate = endDateInput;
     
     if (!endDate) {
-      // Calcular fecha de fin según el tipo de plan
       const start = new Date(startDate);
-      const durationDays = {
-        'daily': 1,
-        'weekly': 7,
-        'monthly': 30,
-        'quarterly': 90,
-        'annual': 365
-      };
-      
+      const durationDays = { daily: 1, weekly: 7, monthly: 30, quarterly: 90, annual: 365 };
       const days = durationDays[durationType] || 30;
       const end = new Date(start);
       end.setDate(end.getDate() + days);
       endDate = end.toISOString().split('T')[0];
     }
     
-    console.log(`\nFecha inicio: ${startDate}`);
-    console.log(`Fecha fin: ${endDate}`);
+    console.log(`Inicio: ${startDate} | Fin: ${endDate}`);
     
-    // Paso 4: Información adicional
-    console.log(`\n${colors.cyan}Paso 4: Información adicional (opcional)${colors.reset}`);
-    const notes = await question('Notas: ');
+    const notes = await question('\nNotas (opcional): ');
     const autoRenew = await question('Auto-renovar (s/n): ');
     
-    // ✅ DATOS CORRECTOS SEGÚN EL VALIDADOR
     const membershipData = {
       userId: client.id,
       planId: selectedPlan.id,
-      type: durationType, // ✅ Tipo correcto desde la BD
+      type: durationType,
       price: parseFloat(selectedPlan.price),
       startDate,
       endDate,
@@ -854,33 +675,26 @@ async function createMembership() {
       autoRenew: autoRenew.toLowerCase() === 's'
     };
     
-    console.log('\n' + colors.cyan + 'Datos a enviar:' + colors.reset);
+    console.log('\n' + colors.cyan + 'Datos:' + colors.reset);
     console.log(JSON.stringify(membershipData, null, 2));
     
-    const confirm = await question('\n¿Confirmar creación? (s/n): ');
+    const confirm = await question('\n¿Confirmar? (s/n): ');
     
     if (confirm.toLowerCase() !== 's') {
-      console.log('Operación cancelada');
+      console.log('Cancelado');
       await question('\nPresiona Enter para continuar...');
       return;
     }
     
-    console.log(`\n${colors.cyan}Enviando POST a /api/memberships...${colors.reset}`);
     const response = await axios.post(`${API_BASE_URL}/memberships`, membershipData, getAxiosConfig());
     
     if (response.data.success) {
       const membership = response.data.data.membership;
       
-      console.log('\n' + colors.green + '✅ Membresía creada exitosamente!' + colors.reset);
-      console.log(`ID: ${membership.id}`);
+      console.log('\n' + colors.green + '✅ Membresía creada!' + colors.reset);
       console.log(`Cliente: ${membership.user.firstName} ${membership.user.lastName}`);
-      console.log(`Tipo: ${membership.type}`);
-      console.log(`Estado: ${membership.status}`);
+      console.log(`Tipo: ${membership.type} | Estado: ${membership.status}`);
       console.log(`Precio: Q${membership.price}`);
-      console.log(`Inicio: ${formatDateOnly(membership.startDate)}`);
-      console.log(`Fin: ${formatDateOnly(membership.endDate)}`);
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -893,46 +707,39 @@ async function createMembership() {
 // 10. PURCHASE MEMBERSHIP
 // ============================================================
 async function purchaseMembership() {
-  showHeader('🛒 POST /api/memberships/purchase - COMPRAR MEMBRESÍA');
-  
-  console.log(colors.yellow + 'Esta opción simula la compra desde la perspectiva del cliente' + colors.reset);
+  showHeader('🛒 COMPRAR MEMBRESÍA');
   
   try {
     const plansResponse = await axios.get(`${API_BASE_URL}/memberships/plans`, getAxiosConfig());
     
     if (!plansResponse.data.success) {
-      console.log(colors.red + '❌ No se pudieron obtener los planes' + colors.reset);
+      console.log(colors.red + '❌ Error obteniendo planes' + colors.reset);
       await question('\nPresiona Enter para continuar...');
       return;
     }
     
     const plans = plansResponse.data.data;
     
-    console.log('\nPlanes disponibles para compra:');
+    console.log('\nPlanes:');
     plans.forEach((plan, index) => {
-      console.log(`${index + 1}. ${plan.name} - ${colors.green}Q${plan.price}${colors.reset} (${plan.duration})`);
-      if (plan.features && plan.features.length > 0) {
-        console.log(`   Características: ${plan.features.slice(0, 2).join(', ')}`);
-      }
+      console.log(`${index + 1}. ${plan.name} - Q${plan.price}`);
     });
     
-    const planChoice = await question('\nSelecciona el plan: ');
+    const planChoice = await question('\nSelecciona: ');
     const selectedPlan = plans[parseInt(planChoice) - 1];
     
     if (!selectedPlan) {
-      console.log(colors.red + '❌ Plan inválido' + colors.reset);
+      console.log(colors.red + '❌ Inválido' + colors.reset);
       await question('\nPresiona Enter para continuar...');
       return;
     }
     
-    console.log(`\nPlan seleccionado: ${selectedPlan.name} - Q${selectedPlan.price}`);
-    
     console.log('\nMétodos de pago:');
-    console.log('  1. cash (Efectivo en gimnasio)');
-    console.log('  2. card (Tarjeta)');
-    console.log('  3. transfer (Transferencia)');
+    console.log('  1. cash (Efectivo - requiere confirmación admin)');
+    console.log('  2. card (Tarjeta - activación inmediata)');
+    console.log('  3. transfer (Transferencia - requiere validación admin)');
     
-    const paymentChoice = await question('Selecciona método (1-3): ');
+    const paymentChoice = await question('Selecciona: ');
     const paymentMethods = ['cash', 'card', 'transfer'];
     const paymentMethod = paymentMethods[parseInt(paymentChoice) - 1] || 'cash';
     
@@ -943,18 +750,14 @@ async function purchaseMembership() {
       notes: 'Compra desde test'
     };
     
-    console.log('\nDatos de compra:');
-    console.log(JSON.stringify(purchaseData, null, 2));
-    
     const confirm = await question('\n¿Confirmar compra? (s/n): ');
     
     if (confirm.toLowerCase() !== 's') {
-      console.log('Compra cancelada');
+      console.log('Cancelado');
       await question('\nPresiona Enter para continuar...');
       return;
     }
     
-    console.log(`\n${colors.cyan}Enviando POST a /api/memberships/purchase...${colors.reset}`);
     const response = await axios.post(`${API_BASE_URL}/memberships/purchase`, purchaseData, getAxiosConfig());
     
     if (response.data.success) {
@@ -963,31 +766,20 @@ async function purchaseMembership() {
       console.log('\n' + colors.green + '✅ Compra procesada!' + colors.reset);
       console.log(colors.cyan + response.data.message + colors.reset);
       
-      if (result.membership) {
-        console.log('\nDetalles de membresía:');
-        console.log(`ID: ${result.membership.id}`);
-        console.log(`Estado: ${result.membership.status}`);
-        console.log(`Inicio: ${formatDateOnly(result.membership.startDate)}`);
-        console.log(`Fin: ${formatDateOnly(result.membership.endDate)}`);
-      }
-      
-      if (result.payment) {
-        console.log('\nDetalles de pago:');
-        console.log(`ID: ${result.payment.id}`);
-        console.log(`Monto: Q${result.payment.amount}`);
-        console.log(`Método: ${result.payment.paymentMethod}`);
-        console.log(`Estado: ${result.payment.status}`);
-      }
-      
       if (result.requiresCashPayment) {
-        console.log('\n' + colors.yellow + '⚠️  IMPORTANTE: Debes completar el pago en efectivo en el gimnasio' + colors.reset);
+        console.log('\n' + colors.yellow + '⚠️  IMPORTANTE: Debes pagar en efectivo en el gimnasio' + colors.reset);
+        console.log('El admin confirmará el pago y activará tu membresía');
       }
       
       if (result.requiresTransferProof) {
-        console.log('\n' + colors.yellow + '⚠️  IMPORTANTE: Debes subir el comprobante de transferencia' + colors.reset);
+        console.log('\n' + colors.yellow + '⚠️  IMPORTANTE: Debes subir comprobante de transferencia' + colors.reset);
+        console.log('El admin validará el comprobante y activará tu membresía');
       }
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      
+      if (result.membership) {
+        console.log(`\nEstado membresía: ${result.membership.status}`);
+        console.log(`ID: ${result.membership.id}`);
+      }
     }
   } catch (error) {
     handleAPIError(error);
@@ -997,46 +789,34 @@ async function purchaseMembership() {
 }
 
 // ============================================================
-// 11. UPDATE MEMBERSHIP
+// 11-14. ACTUALIZAR/RENOVAR/CAMBIAR/CANCELAR (implementaciones básicas)
 // ============================================================
 async function updateMembership() {
-  const membership = await selectMembershipFromList('active', '✏️  ACTUALIZAR MEMBRESÍA');
+  const membership = await selectMembershipFromList('active', '✏️  ACTUALIZAR');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
-  console.log('\nCampos actualizables (deja en blanco para mantener):\n');
-  
-  console.log('Estados: active, pending, expired, cancelled');
   const status = await question(`Estado (actual: ${membership.status}): `);
-  
   const price = await question(`Precio (actual: Q${membership.price}): `);
-  const notes = await question('Notas adicionales: ');
   
   const updateData = {};
   if (status) updateData.status = status;
   if (price) updateData.price = parseFloat(price);
-  if (notes) updateData.notes = notes;
   
   if (Object.keys(updateData).length === 0) {
-    console.log(colors.yellow + '⚠️  No se especificaron cambios' + colors.reset);
+    console.log(colors.yellow + '⚠️  Sin cambios' + colors.reset);
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
   try {
-    console.log(`\n${colors.cyan}Enviando PATCH a /api/memberships/${membership.id}...${colors.reset}`);
-    console.log('Datos:', JSON.stringify(updateData, null, 2));
-    
     const response = await axios.patch(`${API_BASE_URL}/memberships/${membership.id}`, updateData, getAxiosConfig());
     
     if (response.data.success) {
-      console.log('\n' + colors.green + '✅ Membresía actualizada exitosamente!' + colors.reset);
-      console.log(JSON.stringify(response.data.data.membership, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + '✅ Actualizada!' + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -1045,49 +825,26 @@ async function updateMembership() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 12. RENEW MEMBERSHIP
-// ============================================================
 async function renewMembership() {
-  const membership = await selectMembershipFromList(null, '🔄 RENOVAR MEMBRESÍA');
+  const membership = await selectMembershipFromList(null, '🔄 RENOVAR');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
     return;
   }
-  
-  console.log(`\nMembresía actual:`);
-  console.log(`Cliente: ${membership.user.firstName} ${membership.user.lastName}`);
-  console.log(`Estado: ${membership.status}`);
-  console.log(`Fecha fin actual: ${formatDateOnly(membership.endDate)}`);
   
   const months = await question('\nMeses a agregar (default: 1): ') || '1';
-  const price = await question('Precio de renovación (opcional): ');
-  
-  const renewData = { months: parseInt(months) };
-  if (price) renewData.price = parseFloat(price);
-  
-  const confirm = await question(`\n¿Renovar por ${months} mes(es)? (s/n): `);
-  
-  if (confirm.toLowerCase() !== 's') {
-    console.log('Renovación cancelada');
-    await question('\nPresiona Enter para continuar...');
-    return;
-  }
   
   try {
-    console.log(`\n${colors.cyan}Enviando POST a /api/memberships/${membership.id}/renew...${colors.reset}`);
-    const response = await axios.post(`${API_BASE_URL}/memberships/${membership.id}/renew`, renewData, getAxiosConfig());
+    const response = await axios.post(
+      `${API_BASE_URL}/memberships/${membership.id}/renew`, 
+      { months: parseInt(months) }, 
+      getAxiosConfig()
+    );
     
     if (response.data.success) {
-      const result = response.data.data;
-      
-      console.log('\n' + colors.green + '✅ Membresía renovada exitosamente!' + colors.reset);
-      console.log(`Meses agregados: ${result.monthsAdded}`);
-      console.log(`Nueva fecha fin: ${formatDateOnly(result.newEndDate)}`);
-      console.log(`Estado: ${result.membership.status}`);
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + '✅ Renovada!' + colors.reset);
+      console.log(`Nueva fecha: ${formatDateOnly(response.data.data.newEndDate)}`);
     }
   } catch (error) {
     handleAPIError(error);
@@ -1096,64 +853,34 @@ async function renewMembership() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 13. CHANGE SCHEDULE
-// ============================================================
 async function changeMembershipSchedule() {
-  const membership = await selectMembershipFromList('active', '📅 CAMBIAR HORARIOS DE MEMBRESÍA');
+  const membership = await selectMembershipFromList('active', '📅 CAMBIAR HORARIOS');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
-  console.log(`\nMembresía: ${membership.user.firstName} ${membership.user.lastName}`);
-  console.log('Para cambiar horarios, necesitas especificar el formato JSON');
-  console.log('Ejemplo: { "monday": [1, 2], "wednesday": [3] }');
-  
-  const scheduleInput = await question('\nIngresa nuevo horario (JSON) o Enter para omitir: ');
+  console.log('\nFormato JSON: { "monday": [1, 2], "wednesday": [3] }');
+  const scheduleInput = await question('Horario (JSON): ');
   
   if (!scheduleInput) {
-    console.log('Operación cancelada');
+    console.log('Cancelado');
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
   try {
-    let selectedSchedule;
-    try {
-      selectedSchedule = JSON.parse(scheduleInput);
-    } catch (parseError) {
-      console.log(colors.red + '❌ Error: JSON inválido' + colors.reset);
-      console.log('Detalle:', parseError.message);
-      await question('\nPresiona Enter para continuar...');
-      return;
-    }
+    const selectedSchedule = JSON.parse(scheduleInput);
     
-    const scheduleData = {
-      selectedSchedule,
-      replaceAll: true
-    };
-    
-    console.log('\nDatos a enviar:');
-    console.log(JSON.stringify(scheduleData, null, 2));
-    
-    const confirm = await question('\n¿Confirmar cambio de horarios? (s/n): ');
-    
-    if (confirm.toLowerCase() !== 's') {
-      console.log('Cambio cancelado');
-      await question('\nPresiona Enter para continuar...');
-      return;
-    }
-    
-    console.log(`\n${colors.cyan}Enviando PATCH a /api/memberships/${membership.id}/schedule...${colors.reset}`);
-    const response = await axios.patch(`${API_BASE_URL}/memberships/${membership.id}/schedule`, scheduleData, getAxiosConfig());
+    const response = await axios.patch(
+      `${API_BASE_URL}/memberships/${membership.id}/schedule`, 
+      { selectedSchedule, replaceAll: true }, 
+      getAxiosConfig()
+    );
     
     if (response.data.success) {
-      console.log('\n' + colors.green + '✅ Horarios actualizados exitosamente!' + colors.reset);
-      console.log(JSON.stringify(response.data.data, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + '✅ Horarios actualizados!' + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -1162,41 +889,32 @@ async function changeMembershipSchedule() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 14. CANCEL MEMBERSHIP
-// ============================================================
 async function cancelMembership() {
-  const membership = await selectMembershipFromList('active', '🗑️  CANCELAR MEMBRESÍA');
+  const membership = await selectMembershipFromList('active', '🗑️  CANCELAR');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
-  console.log(`\n${colors.red}⚠️  ADVERTENCIA: Esta acción cancelará la membresía${colors.reset}`);
-  console.log(`Cliente: ${membership.user.firstName} ${membership.user.lastName}`);
-  console.log(`Tipo: ${membership.type}`);
-  console.log(`Estado actual: ${membership.status}`);
-  
-  const reason = await question('\nMotivo de cancelación: ');
-  
-  const confirm = await question(colors.red + '\n¿CONFIRMAR CANCELACIÓN? (escribe "CANCELAR"): ' + colors.reset);
+  const reason = await question('\nMotivo: ');
+  const confirm = await question(colors.red + '¿CONFIRMAR? (escribe "CANCELAR"): ' + colors.reset);
   
   if (confirm !== 'CANCELAR') {
-    console.log(colors.yellow + 'Cancelación abortada' + colors.reset);
+    console.log('Abortado');
     await question('\nPresiona Enter para continuar...');
     return;
   }
   
   try {
-    console.log(`\n${colors.cyan}Enviando POST a /api/memberships/${membership.id}/cancel...${colors.reset}`);
-    const response = await axios.post(`${API_BASE_URL}/memberships/${membership.id}/cancel`, { reason }, getAxiosConfig());
+    const response = await axios.post(
+      `${API_BASE_URL}/memberships/${membership.id}/cancel`, 
+      { reason }, 
+      getAxiosConfig()
+    );
     
     if (response.data.success) {
-      console.log('\n' + colors.green + '✅ Membresía cancelada exitosamente' + colors.reset);
-      console.log(response.data.message);
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + '✅ Cancelada!' + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -1206,10 +924,10 @@ async function cancelMembership() {
 }
 
 // ============================================================
-// 15-18. OPERACIONES ESPECIALES (sin cambios - funcionan correctamente)
+// 15-18. OPERACIONES ESPECIALES (básicas)
 // ============================================================
 async function viewCompleteMembershipDetails() {
-  const membership = await selectMembershipFromList(null, '🔍 VER DETALLE COMPLETO DE MEMBRESÍA');
+  const membership = await selectMembershipFromList(null, '🔍 DETALLE COMPLETO');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
@@ -1217,18 +935,11 @@ async function viewCompleteMembershipDetails() {
   }
   
   try {
-    console.log(`\n${colors.cyan}Obteniendo membresía completa...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/${membership.id}`, getAxiosConfig());
     
     if (response.data.success) {
-      const membershipData = response.data.data.membership;
-      
-      console.log('\n' + colors.green + '✅ Membresía encontrada' + colors.reset);
-      console.log(colors.bright + `${membershipData.user.firstName} ${membershipData.user.lastName}` + colors.reset);
-      console.log('─'.repeat(60));
-      console.log(JSON.stringify(membershipData, null, 2));
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + '✅ Detalles' + colors.reset);
+      console.log(JSON.stringify(response.data.data.membership, null, 2));
     }
   } catch (error) {
     handleAPIError(error);
@@ -1238,7 +949,7 @@ async function viewCompleteMembershipDetails() {
 }
 
 async function viewMembershipPayments() {
-  const membership = await selectMembershipFromList(null, '💰 VER HISTORIAL DE PAGOS');
+  const membership = await selectMembershipFromList(null, '💰 HISTORIAL DE PAGOS');
   
   if (!membership) {
     await question('\nPresiona Enter para continuar...');
@@ -1246,45 +957,17 @@ async function viewMembershipPayments() {
   }
   
   try {
-    console.log(`\n${colors.cyan}Obteniendo historial de pagos...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships/${membership.id}`, getAxiosConfig());
     
     if (response.data.success) {
-      const membershipData = response.data.data.membership;
+      const payments = response.data.data.membership.payments || [];
       
-      if (membershipData.payments && membershipData.payments.length > 0) {
-        console.log('\n' + colors.green + `✅ ${membershipData.payments.length} pagos encontrados` + colors.reset);
-        console.log(`Membresía de: ${membershipData.user.firstName} ${membershipData.user.lastName}\n`);
-        
-        let totalAmount = 0;
-        
-        membershipData.payments.forEach((payment, index) => {
-          const statusColors = {
-            completed: colors.green,
-            pending: colors.yellow,
-            failed: colors.red,
-            cancelled: colors.red
-          };
-          
-          console.log(`${index + 1}. ${colors.bright}Q${payment.amount}${colors.reset}`);
-          console.log(`   Tipo: ${payment.paymentType}`);
-          console.log(`   Estado: ${statusColors[payment.status]}${payment.status}${colors.reset}`);
-          console.log(`   Método: ${payment.paymentMethod}`);
-          console.log(`   Fecha: ${formatDate(payment.paymentDate)}`);
-          console.log('');
-          
-          if (payment.status === 'completed') {
-            totalAmount += parseFloat(payment.amount);
-          }
-        });
-        
-        console.log('─'.repeat(60));
-        console.log(`${colors.bright}Total pagado: ${colors.green}Q${totalAmount.toFixed(2)}${colors.reset}`);
-      } else {
-        console.log(colors.yellow + '\n⚠️  No hay pagos registrados' + colors.reset);
-      }
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
+      console.log('\n' + colors.green + `✅ ${payments.length} pagos` + colors.reset + '\n');
+      
+      payments.forEach((p, i) => {
+        console.log(`${i + 1}. Q${p.amount} - ${p.status}`);
+        console.log(`   Método: ${p.paymentMethod} | Fecha: ${formatDate(p.paymentDate)}`);
+      });
     }
   } catch (error) {
     handleAPIError(error);
@@ -1294,59 +977,32 @@ async function viewMembershipPayments() {
 }
 
 async function listMembershipsByStatus() {
-  showHeader('📋 LISTAR MEMBRESÍAS POR ESTADO');
+  showHeader('📋 LISTAR POR ESTADO');
   
-  console.log('Estados disponibles:');
+  console.log('Estados:');
   console.log('  1. active');
   console.log('  2. pending');
   console.log('  3. expired');
   console.log('  4. cancelled');
-  console.log('  5. todas');
   
-  const choice = await question('\nSelecciona (1-5): ');
-  const statuses = ['active', 'pending', 'expired', 'cancelled', null];
-  const selectedStatus = statuses[parseInt(choice) - 1];
+  const choice = await question('\nSelecciona: ');
+  const statuses = ['active', 'pending', 'expired', 'cancelled'];
+  const status = statuses[parseInt(choice) - 1];
   
   try {
-    const params = { limit: 100 };
-    if (selectedStatus) params.status = selectedStatus;
-    
-    console.log(`\n${colors.cyan}Obteniendo membresías...${colors.reset}`);
     const response = await axios.get(`${API_BASE_URL}/memberships`, {
       ...getAxiosConfig(),
-      params
+      params: { status, limit: 50 }
     });
     
     if (response.data.success) {
       const memberships = response.data.data.memberships;
       
-      console.log('\n' + colors.green + `✅ ${memberships.length} membresías encontradas` + colors.reset + '\n');
+      console.log('\n' + colors.green + `✅ ${memberships.length} encontradas` + colors.reset + '\n');
       
-      const byStatus = memberships.reduce((acc, membership) => {
-        if (!acc[membership.status]) acc[membership.status] = [];
-        acc[membership.status].push(membership);
-        return acc;
-      }, {});
-      
-      Object.keys(byStatus).forEach(status => {
-        const statusColors = {
-          active: colors.green,
-          pending: colors.yellow,
-          expired: colors.red,
-          cancelled: colors.red
-        };
-        
-        console.log(colors.bright + `\n${status.toUpperCase()} (${byStatus[status].length})` + colors.reset);
-        console.log('─'.repeat(60));
-        
-        byStatus[status].forEach((membership, index) => {
-          console.log(`${index + 1}. ${membership.user.firstName} ${membership.user.lastName}`);
-          console.log(`   Tipo: ${membership.type} | Precio: Q${membership.price}`);
-          console.log(`   Fin: ${formatDateOnly(membership.endDate)}`);
-        });
+      memberships.forEach((m, i) => {
+        console.log(`${i + 1}. ${m.user.firstName} ${m.user.lastName} - ${m.type}`);
       });
-    } else {
-      console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
   } catch (error) {
     handleAPIError(error);
@@ -1356,9 +1012,9 @@ async function listMembershipsByStatus() {
 }
 
 async function searchMembershipsByClient() {
-  showHeader('🔍 BUSCAR MEMBRESÍAS DE UN CLIENTE');
+  showHeader('🔍 BUSCAR POR CLIENTE');
   
-  const client = await selectClientFromList('SELECCIONAR CLIENTE');
+  const client = await selectClientFromList('CLIENTE');
   
   if (!client) {
     await question('\nPresiona Enter para continuar...');
@@ -1366,38 +1022,104 @@ async function searchMembershipsByClient() {
   }
   
   try {
-    console.log(`\n${colors.cyan}Buscando membresías de ${client.firstName} ${client.lastName}...${colors.reset}`);
-    
     const response = await axios.get(`${API_BASE_URL}/memberships`, {
       ...getAxiosConfig(),
-      params: { userId: client.id, limit: 50 }
+      params: { userId: client.id }
     });
     
     if (response.data.success) {
       const memberships = response.data.data.memberships;
       
-      console.log('\n' + colors.green + `✅ ${memberships.length} membresías encontradas` + colors.reset);
-      console.log(`Cliente: ${client.firstName} ${client.lastName}\n`);
+      console.log('\n' + colors.green + `✅ ${memberships.length} membresías` + colors.reset + '\n');
       
-      if (memberships.length > 0) {
-        memberships.forEach((membership, index) => {
-          const statusColors = {
-            active: colors.green,
-            pending: colors.yellow,
-            expired: colors.red,
-            cancelled: colors.red
-          };
-          
-          console.log(`${index + 1}. ${colors.bright}${membership.type}${colors.reset}`);
-          console.log(`   Estado: ${statusColors[membership.status]}${membership.status}${colors.reset}`);
-          console.log(`   Precio: Q${membership.price}`);
-          console.log(`   Inicio: ${formatDateOnly(membership.startDate)}`);
-          console.log(`   Fin: ${formatDateOnly(membership.endDate)}`);
-          console.log('');
+      memberships.forEach((m, i) => {
+        console.log(`${i + 1}. ${m.type} - ${m.status}`);
+        console.log(`   Q${m.price} | ${formatDateOnly(m.endDate)}`);
+      });
+    }
+  } catch (error) {
+    handleAPIError(error);
+  }
+  
+  await question('\nPresiona Enter para continuar...');
+}
+
+// ============================================================
+// 21-24. GESTIÓN DE PAGOS PENDIENTES (NUEVAS FUNCIONES)
+// ============================================================
+
+// 21. DASHBOARD DE PAGOS PENDIENTES
+async function getPendingPaymentsDashboard() {
+  showHeader('💰 DASHBOARD DE PAGOS PENDIENTES');
+  
+  if (currentUser.role !== 'admin' && currentUser.role !== 'colaborador') {
+    console.log(colors.red + '❌ Solo el personal puede ver este dashboard' + colors.reset);
+    await question('\nPresiona Enter para continuar...');
+    return;
+  }
+  
+  try {
+    console.log(`\n${colors.cyan}Obteniendo dashboard...${colors.reset}`);
+    const response = await axios.get(`${API_BASE_URL}/financial/pending-dashboard`, getAxiosConfig());
+    
+    if (response.data.success) {
+      const data = response.data.data;
+      
+      console.log('\n' + colors.green + '✅ Dashboard de Pagos Pendientes' + colors.reset);
+      console.log('═'.repeat(70) + '\n');
+      
+      // Resumen
+      console.log(colors.bright + '📊 RESUMEN' + colors.reset);
+      console.log('─'.repeat(70));
+      
+      console.log(colors.yellow + '\n💸 Transferencias Pendientes:' + colors.reset);
+      console.log(`   Cantidad: ${data.summary.pendingTransfers.count}`);
+      console.log(`   Monto total: ${colors.green}Q${data.summary.pendingTransfers.totalAmount.toFixed(2)}${colors.reset}`);
+      console.log(`   Más antigua: ${data.summary.pendingTransfers.oldestHours.toFixed(1)} horas`);
+      
+      console.log(colors.yellow + '\n💵 Membresías Pendientes (Efectivo):' + colors.reset);
+      console.log(`   Cantidad: ${data.summary.pendingCashMemberships.count}`);
+      console.log(`   Monto total: ${colors.green}Q${data.summary.pendingCashMemberships.totalAmount.toFixed(2)}${colors.reset}`);
+      console.log(`   Más antigua: ${data.summary.pendingCashMemberships.oldestHours.toFixed(1)} horas`);
+      
+      console.log(colors.cyan + '\n✅ Validaciones de Hoy:' + colors.reset);
+      console.log(`   Aprobadas: ${colors.green}${data.summary.todayValidations.approved}${colors.reset}`);
+      console.log(`   Rechazadas: ${colors.red}${data.summary.todayValidations.rejected}${colors.reset}`);
+      console.log(`   Total procesadas: ${data.summary.todayValidations.totalProcessed}`);
+      
+      // Items urgentes
+      if (data.urgentItems && data.urgentItems.length > 0) {
+        console.log('\n' + colors.red + colors.bright + '⚠️  ITEMS URGENTES (>24 horas)' + colors.reset);
+        console.log('─'.repeat(70));
+        
+        data.urgentItems.forEach((item, index) => {
+          const priorityIcon = item.priority === 'critical' ? '🔴' : '🟡';
+          console.log(`\n${priorityIcon} ${index + 1}. ${item.clientName}`);
+          console.log(`   Tipo: ${item.type === 'transfer' ? 'Transferencia' : 'Membresía en efectivo'}`);
+          console.log(`   Monto: ${colors.green}Q${item.amount}${colors.reset}`);
+          console.log(`   Esperando: ${colors.yellow}${item.hoursWaiting} horas${colors.reset}`);
+          console.log(`   Prioridad: ${item.priority === 'critical' ? colors.red + 'CRÍTICA' : colors.yellow + 'ALTA'}${colors.reset}`);
         });
-      } else {
-        console.log(colors.yellow + 'Este cliente no tiene membresías registradas' + colors.reset);
       }
+      
+      // Actividad reciente
+      if (data.recentActivity && data.recentActivity.length > 0) {
+        console.log('\n' + colors.cyan + '📋 ACTIVIDAD RECIENTE' + colors.reset);
+        console.log('─'.repeat(70));
+        
+        data.recentActivity.slice(0, 5).forEach((activity, index) => {
+          const actionIcon = activity.action === 'transfer_approved' ? '✅' : '❌';
+          const actionText = activity.action === 'transfer_approved' ? 'Aprobó' : 'Rechazó';
+          
+          console.log(`\n${actionIcon} ${activity.performedBy} ${actionText}`);
+          console.log(`   Cliente: ${activity.clientName}`);
+          console.log(`   Monto: Q${activity.amount}`);
+          console.log(`   Fecha: ${formatDate(activity.timestamp)}`);
+        });
+      }
+      
+      console.log('\n' + '═'.repeat(70));
+      
     } else {
       console.log(colors.red + '❌ Error: ' + response.data.message + colors.reset);
     }
@@ -1408,38 +1130,373 @@ async function searchMembershipsByClient() {
   await question('\nPresiona Enter para continuar...');
 }
 
-// ============================================================
-// 19. CHECK SERVER
-// ============================================================
-async function checkServer() {
-  showHeader('🔌 VERIFICAR CONEXIÓN AL SERVIDOR');
+// 22. CONFIRMAR PAGO EN EFECTIVO
+async function confirmCashPayment() {
+  showHeader('💵 CONFIRMAR PAGO EN EFECTIVO');
+  
+  if (currentUser.role !== 'admin' && currentUser.role !== 'colaborador') {
+    console.log(colors.red + '❌ Solo el personal puede confirmar pagos' + colors.reset);
+    await question('\nPresiona Enter para continuar...');
+    return;
+  }
   
   try {
-    console.log(`Intentando conectar a ${API_BASE_URL}...`);
-    const response = await axios.get(`${API_BASE_URL.replace('/api', '')}/health`, { timeout: 5000 });
+    // Obtener membresías pendientes de pago en efectivo
+    console.log(colors.cyan + 'Obteniendo membresías pendientes de pago...' + colors.reset);
+    const response = await axios.get(`${API_BASE_URL}/memberships/pending-cash-payment`, getAxiosConfig());
     
-    console.log(colors.green + '✅ Servidor en línea' + colors.reset);
-    console.log('Respuesta:', JSON.stringify(response.data, null, 2));
-  } catch (error) {
-    console.log(colors.red + '❌ No se pudo conectar al servidor' + colors.reset);
-    console.log('Asegúrate de que el servidor esté corriendo en http://localhost:5000');
-    
-    if (error.code === 'ECONNREFUSED') {
-      console.log('\n' + colors.yellow + '💡 El servidor parece estar apagado.' + colors.reset);
-      console.log('Ejecuta: npm start o node src/server.js');
+    if (!response.data.success || response.data.data.memberships.length === 0) {
+      console.log(colors.yellow + '\n⚠️  No hay membresías pendientes de pago en efectivo' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
     }
+    
+    const memberships = response.data.data.memberships;
+    
+    console.log('\n' + colors.green + `✅ ${memberships.length} membresías pendientes` + colors.reset + '\n');
+    console.log('─'.repeat(70));
+    
+    memberships.forEach((membership, index) => {
+      console.log(`${colors.bright}${index + 1}.${colors.reset} ${membership.user.name}`);
+      console.log(`   Email: ${membership.user.email}`);
+      console.log(`   Plan: ${membership.plan.name}`);
+      console.log(`   Precio: ${colors.yellow}Q${membership.price}${colors.reset}`);
+      console.log(`   Esperando: ${colors.yellow}${membership.hoursWaiting.toFixed(1)} horas${colors.reset}`);
+      console.log(`   ID Membresía: ${membership.id.substring(0, 13)}...`);
+      console.log('');
+    });
+    
+    console.log('─'.repeat(70));
+    const choice = await question('\nSelecciona membresía a confirmar (0=cancelar): ');
+    
+    if (choice === '0') {
+      console.log('Operación cancelada');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedIndex = parseInt(choice) - 1;
+    
+    if (selectedIndex < 0 || selectedIndex >= memberships.length) {
+      console.log(colors.red + '❌ Selección inválida' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedMembership = memberships[selectedIndex];
+    
+    console.log(`\n${colors.cyan}Confirmando pago para: ${selectedMembership.user.name}${colors.reset}`);
+    console.log(`Monto: Q${selectedMembership.price}`);
+    
+    const confirm = await question('\n¿Confirmar que SE RECIBIÓ el pago en efectivo? (s/n): ');
+    
+    if (confirm.toLowerCase() !== 's') {
+      console.log('Confirmación cancelada');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    // Buscar el pago asociado a la membresía
+    const paymentResponse = await axios.get(`${API_BASE_URL}/payments`, {
+      ...getAxiosConfig(),
+      params: { 
+        membershipId: selectedMembership.id,
+        status: 'pending',
+        paymentMethod: 'cash'
+      }
+    });
+    
+    if (!paymentResponse.data.success || !paymentResponse.data.data.payments || paymentResponse.data.data.payments.length === 0) {
+      console.log(colors.red + '❌ No se encontró el pago pendiente asociado' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const payment = paymentResponse.data.data.payments[0];
+    
+    // Marcar pago como completado
+    const updateResponse = await axios.patch(
+      `${API_BASE_URL}/payments/${payment.id}`,
+      { status: 'completed' },
+      getAxiosConfig()
+    );
+    
+    if (updateResponse.data.success) {
+      // Activar la membresía
+      const membershipUpdateResponse = await axios.patch(
+        `${API_BASE_URL}/memberships/${selectedMembership.id}`,
+        { status: 'active' },
+        getAxiosConfig()
+      );
+      
+      if (membershipUpdateResponse.data.success) {
+        console.log('\n' + colors.green + '✅ Pago confirmado y membresía activada!' + colors.reset);
+        console.log(`Cliente: ${selectedMembership.user.name}`);
+        console.log(`Monto: Q${selectedMembership.price}`);
+        console.log(`Estado membresía: ${colors.green}ACTIVA${colors.reset}`);
+      } else {
+        console.log('\n' + colors.yellow + '⚠️  Pago confirmado pero error al activar membresía' + colors.reset);
+      }
+    } else {
+      console.log(colors.red + '❌ Error al confirmar pago' + colors.reset);
+    }
+    
+  } catch (error) {
+    handleAPIError(error);
+  }
+  
+  await question('\nPresiona Enter para continuar...');
+}
+
+// 23. VALIDAR COMPROBANTE DE TRANSFERENCIA
+async function validateTransferProof() {
+  showHeader('✅ VALIDAR COMPROBANTE DE TRANSFERENCIA');
+  
+  if (currentUser.role !== 'admin' && currentUser.role !== 'colaborador') {
+    console.log(colors.red + '❌ Solo el personal puede validar transferencias' + colors.reset);
+    await question('\nPresiona Enter para continuar...');
+    return;
+  }
+  
+  try {
+    // Obtener pagos pendientes por transferencia
+    console.log(colors.cyan + 'Obteniendo transferencias pendientes...' + colors.reset);
+    const response = await axios.get(`${API_BASE_URL}/payments`, {
+      ...getAxiosConfig(),
+      params: { 
+        status: 'pending',
+        paymentMethod: 'transfer'
+      }
+    });
+    
+    if (!response.data.success || !response.data.data.payments || response.data.data.payments.length === 0) {
+      console.log(colors.yellow + '\n⚠️  No hay transferencias pendientes de validación' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const payments = response.data.data.payments.filter(p => p.transferProof);
+    
+    if (payments.length === 0) {
+      console.log(colors.yellow + '\n⚠️  No hay transferencias con comprobante cargado' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    console.log('\n' + colors.green + `✅ ${payments.length} transferencias pendientes` + colors.reset + '\n');
+    console.log('─'.repeat(70));
+    
+    payments.forEach((payment, index) => {
+      console.log(`${colors.bright}${index + 1}.${colors.reset} ${payment.user ? payment.user.firstName + ' ' + payment.user.lastName : 'Cliente'}`);
+      console.log(`   Monto: ${colors.yellow}Q${payment.amount}${colors.reset}`);
+      console.log(`   Tipo: ${payment.paymentType}`);
+      console.log(`   Fecha: ${formatDate(payment.paymentDate)}`);
+      console.log(`   Comprobante: ${payment.transferProof ? '📄 Sí' : '❌ No'}`);
+      console.log(`   ID Pago: ${payment.id.substring(0, 13)}...`);
+      console.log('');
+    });
+    
+    console.log('─'.repeat(70));
+    const choice = await question('\nSelecciona transferencia a validar (0=cancelar): ');
+    
+    if (choice === '0') {
+      console.log('Operación cancelada');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedIndex = parseInt(choice) - 1;
+    
+    if (selectedIndex < 0 || selectedIndex >= payments.length) {
+      console.log(colors.red + '❌ Selección inválida' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedPayment = payments[selectedIndex];
+    
+    console.log(`\n${colors.cyan}Validando transferencia de: ${selectedPayment.user ? selectedPayment.user.firstName : 'Cliente'}${colors.reset}`);
+    console.log(`Monto: Q${selectedPayment.amount}`);
+    console.log(`Comprobante: ${selectedPayment.transferProof}`);
+    
+    const confirm = await question('\n¿APROBAR esta transferencia? (s/n): ');
+    
+    if (confirm.toLowerCase() !== 's') {
+      console.log('Validación cancelada');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    // Aprobar transferencia
+    const validateResponse = await axios.post(
+      `${API_BASE_URL}/payments/${selectedPayment.id}/validate-transfer`,
+      { validated: true },
+      getAxiosConfig()
+    );
+    
+    if (validateResponse.data.success) {
+      console.log('\n' + colors.green + '✅ Transferencia validada y aprobada!' + colors.reset);
+      console.log(`Cliente: ${selectedPayment.user ? selectedPayment.user.firstName + ' ' + selectedPayment.user.lastName : 'Cliente'}`);
+      console.log(`Monto: Q${selectedPayment.amount}`);
+      console.log(`Estado: ${colors.green}COMPLETADO${colors.reset}`);
+      
+      // Si es membresía, activarla
+      if (selectedPayment.membershipId) {
+        console.log('\n' + colors.cyan + 'Activando membresía asociada...' + colors.reset);
+        const membershipResponse = await axios.patch(
+          `${API_BASE_URL}/memberships/${selectedPayment.membershipId}`,
+          { status: 'active' },
+          getAxiosConfig()
+        );
+        
+        if (membershipResponse.data.success) {
+          console.log(colors.green + '✅ Membresía activada' + colors.reset);
+        }
+      }
+    } else {
+      console.log(colors.red + '❌ Error al validar transferencia' + colors.reset);
+    }
+    
+  } catch (error) {
+    handleAPIError(error);
+  }
+  
+  await question('\nPresiona Enter para continuar...');
+}
+
+// 24. RECHAZAR COMPROBANTE DE TRANSFERENCIA
+async function rejectTransferProof() {
+  showHeader('❌ RECHAZAR COMPROBANTE DE TRANSFERENCIA');
+  
+  if (currentUser.role !== 'admin' && currentUser.role !== 'colaborador') {
+    console.log(colors.red + '❌ Solo el personal puede rechazar transferencias' + colors.reset);
+    await question('\nPresiona Enter para continuar...');
+    return;
+  }
+  
+  try {
+    // Obtener pagos pendientes por transferencia
+    console.log(colors.cyan + 'Obteniendo transferencias pendientes...' + colors.reset);
+    const response = await axios.get(`${API_BASE_URL}/payments`, {
+      ...getAxiosConfig(),
+      params: { 
+        status: 'pending',
+        paymentMethod: 'transfer'
+      }
+    });
+    
+    if (!response.data.success || !response.data.data.payments || response.data.data.payments.length === 0) {
+      console.log(colors.yellow + '\n⚠️  No hay transferencias pendientes' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const payments = response.data.data.payments.filter(p => p.transferProof);
+    
+    if (payments.length === 0) {
+      console.log(colors.yellow + '\n⚠️  No hay transferencias con comprobante' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    console.log('\n' + colors.green + `✅ ${payments.length} transferencias pendientes` + colors.reset + '\n');
+    console.log('─'.repeat(70));
+    
+    payments.forEach((payment, index) => {
+      console.log(`${colors.bright}${index + 1}.${colors.reset} ${payment.user ? payment.user.firstName + ' ' + payment.user.lastName : 'Cliente'}`);
+      console.log(`   Monto: Q${payment.amount}`);
+      console.log(`   Comprobante: ${payment.transferProof}`);
+      console.log('');
+    });
+    
+    console.log('─'.repeat(70));
+    const choice = await question('\nSelecciona transferencia a RECHAZAR (0=cancelar): ');
+    
+    if (choice === '0') {
+      console.log('Operación cancelada');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedIndex = parseInt(choice) - 1;
+    
+    if (selectedIndex < 0 || selectedIndex >= payments.length) {
+      console.log(colors.red + '❌ Selección inválida' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const selectedPayment = payments[selectedIndex];
+    
+    console.log(`\n${colors.red}Rechazando transferencia de: ${selectedPayment.user ? selectedPayment.user.firstName : 'Cliente'}${colors.reset}`);
+    console.log(`Monto: Q${selectedPayment.amount}`);
+    
+    const reason = await question('\nMotivo del rechazo: ');
+    
+    if (!reason) {
+      console.log(colors.yellow + '⚠️  Debes proporcionar un motivo' + colors.reset);
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    const confirm = await question(colors.red + '\n¿CONFIRMAR RECHAZO? (s/n): ' + colors.reset);
+    
+    if (confirm.toLowerCase() !== 's') {
+      console.log('Rechazo cancelado');
+      await question('\nPresiona Enter para continuar...');
+      return;
+    }
+    
+    // Rechazar transferencia
+    const rejectResponse = await axios.post(
+      `${API_BASE_URL}/payments/${selectedPayment.id}/validate-transfer`,
+      { validated: false, reason },
+      getAxiosConfig()
+    );
+    
+    if (rejectResponse.data.success) {
+      console.log('\n' + colors.red + '❌ Transferencia rechazada' + colors.reset);
+      console.log(`Motivo: ${reason}`);
+      console.log(`El cliente deberá subir un nuevo comprobante`);
+    } else {
+      console.log(colors.red + '❌ Error al rechazar transferencia' + colors.reset);
+    }
+    
+  } catch (error) {
+    handleAPIError(error);
   }
   
   await question('\nPresiona Enter para continuar...');
 }
 
 // ============================================================
-// 20. LOGOUT
+// 25-26. SISTEMA
 // ============================================================
+async function checkServer() {
+  showHeader('🔌 VERIFICAR SERVIDOR');
+  
+  try {
+    console.log(`Conectando a ${API_BASE_URL}...`);
+    const response = await axios.get(`${API_BASE_URL.replace('/api', '')}/health`, { timeout: 5000 });
+    
+    console.log(colors.green + '✅ Servidor en línea' + colors.reset);
+    console.log('Respuesta:', JSON.stringify(response.data, null, 2));
+  } catch (error) {
+    console.log(colors.red + '❌ No se pudo conectar' + colors.reset);
+    
+    if (error.code === 'ECONNREFUSED') {
+      console.log('\n' + colors.yellow + '💡 Servidor apagado' + colors.reset);
+      console.log('Ejecuta: npm start');
+    }
+  }
+  
+  await question('\nPresiona Enter para continuar...');
+}
+
 async function logout() {
   authToken = null;
   currentUser = null;
-  console.log(colors.green + '\n✅ Sesión cerrada exitosamente' + colors.reset);
+  console.log(colors.green + '\n✅ Sesión cerrada' + colors.reset);
   await question('\nPresiona Enter para continuar...');
 }
 
@@ -1454,24 +1511,24 @@ function handleAPIError(error) {
     console.log(`Mensaje: ${error.response.data.message || 'Error desconocido'}`);
     
     if (error.response.status === 401) {
-      console.log(colors.yellow + '\n⚠️  Token expirado o inválido. Vuelve a hacer login.' + colors.reset);
+      console.log(colors.yellow + '\n⚠️  Token expirado. Vuelve a hacer login.' + colors.reset);
       authToken = null;
       currentUser = null;
     }
     
     if (error.response.status === 403) {
-      console.log(colors.yellow + '\n⚠️  No tienes permisos para esta acción.' + colors.reset);
+      console.log(colors.yellow + '\n⚠️  Sin permisos' + colors.reset);
     }
     
     if (error.response.status === 400) {
-      console.log(colors.yellow + '\n⚠️  Datos inválidos o faltantes.' + colors.reset);
+      console.log(colors.yellow + '\n⚠️  Datos inválidos' + colors.reset);
     }
     
     console.log('\nRespuesta completa:');
     console.log(JSON.stringify(error.response.data, null, 2));
   } else if (error.request) {
-    console.log('\nNo se recibió respuesta del servidor');
-    console.log('Asegúrate de que el servidor esté corriendo en http://localhost:5000');
+    console.log('\nSin respuesta del servidor');
+    console.log('Verifica que el servidor esté en http://localhost:5000');
   } else {
     console.log(`\nError: ${error.message}`);
   }
@@ -1496,7 +1553,7 @@ async function main() {
       const choice = await showMenu();
       
       if (!authToken && choice !== '1' && choice !== '0') {
-        console.log(colors.red + '\n❌ Debes hacer login primero (opción 1)' + colors.reset);
+        console.log(colors.red + '\n❌ Debes hacer login primero' + colors.reset);
         await question('\nPresiona Enter para continuar...');
         continue;
       }
@@ -1520,8 +1577,14 @@ async function main() {
         case '16': await viewMembershipPayments(); break;
         case '17': await listMembershipsByStatus(); break;
         case '18': await searchMembershipsByClient(); break;
-        case '19': await checkServer(); break;
-        case '20': await logout(); break;
+        // NUEVAS OPCIONES DE GESTIÓN DE PAGOS
+        case '21': await getPendingPaymentsDashboard(); break;
+        case '22': await confirmCashPayment(); break;
+        case '23': await validateTransferProof(); break;
+        case '24': await rejectTransferProof(); break;
+        // SISTEMA
+        case '25': await checkServer(); break;
+        case '26': await logout(); break;
         case '0':
           console.log('\n' + colors.bright + '👋 ¡Hasta luego!' + colors.reset + '\n');
           rl.close();
