@@ -22,6 +22,7 @@ class MembershipController {
 
       const {
         userId,
+        planId,
         type,
         price,
         startDate,
