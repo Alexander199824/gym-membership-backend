@@ -437,7 +437,41 @@ const configureAssociations = () => {
       }
       console.log('   ✅ Payment -> registeredByUser, transferValidator');
     }
+
+    // === MOVIMIENTOS FINANCIEROS ===
+    if (db.FinancialMovements && db.User) {
+      if (!db.FinancialMovements.associations?.registeredByUser) {
+        db.FinancialMovements.belongsTo(db.User, { 
+          foreignKey: 'registeredBy', 
+          as: 'registeredByUser', 
+          constraints: false 
+        });
+      }
+      console.log('   ✅ FinancialMovements -> registeredByUser');
+    }
     
+    // === INGRESOS DIARIOS ===
+    if (db.DailyIncome && db.User) {
+      if (!db.DailyIncome.associations?.registeredByUser) {
+        db.DailyIncome.belongsTo(db.User, {
+          foreignKey: 'registeredBy',
+          as: 'registeredByUser'
+        });
+      }
+      console.log('   ✅ DailyIncome -> registeredByUser');
+    }
+    
+    // === MEMBRESÍAS Y PAGOS (VERIFICACIÓN ADICIONAL) ===
+  if (db.Membership && db.Payment) {
+    if (!db.Membership.associations?.payments) {
+      db.Membership.hasMany(db.Payment, {
+        foreignKey: 'membershipId',
+        as: 'payments'
+      });
+      console.log('   ✅ Membership -> payments (manual)');
+    }
+  }
+
     // === ✅ GASTOS (EXPENSES) - NUEVAS ASOCIACIONES ===
     if (db.Expense && db.User) {
       if (!db.Expense.associations?.registeredByUser) {
