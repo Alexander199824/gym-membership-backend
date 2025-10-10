@@ -69,12 +69,12 @@ GymContactInfo.getContactInfo = async function() {
   
   if (!contactInfo) {
     contactInfo = await this.create({
-      phone: '+502 1234-5678',
-      email: 'info@elitefitness.com',
-      address: 'Zona 10, Ciudad de Guatemala',
-      addressShort: 'Zona 10, Guatemala',
-      city: 'Ciudad de Guatemala',
-      country: 'Guatemala'
+      phone: '+502 00000000',
+      email: 'elitefitnesnoreply@gmail.com',
+      address: 'Rabinal Baja Verapaz',
+      addressShort: 'A 2 cuadras de la Municipalidad de Rabinal',
+      city: 'Rabinal B.V',
+      country: 'Rabinal'
     });
   }
   

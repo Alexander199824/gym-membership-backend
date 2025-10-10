@@ -202,9 +202,9 @@ router.get('/endpoints', (req, res) => {
       gym: {
         info: 'GET /api/gym/info (público)',
         config: 'GET /api/gym/config (frontend)',
-        services: 'GET /api/gym/services (frontend - DEPRECATED, usar /api/services/active)', // 👈 ACTUALIZADO
+        services: 'GET /api/gym/services (frontend - DEPRECATED, usar /api/services/active)', 
         testimonials: 'GET /api/gym/testimonials (frontend)',
-        stats: 'GET /api/gym/stats (frontend - DEPRECATED, usar /api/statistics/active)', // 👈 ACTUALIZADO
+        stats: 'GET /api/gym/stats (frontend - DEPRECATED, usar /api/statistics/active)',
         plans: 'GET /api/gym/plans',
         contact: 'GET /api/gym/contact',
         hours: 'GET /api/gym/hours',

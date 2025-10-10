@@ -264,65 +264,91 @@ class GymController {
 
   // ✅ NUEVO: Actualizar horarios flexibles desde ContentEditor
   async updateFlexibleSchedule(req, res) {
-    try {
-      const { section, data } = req.body;
+  try {
+    const { section, data } = req.body;
 
-      if (section !== 'schedule') {
-        return res.status(400).json({
-          success: false,
-          message: 'Esta función solo maneja la sección de horarios'
+    if (section !== 'schedule') {
+      return res.status(400).json({
+        success: false,
+        message: 'Esta función solo maneja la sección de horarios'
+      });
+    }
+
+    const { hours } = data;
+    if (!hours) {
+      return res.status(400).json({
+        success: false,
+        message: 'Datos de horarios requeridos'
+      });
+    }
+
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+    // ✅ Procesar cada día
+    for (const day of days) {
+      if (hours[day] && day !== 'full') {
+        const dayData = hours[day];
+        
+        // Obtener o crear el registro del día
+        let daySchedule = await GymHours.findOne({ where: { dayOfWeek: day } });
+        if (!daySchedule) {
+          daySchedule = await GymHours.create({
+            dayOfWeek: day,
+            isClosed: !dayData.isOpen,
+            useFlexibleSchedule: true
+          });
+        } else {
+          daySchedule.isClosed = !dayData.isOpen;
+          daySchedule.useFlexibleSchedule = true;
+          await daySchedule.save();
+        }
+
+        // 🔥 SOLUCIÓN INTELIGENTE: UPDATE/CREATE/DELETE
+        
+        // 1️⃣ Obtener slots EXISTENTES en BD
+        const existingSlots = await GymTimeSlots.findAll({
+          where: { gymHoursId: daySchedule.id }
         });
-      }
 
-      const { hours } = data;
-      if (!hours) {
-        return res.status(400).json({
-          success: false,
-          message: 'Datos de horarios requeridos'
-        });
-      }
+        // 2️⃣ Si el día está abierto, procesar los slots del frontend
+        if (dayData.isOpen && dayData.timeSlots && dayData.timeSlots.length > 0) {
+          const processedSlotIds = [];
 
-      const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          for (let index = 0; index < dayData.timeSlots.length; index++) {
+            const slot = dayData.timeSlots[index];
+            
+            // Validar capacidad
+            if (slot.capacity && (slot.capacity < 1 || slot.capacity > 500)) {
+              return res.status(400).json({ 
+                success: false,
+                error: `Capacidad debe estar entre 1 y 500 para ${day}` 
+              });
+            }
 
-      // ✅ Procesar cada día
-      for (const day of days) {
-        if (hours[day] && day !== 'full') {
-          const dayData = hours[day];
-          
-          // Obtener o crear el registro del día
-          let daySchedule = await GymHours.findOne({ where: { dayOfWeek: day } });
-          if (!daySchedule) {
-            daySchedule = await GymHours.create({
-              dayOfWeek: day,
-              isClosed: !dayData.isOpen,
-              useFlexibleSchedule: true
-            });
-          } else {
-            daySchedule.isClosed = !dayData.isOpen;
-            daySchedule.useFlexibleSchedule = true;
-            await daySchedule.save();
-          }
+            // 🔍 BUSCAR si ya existe un slot con el mismo horario
+            const existingSlot = existingSlots.find(s => 
+              s.openTime === slot.open && 
+              s.closeTime === slot.close
+            );
 
-          // ✅ Eliminar franjas existentes para este día
-          await GymTimeSlots.update(
-            { isActive: false },
-            { where: { gymHoursId: daySchedule.id } }
-          );
-
-          // ✅ Crear nuevas franjas si el día está abierto
-          if (dayData.isOpen && dayData.timeSlots && dayData.timeSlots.length > 0) {
-            for (let index = 0; index < dayData.timeSlots.length; index++) {
-              const slot = dayData.timeSlots[index];
+            if (existingSlot) {
+              // ✅ ACTUALIZAR slot existente (mantiene reservaciones)
+              console.log(`🔄 Actualizando slot ${day} ${slot.open}-${slot.close}`);
               
-              // Validar capacidad
-              if (slot.capacity && (slot.capacity < 1 || slot.capacity > 500)) {
-                return res.status(400).json({ 
-                  success: false,
-                  error: `Capacidad debe estar entre 1 y 500 para ${day}` 
-                });
-              }
-
-              await GymTimeSlots.create({
+              existingSlot.capacity = slot.capacity || 30;
+              existingSlot.slotLabel = slot.label || '';
+              existingSlot.displayOrder = index;
+              existingSlot.isActive = true;
+              // ⚠️ NO sobreescribir currentReservations, mantener el valor actual
+              
+              await existingSlot.save();
+              processedSlotIds.push(existingSlot.id);
+              
+            } else {
+              // ➕ CREAR nuevo slot
+              console.log(`➕ Creando slot ${day} ${slot.open}-${slot.close}`);
+              
+              const newSlot = await GymTimeSlots.create({
                 gymHoursId: daySchedule.id,
                 openTime: slot.open,
                 closeTime: slot.close,
@@ -332,35 +358,61 @@ class GymController {
                 displayOrder: index,
                 isActive: true
               });
+              
+              processedSlotIds.push(newSlot.id);
             }
+          }
+
+          // 3️⃣ ELIMINAR slots que ya no existen en el frontend
+          const slotsToDelete = existingSlots.filter(s => !processedSlotIds.includes(s.id));
+          
+          if (slotsToDelete.length > 0) {
+            console.log(`🗑️ Eliminando ${slotsToDelete.length} slots obsoletos del ${day}`);
+            
+            await GymTimeSlots.destroy({
+              where: { 
+                id: slotsToDelete.map(s => s.id) 
+              }
+            });
+          }
+          
+        } else {
+          // 4️⃣ Si el día está CERRADO, eliminar todos sus slots
+          if (existingSlots.length > 0) {
+            console.log(`🗑️ Día ${day} cerrado, eliminando ${existingSlots.length} slots`);
+            
+            await GymTimeSlots.destroy({
+              where: { gymHoursId: daySchedule.id }
+            });
           }
         }
       }
-
-      // ✅ Obtener horarios actualizados
-      const updatedSchedule = await GymHours.getFlexibleSchedule();
-      const metrics = await GymHours.getCapacityMetrics();
-
-      res.json({
-        success: true,
-        message: 'Horarios actualizados exitosamente',
-        data: {
-          hours: {
-            ...updatedSchedule,
-            full: this.generateHoursString(updatedSchedule)
-          },
-          metrics
-        }
-      });
-    } catch (error) {
-      console.error('Error al actualizar horarios flexibles:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Error al actualizar horarios',
-        error: error.message
-      });
     }
+
+    // ✅ Obtener horarios actualizados
+    const updatedSchedule = await GymHours.getFlexibleSchedule();
+    const metrics = await GymHours.getCapacityMetrics();
+
+    res.json({
+      success: true,
+      message: 'Horarios actualizados exitosamente',
+      data: {
+        hours: {
+          ...updatedSchedule,
+          full: this.generateHoursString(updatedSchedule)
+        },
+        metrics
+      }
+    });
+  } catch (error) {
+    console.error('Error al actualizar horarios flexibles:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al actualizar horarios',
+      error: error.message
+    });
   }
+}
 
   // ✅ NUEVO: Obtener métricas de capacidad
   async getCapacityMetrics(req, res) {
