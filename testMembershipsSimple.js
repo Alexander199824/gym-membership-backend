@@ -1,5 +1,5 @@
-// testMembershipsReal.js - TEST COMPLETO CON DATOS REALES DE LA BD
-// Ejecutar con: node testMembershipsReal.js
+// testMembershipsSimple.js - TEST COMPLETO CON MEJORAS EN SELECCIÓN DE HORARIOS
+// Ejecutar con: node testMembershipsSimple.js
 // NOTA: El servidor debe estar corriendo en http://localhost:5000
 
 const readline = require('readline');
@@ -287,24 +287,27 @@ async function getAvailableScheduleOptions(planId) {
 }
 
 // ============================================================
-// SELECCIONAR HORARIOS PARA LA MEMBRESÍA
+// ✨ SELECCIONAR HORARIOS MEJORADO
 // ============================================================
 async function selectScheduleForMembership(planData, startDate) {
   const selectedSchedule = {};
   
-  // Si es membresía diaria, no se reservan slots (según tu requerimiento)
+  // ✅ SOLO membresías de 1 día NO reservan slots
   if (planData.plan.durationType === 'daily') {
-    console.log(`\n${c.yellow}⚠️  Membresías diarias NO reservan horarios en el sistema${c.reset}`);
-    console.log(`El cliente puede asistir cualquier día dentro de su período de validez.`);
+    console.log(`\n${c.yellow}⚠️  Membresías de 1 DÍA no requieren reserva de horarios${c.reset}`);
+    console.log(`El cliente puede asistir en cualquier horario durante su día de validez.`);
     return {};
   }
   
-  console.log(`\n${c.bright}${c.cyan}═══ SELECCIÓN DE HORARIOS ═══${c.reset}`);
-  console.log(`Plan: ${planData.plan.name}`);
-  console.log(`Tipo: ${planData.plan.durationType}`);
-  console.log(`Días permitidos: ${planData.plan.allowedDays.length}`);
-  console.log(`Slots por día: ${planData.plan.maxSlotsPerDay}`);
-  console.log(`Reservas por semana: ${planData.plan.maxReservationsPerWeek}`);
+  console.log(`\n${c.bright}${c.cyan}╔═══════════════════════════════════════════════════════════════════════════════╗${c.reset}`);
+  console.log(`${c.bright}${c.cyan}║                        SELECCIÓN DE HORARIOS                                  ║${c.reset}`);
+  console.log(`${c.bright}${c.cyan}╚═══════════════════════════════════════════════════════════════════════════════╝${c.reset}`);
+  
+  console.log(`\n${c.bright}📋 Información del plan:${c.reset}`);
+  console.log(`   Plan: ${c.cyan}${planData.plan.name}${c.reset}`);
+  console.log(`   Tipo: ${planData.plan.durationType}`);
+  console.log(`   Días permitidos: ${planData.plan.allowedDays.length}`);
+  console.log(`   ${c.yellow}⚠️  Límite: 1 horario por día${c.reset}`);
   
   const dayNames = {
     monday: 'Lunes',
@@ -316,78 +319,221 @@ async function selectScheduleForMembership(planData, startDate) {
     sunday: 'Domingo'
   };
   
-  let totalSlotsSelected = 0;
+  // ✅ PREGUNTA: ¿Mismo horario para todos los días?
+  console.log(`\n${c.bright}${c.cyan}┌─────────────────────────────────────────────────────────────────────────────┐${c.reset}`);
+  console.log(`${c.bright}${c.cyan}│  ¿Deseas usar el MISMO horario para todos los días permitidos?             │${c.reset}`);
+  console.log(`${c.bright}${c.cyan}└─────────────────────────────────────────────────────────────────────────────┘${c.reset}`);
   
-  for (const day of planData.plan.allowedDays) {
-    if (totalSlotsSelected >= planData.plan.maxReservationsPerWeek) {
-      console.log(c.yellow + `\n⚠️  Límite de reservas semanales alcanzado (${planData.plan.maxReservationsPerWeek})` + c.reset);
-      break;
+  const useSameSlot = await question(`\n${c.bright}Respuesta (s/n): ${c.reset}`);
+  
+  let commonSlotId = null;
+  let commonSlotInfo = null;
+  
+  if (useSameSlot.toLowerCase() === 's') {
+    // ═══════════════════════════════════════════════════════════
+    // MODO: MISMO HORARIO PARA TODOS LOS DÍAS
+    // ═══════════════════════════════════════════════════════════
+    
+    console.log(`\n${c.cyan}Buscando horarios disponibles en todos los días...${c.reset}`);
+    
+    const firstDay = planData.plan.allowedDays[0];
+    const firstDaySchedule = planData.availableOptions[firstDay];
+    
+    if (!firstDaySchedule || !firstDaySchedule.isOpen || firstDaySchedule.slots.length === 0) {
+      console.log(c.red + '\n❌ No hay horarios disponibles para configurar' + c.reset);
+      return {};
     }
     
-    const daySchedule = planData.availableOptions[day];
-    
-    if (!daySchedule || !daySchedule.isOpen || daySchedule.slots.length === 0) {
-      console.log(`\n${c.yellow}${dayNames[day]}: Cerrado o sin horarios${c.reset}`);
-      continue;
-    }
-    
-    console.log(`\n${c.bright}${dayNames[day]}:${c.reset}`);
-    console.log('─'.repeat(80));
-    
-    const availableSlots = daySchedule.slots.filter(slot => slot.canReserve);
+    const availableSlots = firstDaySchedule.slots.filter(slot => slot.canReserve);
     
     if (availableSlots.length === 0) {
-      console.log(c.red + '  Sin horarios disponibles' + c.reset);
-      continue;
+      console.log(c.red + '\n❌ Sin horarios disponibles' + c.reset);
+      return {};
     }
+    
+    console.log(`\n${c.bright}${c.green}╔═══════════════════════════════════════════════════════════════════════════════╗${c.reset}`);
+    console.log(`${c.bright}${c.green}║                    HORARIOS DISPONIBLES                                       ║${c.reset}`);
+    console.log(`${c.bright}${c.green}╚═══════════════════════════════════════════════════════════════════════════════╝${c.reset}\n`);
     
     availableSlots.forEach((slot, index) => {
       const availColor = slot.available > 5 ? c.green : slot.available > 2 ? c.yellow : c.red;
-      console.log(`  ${index + 1}. ${slot.name || `${slot.startTime} - ${slot.endTime}`}`);
-      console.log(`     Capacidad: ${slot.maxCapacity} | Disponibles: ${availColor}${slot.available}${c.reset} | En uso: ${slot.currentUsers}`);
+      const percentage = Math.round((slot.available / slot.maxCapacity) * 100);
+      const barLength = Math.round((slot.available / slot.maxCapacity) * 20);
+      const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+      
+      console.log(`${c.bright}  ${index + 1}. ${slot.label || slot.name || 'Horario'}${c.reset}`);
+      console.log(`     ┌─────────────────────────────────────────────────────────────────────┐`);
+      console.log(`     │ ⏰ Horario:      ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`.padEnd(87) + '│');
+      console.log(`     │ 👥 Capacidad:    ${slot.maxCapacity} personas`.padEnd(87) + '│');
+      console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${slot.available} espacios (${percentage}%)`.padEnd(87) + '│');
+      console.log(`     │ ${availColor}[${bar}]${c.reset} ${percentage}%`.padEnd(87) + '│');
+      console.log(`     │ 🔒 En uso:       ${slot.currentUsers} personas`.padEnd(87) + '│');
+      console.log(`     └─────────────────────────────────────────────────────────────────────┘`);
+      console.log('');
     });
     
-    console.log(`\n  0. Saltar este día`);
-    console.log(`  ${c.cyan}Puedes seleccionar hasta ${planData.plan.maxSlotsPerDay} horario(s) por día${c.reset}`);
+    const slotChoice = await question(`${c.bright}Selecciona el horario común (1-${availableSlots.length}): ${c.reset}`);
+    const selectedIndex = parseInt(slotChoice) - 1;
     
-    const selections = await question(`\nSelecciona horarios (ej: 1,3 o 1 o 0): `);
-    
-    if (selections === '0' || selections === '') {
-      continue;
-    }
-    
-    const selectedIndexes = selections.split(',').map(s => parseInt(s.trim()) - 1);
-    const validIndexes = selectedIndexes.filter(i => i >= 0 && i < availableSlots.length);
-    
-    if (validIndexes.length === 0) {
-      console.log(c.yellow + '  ⚠️  No se seleccionaron horarios válidos' + c.reset);
-      continue;
-    }
-    
-    if (validIndexes.length > planData.plan.maxSlotsPerDay) {
-      console.log(c.yellow + `  ⚠️  Solo se tomarán los primeros ${planData.plan.maxSlotsPerDay} horario(s)` + c.reset);
-      validIndexes.splice(planData.plan.maxSlotsPerDay);
-    }
-    
-    selectedSchedule[day] = validIndexes.map(i => availableSlots[i].id);
-    totalSlotsSelected += selectedSchedule[day].length;
-    
-    console.log(c.green + `  ✓ ${selectedSchedule[day].length} horario(s) seleccionado(s)` + c.reset);
-  }
-  
-  if (Object.keys(selectedSchedule).length === 0) {
-    console.log(c.yellow + '\n⚠️  No se seleccionaron horarios' + c.reset);
-    const confirm = await question('¿Crear membresía sin horarios reservados? (s/n): ');
-    if (confirm.toLowerCase() !== 's') {
+    if (selectedIndex < 0 || selectedIndex >= availableSlots.length) {
+      console.log(c.red + '\n❌ Selección inválida' + c.reset);
       return null;
     }
+    
+    commonSlotId = availableSlots[selectedIndex].id;
+    commonSlotInfo = availableSlots[selectedIndex];
+    
+    console.log(c.green + `\n✅ Horario seleccionado: ${commonSlotInfo.startTime} - ${commonSlotInfo.endTime}` + c.reset);
+    console.log(c.cyan + `   Este horario se aplicará a todos los días disponibles\n` + c.reset);
+    
+    console.log(`${c.cyan}Aplicando horario a cada día...${c.reset}\n`);
+    
+    // Aplicar el mismo slot a todos los días
+    for (const day of planData.plan.allowedDays) {
+      const daySchedule = planData.availableOptions[day];
+      
+      if (!daySchedule || !daySchedule.isOpen) {
+        console.log(`  ${c.yellow}⚠️  ${dayNames[day]}: Gimnasio cerrado - omitido${c.reset}`);
+        continue;
+      }
+      
+      const slotInDay = daySchedule.slots.find(s => s.id === commonSlotId);
+      
+      if (!slotInDay) {
+        console.log(`  ${c.yellow}⚠️  ${dayNames[day]}: Horario no disponible este día - omitido${c.reset}`);
+        continue;
+      }
+      
+      if (!slotInDay.canReserve || slotInDay.available <= 0) {
+        console.log(`  ${c.red}✗ ${dayNames[day]}: Sin capacidad disponible - omitido${c.reset}`);
+        continue;
+      }
+      
+      selectedSchedule[day] = [commonSlotId];
+      console.log(`  ${c.green}✓ ${dayNames[day]}: ${slotInDay.startTime} - ${slotInDay.endTime}${c.reset}`);
+    }
+    
+  } else {
+    // ═══════════════════════════════════════════════════════════
+    // MODO: SELECCIÓN INDIVIDUAL POR DÍA
+    // ═══════════════════════════════════════════════════════════
+    
+    console.log(`\n${c.cyan}Iniciando selección individual por día...${c.reset}\n`);
+    
+    for (const day of planData.plan.allowedDays) {
+      const daySchedule = planData.availableOptions[day];
+      
+      if (!daySchedule || !daySchedule.isOpen || daySchedule.slots.length === 0) {
+        console.log(`\n${c.yellow}${dayNames[day]}: Gimnasio cerrado o sin horarios - omitido${c.reset}`);
+        continue;
+      }
+      
+      const availableSlots = daySchedule.slots.filter(slot => slot.canReserve);
+      
+      if (availableSlots.length === 0) {
+        console.log(`\n${c.red}${dayNames[day]}: Sin horarios disponibles - omitido${c.reset}`);
+        continue;
+      }
+      
+      // ✅ MOSTRAR HEADER DEL DÍA
+      console.log(`\n${c.bright}${c.cyan}╔═══════════════════════════════════════════════════════════════════════════════╗${c.reset}`);
+      console.log(`${c.bright}${c.cyan}║                    ${dayNames[day].toUpperCase().padEnd(50)}                    ║${c.reset}`);
+      console.log(`${c.bright}${c.cyan}╚═══════════════════════════════════════════════════════════════════════════════╝${c.reset}\n`);
+      
+      // ✅ MOSTRAR TODOS LOS SLOTS CON DETALLE
+      availableSlots.forEach((slot, index) => {
+        const availColor = slot.available > 5 ? c.green : slot.available > 2 ? c.yellow : c.red;
+        const percentage = Math.round((slot.available / slot.maxCapacity) * 100);
+        const barLength = Math.round((slot.available / slot.maxCapacity) * 20);
+        const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+        
+        console.log(`${c.bright}  ${index + 1}. ${slot.label || slot.name || 'Horario'}${c.reset}`);
+        console.log(`     ┌─────────────────────────────────────────────────────────────────────┐`);
+        console.log(`     │ ⏰ Horario:      ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`.padEnd(87) + '│');
+        console.log(`     │ 👥 Capacidad:    ${slot.maxCapacity} personas`.padEnd(87) + '│');
+        console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${slot.available} espacios (${percentage}%)`.padEnd(87) + '│');
+        console.log(`     │ ${availColor}[${bar}]${c.reset} ${percentage}%`.padEnd(87) + '│');
+        console.log(`     │ 🔒 En uso:       ${slot.currentUsers} personas`.padEnd(87) + '│');
+        console.log(`     └─────────────────────────────────────────────────────────────────────┘`);
+        console.log('');
+      });
+      
+      console.log(`  ${c.cyan}0.${c.reset} Saltar este día (no reservar horario)\n`);
+      
+      const selection = await question(`${c.bright}Selecciona UN horario para ${dayNames[day]} (0-${availableSlots.length}): ${c.reset}`);
+      
+      if (selection === '0' || selection === '') {
+        console.log(c.yellow + `  ⊗ ${dayNames[day]}: Omitido\n` + c.reset);
+        continue;
+      }
+      
+      const selectedIndex = parseInt(selection) - 1;
+      
+      if (selectedIndex < 0 || selectedIndex >= availableSlots.length) {
+        console.log(c.yellow + `  ⚠️  Selección inválida - ${dayNames[day]} omitido\n` + c.reset);
+        continue;
+      }
+      
+      const selectedSlot = availableSlots[selectedIndex];
+      selectedSchedule[day] = [selectedSlot.id];
+      
+      console.log(c.green + `  ✓ ${dayNames[day]}: ${selectedSlot.startTime} - ${selectedSlot.endTime} RESERVADO\n` + c.reset);
+    }
   }
+  
+  // ═══════════════════════════════════════════════════════════
+  // RESUMEN FINAL
+  // ═══════════════════════════════════════════════════════════
+  
+  console.log(`\n${c.bright}${c.green}╔═══════════════════════════════════════════════════════════════════════════════╗${c.reset}`);
+  console.log(`${c.bright}${c.green}║                  RESUMEN DE HORARIOS SELECCIONADOS                            ║${c.reset}`);
+  console.log(`${c.bright}${c.green}╚═══════════════════════════════════════════════════════════════════════════════╝${c.reset}\n`);
+  
+  if (Object.keys(selectedSchedule).length === 0) {
+    console.log(c.yellow + '⚠️  No se seleccionaron horarios para ningún día\n' + c.reset);
+    const confirm = await question('¿Crear membresía sin horarios reservados? (s/n): ');
+    if (confirm.toLowerCase() !== 's') {
+      console.log(c.yellow + '\nOperación cancelada' + c.reset);
+      return null;
+    }
+    return {};
+  }
+  
+  let totalDays = 0;
+  
+  for (const [day, slotIds] of Object.entries(selectedSchedule)) {
+    const daySchedule = planData.availableOptions[day];
+    const slot = daySchedule.slots.find(s => s.id === slotIds[0]);
+    
+    if (slot) {
+      totalDays++;
+      console.log(`  ${c.green}✓${c.reset} ${dayNames[day].padEnd(12)}: ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`);
+    }
+  }
+  
+  console.log(`\n  ${c.bright}Total: ${totalDays} día(s) con horario reservado${c.reset}`);
+  
+  if (commonSlotInfo) {
+    console.log(`  ${c.cyan}Modo: Horario común (${commonSlotInfo.startTime} - ${commonSlotInfo.endTime})${c.reset}`);
+  } else {
+    console.log(`  ${c.cyan}Modo: Selección individual por día${c.reset}`);
+  }
+  
+  console.log('\n' + '─'.repeat(80));
+  const confirm = await question(`\n${c.bright}¿Confirmar estos horarios? (s/n): ${c.reset}`);
+  
+  if (confirm.toLowerCase() !== 's') {
+    console.log(c.yellow + '\nSelección de horarios cancelada' + c.reset);
+    return null;
+  }
+  
+  console.log(c.green + '\n✅ Horarios confirmados\n' + c.reset);
   
   return selectedSchedule;
 }
 
 // ============================================================
-// CREAR MEMBRESÍA CON CONFIRMACIÓN AUTOMÁTICA Y HORARIOS REALES
+// CREAR MEMBRESÍA CON CONFIRMACIÓN AUTOMÁTICA
 // ============================================================
 async function createMembershipWithRealData() {
   showHeader('➕ CREAR MEMBRESÍA CON DATOS REALES DE LA BD');
@@ -452,7 +598,6 @@ async function createMembershipWithRealData() {
     const startDateInput = await question('\nFecha inicio (YYYY-MM-DD, Enter=hoy): ');
     const startDate = startDateInput || new Date().toISOString().split('T')[0];
     
-    // Calcular fecha de fin según el tipo de plan
     const endDate = calculateEndDate(startDate, selectedPlan.duration);
     
     const start = new Date(startDate);
@@ -463,8 +608,8 @@ async function createMembershipWithRealData() {
     console.log(`${c.green}✓${c.reset} Fin: ${endDate}`);
     console.log(`${c.green}✓${c.reset} Duración: ${days} días`);
     
-    // PASO 4: Obtener y seleccionar horarios REALES desde la BD
-    console.log(`\n${c.cyan}═══ PASO 4/5: SELECCIONAR HORARIOS DESDE BD ═══${c.reset}`);
+    // PASO 4: Obtener y seleccionar horarios
+    console.log(`\n${c.cyan}═══ PASO 4/5: SELECCIONAR HORARIOS ═══${c.reset}`);
     
     const scheduleData = await getAvailableScheduleOptions(selectedPlan.id);
     
@@ -636,35 +781,8 @@ async function createMembershipWithRealData() {
 }
 
 // ============================================================
-// MENU PRINCIPAL
+// VER MEMBRESÍAS POR ESTADO
 // ============================================================
-async function showMenu() {
-  clearScreen();
-  showHeader('💳 TEST MEMBRESÍAS - DATOS REALES DE LA BD');
-  
-  if (!authToken) {
-    console.log(c.red + '⚠️  NO AUTENTICADO' + c.reset);
-    console.log('\n  1. Login' + (AUTO_LOGIN.enabled ? ' (Automático)' : ''));
-    console.log('  0. Salir');
-  } else {
-    console.log(c.green + `✅ Autenticado: ${currentUser?.email}` + c.reset);
-    console.log(c.cyan + `Rol: ${currentUser?.role}` + c.reset);
-    
-    console.log('\n' + c.green + '📋 OPCIONES:' + c.reset);
-    console.log('  2. Crear membresía con datos reales de BD');
-    console.log('  3. Ver membresías activas');
-    console.log('  4. Ver membresías pendientes');
-    console.log('  5. Ver última membresía creada');
-    console.log('  9. Verificar servidor');
-    console.log('  10. Logout');
-    console.log('  0. Salir');
-  }
-  
-  console.log('\n' + '─'.repeat(80));
-  const choice = await question(c.bright + 'Selecciona una opción: ' + c.reset);
-  return choice;
-}
-
 async function viewMembershipsByStatus(status) {
   showHeader(`📋 MEMBRESÍAS: ${status.toUpperCase()}`);
   
@@ -693,6 +811,9 @@ async function viewMembershipsByStatus(status) {
   await question('\nPresiona Enter para continuar...');
 }
 
+// ============================================================
+// VERIFICAR SERVIDOR
+// ============================================================
 async function checkServer() {
   showHeader('🔌 VERIFICAR SERVIDOR');
   
@@ -710,11 +831,44 @@ async function checkServer() {
   await question('\nPresiona Enter para continuar...');
 }
 
+// ============================================================
+// LOGOUT
+// ============================================================
 async function logout() {
   authToken = null;
   currentUser = null;
   console.log(c.green + '\n✅ Sesión cerrada' + c.reset);
   await question('\nPresiona Enter para continuar...');
+}
+
+// ============================================================
+// MENU PRINCIPAL
+// ============================================================
+async function showMenu() {
+  clearScreen();
+  showHeader('💳 TEST MEMBRESÍAS - DATOS REALES DE LA BD');
+  
+  if (!authToken) {
+    console.log(c.red + '⚠️  NO AUTENTICADO' + c.reset);
+    console.log('\n  1. Login' + (AUTO_LOGIN.enabled ? ' (Automático)' : ''));
+    console.log('  0. Salir');
+  } else {
+    console.log(c.green + `✅ Autenticado: ${currentUser?.email}` + c.reset);
+    console.log(c.cyan + `Rol: ${currentUser?.role}` + c.reset);
+    
+    console.log('\n' + c.green + '📋 OPCIONES:' + c.reset);
+    console.log('  2. Crear membresía con datos reales de BD');
+    console.log('  3. Ver membresías activas');
+    console.log('  4. Ver membresías pendientes');
+    console.log('  5. Ver última membresía creada');
+    console.log('  9. Verificar servidor');
+    console.log('  10. Logout');
+    console.log('  0. Salir');
+  }
+  
+  console.log('\n' + '─'.repeat(80));
+  const choice = await question(c.bright + 'Selecciona una opción: ' + c.reset);
+  return choice;
 }
 
 // ============================================================
