@@ -352,6 +352,219 @@ class ScheduleController {
       });
     }
   }
+
+  // ✅ NUEVO: Admin/Colaborador crea horario para cualquier usuario
+  async addScheduleForUser(req, res) {
+    try {
+      const {
+        userId,
+        dayOfWeek,
+        preferredStartTime,
+        preferredEndTime,
+        workoutType = 'mixed',
+        priority = 3,
+        notes
+      } = req.body;
+
+      // ✅ Verificar que el usuario existe
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuario no encontrado'
+        });
+      }
+
+      // ✅ Verificar si ya existe un horario similar
+      const existingSchedule = await UserSchedulePreferences.findOne({
+        where: {
+          userId,
+          dayOfWeek,
+          preferredStartTime,
+          preferredEndTime,
+          isActive: true
+        }
+      });
+
+      if (existingSchedule) {
+        return res.status(400).json({
+          success: false,
+          message: 'El usuario ya tiene un horario similar registrado para este día'
+        });
+      }
+
+      // ✅ Crear el horario
+      const schedule = await UserSchedulePreferences.create({
+        userId,
+        dayOfWeek,
+        preferredStartTime,
+        preferredEndTime,
+        workoutType,
+        priority,
+        notes: notes || `Horario creado por ${req.user.role}: ${req.user.firstName} ${req.user.lastName}`
+      });
+
+      // ✅ Obtener el horario con información del usuario
+      const scheduleWithUser = await UserSchedulePreferences.findByPk(schedule.id, {
+        include: [{
+          model: User,
+          as: 'user',
+          attributes: ['id', 'firstName', 'lastName', 'email']
+        }]
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Horario agregado exitosamente para el usuario',
+        data: { schedule: scheduleWithUser }
+      });
+    } catch (error) {
+      console.error('Error al agregar horario para usuario:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al agregar horario',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Admin/Colaborador obtiene horarios de cualquier usuario
+  async getUserSchedule(req, res) {
+    try {
+      const { userId } = req.params;
+
+      // ✅ Verificar que el usuario existe
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuario no encontrado'
+        });
+      }
+
+      const schedules = await UserSchedulePreferences.getByUser(userId);
+      
+      res.json({
+        success: true,
+        data: { 
+          user: {
+            id: user.id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email
+          },
+          schedules 
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener horarios del usuario:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener horarios',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Admin/Colaborador actualiza horarios de cualquier usuario
+  async updateUserSchedule(req, res) {
+    try {
+      const { userId } = req.params;
+      const { schedules } = req.body;
+
+      // ✅ Verificar que el usuario existe
+      const user = await User.findByPk(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'Usuario no encontrado'
+        });
+      }
+
+      // ✅ Desactivar todos los horarios existentes del usuario
+      await UserSchedulePreferences.update(
+        { isActive: false },
+        { where: { userId } }
+      );
+
+      const updatedSchedules = [];
+
+      // ✅ Crear/activar nuevos horarios
+      for (const schedule of schedules) {
+        const [scheduleRecord, created] = await UserSchedulePreferences.findOrCreate({
+          where: {
+            userId,
+            dayOfWeek: schedule.dayOfWeek,
+            preferredStartTime: schedule.preferredStartTime,
+            preferredEndTime: schedule.preferredEndTime
+          },
+          defaults: {
+            userId,
+            ...schedule,
+            isActive: true,
+            notes: schedule.notes || `Actualizado por ${req.user.role}: ${req.user.firstName} ${req.user.lastName}`
+          }
+        });
+
+        if (!created) {
+          scheduleRecord.workoutType = schedule.workoutType || scheduleRecord.workoutType;
+          scheduleRecord.priority = schedule.priority || scheduleRecord.priority;
+          scheduleRecord.notes = schedule.notes || scheduleRecord.notes;
+          scheduleRecord.isActive = true;
+          await scheduleRecord.save();
+        }
+
+        updatedSchedules.push(scheduleRecord);
+      }
+
+      res.json({
+        success: true,
+        message: `Horarios actualizados exitosamente para ${user.firstName} ${user.lastName}`,
+        data: { schedules: updatedSchedules }
+      });
+    } catch (error) {
+      console.error('Error al actualizar horarios del usuario:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al actualizar horarios',
+        error: error.message
+      });
+    }
+  }
+
+  // ✅ NUEVO: Admin/Colaborador elimina horario de cualquier usuario
+  async deleteUserSchedule(req, res) {
+    try {
+      const { userId, scheduleId } = req.params;
+
+      const schedule = await UserSchedulePreferences.findOne({
+        where: { id: scheduleId, userId }
+      });
+
+      if (!schedule) {
+        return res.status(404).json({
+          success: false,
+          message: 'Horario no encontrado'
+        });
+      }
+
+      // ✅ Soft delete - marcar como inactivo
+      schedule.isActive = false;
+      await schedule.save();
+
+      res.json({
+        success: true,
+        message: 'Horario eliminado exitosamente'
+      });
+    } catch (error) {
+      console.error('Error al eliminar horario:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al eliminar horario',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new ScheduleController();

@@ -5,7 +5,11 @@ const {
   updateScheduleValidator,
   addScheduleValidator,
   scheduleIdValidator,
-  createDefaultScheduleValidator
+  createDefaultScheduleValidator,
+  addScheduleForUserValidator,
+  userIdParamValidator,
+  userScheduleParamsValidator
+  
 } = require('../validators/scheduleValidators');
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
@@ -56,6 +60,40 @@ router.get('/popular-times',
 router.get('/availability', 
   authenticateToken, 
   scheduleController.getGymAvailability
+);
+
+// RUTAS PARA ADMIN/COLABORADOR
+router.post('/users/schedule', 
+  authenticateToken, 
+  requireStaff,
+  addScheduleForUserValidator,
+  handleValidationErrors,
+  scheduleController.addScheduleForUser
+);
+
+router.get('/users/:userId', 
+  authenticateToken, 
+  requireStaff,
+  userIdParamValidator,
+  handleValidationErrors,
+  scheduleController.getUserSchedule
+);
+
+router.put('/users/:userId', 
+  authenticateToken, 
+  requireStaff,
+  userIdParamValidator,
+  updateScheduleValidator,
+  handleValidationErrors,
+  scheduleController.updateUserSchedule
+);
+
+router.delete('/users/:userId/:scheduleId', 
+  authenticateToken, 
+  requireStaff,
+  userScheduleParamsValidator,
+  handleValidationErrors,
+  scheduleController.deleteUserSchedule
 );
 
 module.exports = router;

@@ -91,9 +91,69 @@ const createDefaultScheduleValidator = [
     .withMessage('ID de usuario inválido')
 ];
 
+// VALIDADORES PARA ADMIN/COLABORADOR
+const addScheduleForUserValidator = [
+  body('userId')
+    .notEmpty()
+    .withMessage('El userId es requerido')
+    .isUUID()
+    .withMessage('ID de usuario inválido'),
+    
+  body('dayOfWeek')
+    .isInt({ min: 0, max: 6 })
+    .withMessage('Día de la semana inválido (0=Domingo, 6=Sábado)'),
+    
+  body('preferredStartTime')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Formato de hora de inicio inválido (HH:MM)'),
+    
+  body('preferredEndTime')
+    .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+    .withMessage('Formato de hora de fin inválido (HH:MM)')
+    .custom((endTime, { req }) => {
+      if (endTime <= req.body.preferredStartTime) {
+        throw new Error('La hora de fin debe ser posterior a la hora de inicio');
+      }
+      return true;
+    }),
+    
+  body('workoutType')
+    .optional()
+    .isIn(['cardio', 'weights', 'functional', 'classes', 'mixed'])
+    .withMessage('Tipo de entrenamiento inválido'),
+    
+  body('priority')
+    .optional()
+    .isInt({ min: 1, max: 5 })
+    .withMessage('La prioridad debe ser un número entre 1 y 5'),
+    
+  body('notes')
+    .optional()
+    .isLength({ max: 255 })
+    .withMessage('Las notas no pueden exceder 255 caracteres')
+];
+
+const userIdParamValidator = [
+  param('userId')
+    .isUUID()
+    .withMessage('ID de usuario inválido')
+];
+
+const userScheduleParamsValidator = [
+  param('userId')
+    .isUUID()
+    .withMessage('ID de usuario inválido'),
+  param('scheduleId')
+    .isUUID()
+    .withMessage('ID de horario inválido')
+];
+
 module.exports = {
   updateScheduleValidator,
   addScheduleValidator,
   scheduleIdValidator,
-  createDefaultScheduleValidator
+  createDefaultScheduleValidator,
+  addScheduleForUserValidator,
+  userIdParamValidator,
+  userScheduleParamsValidator
 };

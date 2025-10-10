@@ -1,9 +1,10 @@
-// testMembershipsSimple.js - Test COMPLETO con Confirmación Automática
+// testMembershipsSimple.js - Test COMPLETO con Confirmación Automática y Horarios
 // Ejecutar con: node testMembershipsSimple.js
 // NOTA: El servidor debe estar corriendo en http://localhost:5000
 //
 // FUNCIONALIDADES:
 // ✅ Crear membresías y confirmarlas automáticamente usando el flujo existente
+// ✅ Asignar horarios de asistencia para membresías de 1 día (Admin/Colaborador)
 // ✅ Verificar pago completado y movimiento financiero
 // ✅ Ver membresías por estado (active, pending, expired, cancelled)
 // ✅ Ver membresías próximas a vencer
@@ -179,7 +180,7 @@ async function createNewClient() {
 
 async function showMenu() {
   clearScreen();
-  showHeader('💳 TEST MEMBRESÍAS - CONFIRMACIÓN AUTOMÁTICA');
+  showHeader('💳 TEST MEMBRESÍAS - CONFIRMACIÓN AUTOMÁTICA + HORARIOS');
   
   if (!authToken) {
     console.log(colors.red + '⚠️  NO AUTENTICADO' + colors.reset);
@@ -279,7 +280,7 @@ async function autoLoginOnStart() {
 }
 
 // ============================================================
-// 2. CREAR MEMBRESÍA CON CONFIRMACIÓN AUTOMÁTICA
+// 2. CREAR MEMBRESÍA CON CONFIRMACIÓN AUTOMÁTICA Y HORARIOS
 // ============================================================
 async function createMembershipWithAutoConfirm() {
   showHeader('➕ CREAR MEMBRESÍA CON CONFIRMACIÓN AUTOMÁTICA');
@@ -341,6 +342,73 @@ async function createMembershipWithAutoConfirm() {
     console.log(`${colors.green}✓${colors.reset} Inicio: ${startDate}`);
     console.log(`${colors.green}✓${colors.reset} Fin: ${endDate} (${days} días)`);
     
+    // ✅ Si es membresía diaria, pedir horario de asistencia
+    let scheduleData = null;
+    if (selectedPlan.duration === 'daily') {
+      console.log(`\n${colors.cyan}═══ ASIGNACIÓN DE HORARIO (Membresía de 1 día) ═══${colors.reset}`);
+      
+      // Obtener día de la semana de la fecha de inicio
+      const startDateObj = new Date(startDate + 'T12:00:00'); // Agregar hora para evitar problemas de zona horaria
+      const dayOfWeek = startDateObj.getDay(); // 0=Domingo, 1=Lunes, etc.
+      const daysNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      
+      console.log(`\n${colors.bright}Día de asistencia:${colors.reset} ${daysNames[dayOfWeek]} (${startDate})`);
+      console.log('\nHorarios disponibles:');
+      console.log('  1. Mañana (06:00 - 12:00)');
+      console.log('  2. Mediodía (12:00 - 15:00)');
+      console.log('  3. Tarde (15:00 - 18:00)');
+      console.log('  4. Noche (18:00 - 22:00)');
+      console.log('  5. Personalizado');
+      
+      const scheduleChoice = await question('\nSelecciona el horario: ');
+      
+      let preferredStartTime, preferredEndTime;
+      
+      switch(scheduleChoice) {
+        case '1':
+          preferredStartTime = '06:00';
+          preferredEndTime = '12:00';
+          break;
+        case '2':
+          preferredStartTime = '12:00';
+          preferredEndTime = '15:00';
+          break;
+        case '3':
+          preferredStartTime = '15:00';
+          preferredEndTime = '18:00';
+          break;
+        case '4':
+          preferredStartTime = '18:00';
+          preferredEndTime = '22:00';
+          break;
+        case '5':
+          preferredStartTime = await question('Hora inicio (HH:MM): ');
+          preferredEndTime = await question('Hora fin (HH:MM): ');
+          break;
+        default:
+          console.log(colors.yellow + '⚠️  Horario inválido, usando horario de mañana por defecto' + colors.reset);
+          preferredStartTime = '06:00';
+          preferredEndTime = '12:00';
+      }
+      
+      console.log(`\n${colors.green}✓${colors.reset} Horario seleccionado: ${preferredStartTime} - ${preferredEndTime}`);
+      
+      const workoutTypeInput = await question('\nTipo de entrenamiento (cardio/strength/mixed, Enter=mixed): ');
+      const workoutType = workoutTypeInput || 'mixed';
+      
+      scheduleData = {
+        userId: client.id, // ✅ INCLUIR userId
+        dayOfWeek,
+        preferredStartTime,
+        preferredEndTime,
+        workoutType,
+        priority: 5, // Alta prioridad para membresías de 1 día
+        notes: `Horario para membresía de 1 día - ${startDate}`
+      };
+      
+      console.log(`${colors.green}✓${colors.reset} Tipo: ${workoutType}`);
+    }
+    
     const notes = await question('\nNotas (opcional): ');
     
     // ✅ PASO 1: Crear membresía usando el flujo de COMPRA (para que cree el pago)
@@ -358,6 +426,16 @@ async function createMembershipWithAutoConfirm() {
     console.log(`Plan: ${selectedPlan.name}`);
     console.log(`Precio: ${colors.green}Q${selectedPlan.price}${colors.reset}`);
     console.log(`Duración: ${days} días`);
+    console.log(`Inicio: ${startDate} | Fin: ${endDate}`);
+    
+    if (scheduleData) {
+      const daysNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      console.log(`\n${colors.cyan}Horario de asistencia:${colors.reset}`);
+      console.log(`  Día: ${daysNames[scheduleData.dayOfWeek]}`);
+      console.log(`  Horario: ${scheduleData.preferredStartTime} - ${scheduleData.preferredEndTime}`);
+      console.log(`  Tipo: ${scheduleData.workoutType}`);
+    }
+    
     console.log('─'.repeat(70));
     
     const confirm = await question('\n¿Confirmar creación? (s/n): ');
@@ -421,6 +499,35 @@ async function createMembershipWithAutoConfirm() {
     // Esperar un momento
     await new Promise(resolve => setTimeout(resolve, 500));
     
+    // ✅ PASO 2.5: Registrar horario si es membresía diaria
+    let scheduleCreated = null;
+    if (scheduleData) {
+      console.log(`\n${colors.cyan}[2.5/3]${colors.reset} Registrando horario de asistencia...`);
+      
+      try {
+        // ✅ Usar el endpoint de admin/colaborador directamente
+        const scheduleResponse = await axios.post(
+          `${API_BASE_URL}/schedules/users/schedule`,
+          scheduleData,
+          getAxiosConfig()
+        );
+        
+        if (scheduleResponse.data.success) {
+          scheduleCreated = scheduleResponse.data.data.schedule;
+          console.log(colors.green + '      ✅ Horario registrado' + colors.reset);
+          console.log(`      Día: ${['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][scheduleData.dayOfWeek]}`);
+          console.log(`      Horario: ${scheduleData.preferredStartTime} - ${scheduleData.preferredEndTime}`);
+        }
+      } catch (scheduleError) {
+        console.log(colors.yellow + '      ⚠️  No se pudo registrar el horario automáticamente' + colors.reset);
+        console.log(`      Error: ${scheduleError.response?.data?.message || scheduleError.message}`);
+        console.log(colors.cyan + '      💡 El horario puede registrarse manualmente después' + colors.reset);
+      }
+      
+      // Esperar un momento
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
     // ✅ PASO 3: Verificar que todo se creó correctamente
     console.log(`\n${colors.cyan}[3/3]${colors.reset} Verificando creación completa...`);
     
@@ -476,6 +583,18 @@ async function createMembershipWithAutoConfirm() {
     console.log(`  ${colors.green}✅${colors.reset} Membresía creada y activa`);
     console.log(`  ${colors.green}✅${colors.reset} Pago registrado y completado`);
     console.log(`  ${financialMovementFound ? colors.green + '✅' : colors.yellow + '⚠️'}${colors.reset} Movimiento financiero ${financialMovementFound ? 'creado' : 'no encontrado en últimos 5'}`);
+    
+    if (selectedPlan.duration === 'daily') {
+      console.log(`  ${scheduleCreated ? colors.green + '✅' : colors.yellow + '⚠️'}${colors.reset} Horario de asistencia ${scheduleCreated ? 'registrado' : 'no registrado'}`);
+      
+      if (scheduleCreated) {
+        const daysNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        console.log(`\n${colors.bright}Horario asignado:${colors.reset}`);
+        console.log(`  Día: ${daysNames[scheduleCreated.dayOfWeek]}`);
+        console.log(`  Horario: ${scheduleCreated.preferredStartTime} - ${scheduleCreated.preferredEndTime}`);
+        console.log(`  Tipo: ${scheduleCreated.workoutType}`);
+      }
+    }
     
     console.log('\n' + '═'.repeat(70));
     
@@ -885,7 +1004,7 @@ function handleAPIError(error) {
 // ============================================================
 async function main() {
   try {
-    console.log(colors.bright + colors.cyan + '\n💳 Test de Membresías - Confirmación Automática' + colors.reset);
+    console.log(colors.bright + colors.cyan + '\n💳 Test de Membresías - Confirmación Automática + Horarios' + colors.reset);
     console.log('Servidor: ' + API_BASE_URL);
     
     if (AUTO_LOGIN.enabled) {
