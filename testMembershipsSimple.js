@@ -289,6 +289,9 @@ async function getAvailableScheduleOptions(planId) {
 // ============================================================
 // ✨ SELECCIONAR HORARIOS MEJORADO
 // ============================================================
+// ============================================================
+// ✨ SELECCIONAR HORARIOS MEJORADO - VERSIÓN CORREGIDA
+// ============================================================
 async function selectScheduleForMembership(planData, startDate) {
   const selectedSchedule = {};
   
@@ -356,18 +359,27 @@ async function selectScheduleForMembership(planData, startDate) {
     console.log(`${c.bright}${c.green}╚═══════════════════════════════════════════════════════════════════════════════╝${c.reset}\n`);
     
     availableSlots.forEach((slot, index) => {
-      const availColor = slot.available > 5 ? c.green : slot.available > 2 ? c.yellow : c.red;
-      const percentage = Math.round((slot.available / slot.maxCapacity) * 100);
-      const barLength = Math.round((slot.available / slot.maxCapacity) * 20);
+      // ✅ CORRECCIÓN: Usar las propiedades correctas
+      const capacity = slot.capacity || 0;
+      const currentReservations = slot.currentReservations || 0;
+      const available = slot.available || (capacity - currentReservations);
+      
+      const availColor = available > 5 ? c.green : available > 2 ? c.yellow : c.red;
+      const percentage = capacity > 0 ? Math.round((available / capacity) * 100) : 0;
+      const barLength = capacity > 0 ? Math.round((available / capacity) * 20) : 0;
       const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
       
-      console.log(`${c.bright}  ${index + 1}. ${slot.label || slot.name || 'Horario'}${c.reset}`);
+      const openTime = slot.openTime ? slot.openTime.slice(0, 5) : 'N/A';
+      const closeTime = slot.closeTime ? slot.closeTime.slice(0, 5) : 'N/A';
+      const label = slot.label || slot.slotLabel || slot.name || 'Horario';
+      
+      console.log(`${c.bright}  ${index + 1}. ${label}${c.reset}`);
       console.log(`     ┌─────────────────────────────────────────────────────────────────────┐`);
-      console.log(`     │ ⏰ Horario:      ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`.padEnd(87) + '│');
-      console.log(`     │ 👥 Capacidad:    ${slot.maxCapacity} personas`.padEnd(87) + '│');
-      console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${slot.available} espacios (${percentage}%)`.padEnd(87) + '│');
+      console.log(`     │ ⏰ Horario:      ${c.cyan}${openTime} - ${closeTime}${c.reset}`.padEnd(87) + '│');
+      console.log(`     │ 👥 Capacidad:    ${capacity} personas`.padEnd(87) + '│');
+      console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${available} espacios (${percentage}%)`.padEnd(87) + '│');
       console.log(`     │ ${availColor}[${bar}]${c.reset} ${percentage}%`.padEnd(87) + '│');
-      console.log(`     │ 🔒 En uso:       ${slot.currentUsers} personas`.padEnd(87) + '│');
+      console.log(`     │ 🔒 En uso:       ${currentReservations} personas`.padEnd(87) + '│');
       console.log(`     └─────────────────────────────────────────────────────────────────────┘`);
       console.log('');
     });
@@ -383,7 +395,10 @@ async function selectScheduleForMembership(planData, startDate) {
     commonSlotId = availableSlots[selectedIndex].id;
     commonSlotInfo = availableSlots[selectedIndex];
     
-    console.log(c.green + `\n✅ Horario seleccionado: ${commonSlotInfo.startTime} - ${commonSlotInfo.endTime}` + c.reset);
+    const openTime = commonSlotInfo.openTime ? commonSlotInfo.openTime.slice(0, 5) : 'N/A';
+    const closeTime = commonSlotInfo.closeTime ? commonSlotInfo.closeTime.slice(0, 5) : 'N/A';
+    
+    console.log(c.green + `\n✅ Horario seleccionado: ${openTime} - ${closeTime}` + c.reset);
     console.log(c.cyan + `   Este horario se aplicará a todos los días disponibles\n` + c.reset);
     
     console.log(`${c.cyan}Aplicando horario a cada día...${c.reset}\n`);
@@ -404,13 +419,21 @@ async function selectScheduleForMembership(planData, startDate) {
         continue;
       }
       
-      if (!slotInDay.canReserve || slotInDay.available <= 0) {
+      const capacity = slotInDay.capacity || 0;
+      const currentReservations = slotInDay.currentReservations || 0;
+      const available = slotInDay.available || (capacity - currentReservations);
+      
+      if (!slotInDay.canReserve || available <= 0) {
         console.log(`  ${c.red}✗ ${dayNames[day]}: Sin capacidad disponible - omitido${c.reset}`);
         continue;
       }
       
       selectedSchedule[day] = [commonSlotId];
-      console.log(`  ${c.green}✓ ${dayNames[day]}: ${slotInDay.startTime} - ${slotInDay.endTime}${c.reset}`);
+      
+      const slotOpenTime = slotInDay.openTime ? slotInDay.openTime.slice(0, 5) : 'N/A';
+      const slotCloseTime = slotInDay.closeTime ? slotInDay.closeTime.slice(0, 5) : 'N/A';
+      
+      console.log(`  ${c.green}✓ ${dayNames[day]}: ${slotOpenTime} - ${slotCloseTime}${c.reset}`);
     }
     
   } else {
@@ -442,18 +465,27 @@ async function selectScheduleForMembership(planData, startDate) {
       
       // ✅ MOSTRAR TODOS LOS SLOTS CON DETALLE
       availableSlots.forEach((slot, index) => {
-        const availColor = slot.available > 5 ? c.green : slot.available > 2 ? c.yellow : c.red;
-        const percentage = Math.round((slot.available / slot.maxCapacity) * 100);
-        const barLength = Math.round((slot.available / slot.maxCapacity) * 20);
+        // ✅ CORRECCIÓN: Usar las propiedades correctas
+        const capacity = slot.capacity || 0;
+        const currentReservations = slot.currentReservations || 0;
+        const available = slot.available || (capacity - currentReservations);
+        
+        const availColor = available > 5 ? c.green : available > 2 ? c.yellow : c.red;
+        const percentage = capacity > 0 ? Math.round((available / capacity) * 100) : 0;
+        const barLength = capacity > 0 ? Math.round((available / capacity) * 20) : 0;
         const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
         
-        console.log(`${c.bright}  ${index + 1}. ${slot.label || slot.name || 'Horario'}${c.reset}`);
+        const openTime = slot.openTime ? slot.openTime.slice(0, 5) : 'N/A';
+        const closeTime = slot.closeTime ? slot.closeTime.slice(0, 5) : 'N/A';
+        const label = slot.label || slot.slotLabel || slot.name || 'Horario';
+        
+        console.log(`${c.bright}  ${index + 1}. ${label}${c.reset}`);
         console.log(`     ┌─────────────────────────────────────────────────────────────────────┐`);
-        console.log(`     │ ⏰ Horario:      ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`.padEnd(87) + '│');
-        console.log(`     │ 👥 Capacidad:    ${slot.maxCapacity} personas`.padEnd(87) + '│');
-        console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${slot.available} espacios (${percentage}%)`.padEnd(87) + '│');
+        console.log(`     │ ⏰ Horario:      ${c.cyan}${openTime} - ${closeTime}${c.reset}`.padEnd(87) + '│');
+        console.log(`     │ 👥 Capacidad:    ${capacity} personas`.padEnd(87) + '│');
+        console.log(`     │ ${availColor}✓ Disponibles:${c.reset}  ${available} espacios (${percentage}%)`.padEnd(87) + '│');
         console.log(`     │ ${availColor}[${bar}]${c.reset} ${percentage}%`.padEnd(87) + '│');
-        console.log(`     │ 🔒 En uso:       ${slot.currentUsers} personas`.padEnd(87) + '│');
+        console.log(`     │ 🔒 En uso:       ${currentReservations} personas`.padEnd(87) + '│');
         console.log(`     └─────────────────────────────────────────────────────────────────────┘`);
         console.log('');
       });
@@ -477,7 +509,10 @@ async function selectScheduleForMembership(planData, startDate) {
       const selectedSlot = availableSlots[selectedIndex];
       selectedSchedule[day] = [selectedSlot.id];
       
-      console.log(c.green + `  ✓ ${dayNames[day]}: ${selectedSlot.startTime} - ${selectedSlot.endTime} RESERVADO\n` + c.reset);
+      const slotOpenTime = selectedSlot.openTime ? selectedSlot.openTime.slice(0, 5) : 'N/A';
+      const slotCloseTime = selectedSlot.closeTime ? selectedSlot.closeTime.slice(0, 5) : 'N/A';
+      
+      console.log(c.green + `  ✓ ${dayNames[day]}: ${slotOpenTime} - ${slotCloseTime} RESERVADO\n` + c.reset);
     }
   }
   
@@ -507,14 +542,18 @@ async function selectScheduleForMembership(planData, startDate) {
     
     if (slot) {
       totalDays++;
-      console.log(`  ${c.green}✓${c.reset} ${dayNames[day].padEnd(12)}: ${c.cyan}${slot.startTime} - ${slot.endTime}${c.reset}`);
+      const slotOpenTime = slot.openTime ? slot.openTime.slice(0, 5) : 'N/A';
+      const slotCloseTime = slot.closeTime ? slot.closeTime.slice(0, 5) : 'N/A';
+      console.log(`  ${c.green}✓${c.reset} ${dayNames[day].padEnd(12)}: ${c.cyan}${slotOpenTime} - ${slotCloseTime}${c.reset}`);
     }
   }
   
   console.log(`\n  ${c.bright}Total: ${totalDays} día(s) con horario reservado${c.reset}`);
   
   if (commonSlotInfo) {
-    console.log(`  ${c.cyan}Modo: Horario común (${commonSlotInfo.startTime} - ${commonSlotInfo.endTime})${c.reset}`);
+    const commonOpenTime = commonSlotInfo.openTime ? commonSlotInfo.openTime.slice(0, 5) : 'N/A';
+    const commonCloseTime = commonSlotInfo.closeTime ? commonSlotInfo.closeTime.slice(0, 5) : 'N/A';
+    console.log(`  ${c.cyan}Modo: Horario común (${commonOpenTime} - ${commonCloseTime})${c.reset}`);
   } else {
     console.log(`  ${c.cyan}Modo: Selección individual por día${c.reset}`);
   }
