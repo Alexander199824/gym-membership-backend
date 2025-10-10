@@ -565,6 +565,88 @@ class ScheduleController {
       });
     }
   }
+
+  // ✅ NUEVO: Obtener slots disponibles del gimnasio desde BD (SIN HARDCODEO)
+  async getGymTimeSlots(req, res) {
+    try {
+      const { GymTimeSlots } = require('../models');
+      
+      console.log('🔍 Consultando slots desde BD...');
+      
+      // Obtener TODOS los slots activos de la BD
+      const slots = await GymTimeSlots.findAll({
+        where: { isActive: true },
+        attributes: ['id', 'openTime', 'closeTime', 'capacity', 'currentReservations', 'slotLabel', 'displayOrder'],
+        order: [['displayOrder', 'ASC'], ['openTime', 'ASC']]
+      });
+      
+      if (slots.length === 0) {
+        console.log('⚠️ No hay slots configurados en la BD');
+        return res.json({
+          success: true,
+          data: {
+            timeSlots: [],
+            message: 'No hay horarios configurados en el sistema'
+          }
+        });
+      }
+      
+      // Calcular disponibilidad actual de cada slot
+      const scheduleStats = await UserSchedulePreferences.findAll({
+        where: { isActive: true },
+        attributes: [
+          'preferredStartTime',
+          'preferredEndTime',
+          [UserSchedulePreferences.sequelize.fn('COUNT', UserSchedulePreferences.sequelize.col('id')), 'userCount']
+        ],
+        group: ['preferredStartTime', 'preferredEndTime']
+      });
+      
+      // Crear mapa de uso real
+      const usageMap = {};
+      scheduleStats.forEach(stat => {
+        const key = `${stat.preferredStartTime}-${stat.preferredEndTime}`;
+        usageMap[key] = parseInt(stat.dataValues.userCount);
+      });
+      
+      // Formatear slots con disponibilidad real
+      const timeSlots = slots.map(slot => {
+        const key = `${slot.openTime}-${slot.closeTime}`;
+        const realUsage = usageMap[key] || slot.currentReservations || 0;
+        const available = Math.max(0, slot.capacity - realUsage);
+        
+        return {
+          id: slot.id,
+          name: slot.slotLabel || `${slot.openTime.slice(0, 5)} - ${slot.closeTime.slice(0, 5)}`,
+          startTime: slot.openTime.slice(0, 5),
+          endTime: slot.closeTime.slice(0, 5),
+          maxCapacity: slot.capacity,
+          currentUsers: realUsage,
+          available: available,
+          percentage: slot.capacity > 0 ? Math.round((available / slot.capacity) * 100) : 0
+        };
+      });
+      
+      console.log(`✅ ${timeSlots.length} slots obtenidos desde BD`);
+      
+      res.json({
+        success: true,
+        data: {
+          timeSlots,
+          total: timeSlots.length,
+          source: 'database'
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Error al obtener slots:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al obtener horarios disponibles',
+        error: error.message
+      });
+    }
+  }
 }
 
 module.exports = new ScheduleController();

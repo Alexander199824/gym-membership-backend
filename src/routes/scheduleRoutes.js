@@ -9,7 +9,7 @@ const {
   addScheduleForUserValidator,
   userIdParamValidator,
   userScheduleParamsValidator
-  
+
 } = require('../validators/scheduleValidators');
 const { handleValidationErrors } = require('../middleware/validation');
 const { authenticateToken, requireStaff } = require('../middleware/auth');
@@ -94,6 +94,11 @@ router.delete('/users/:userId/:scheduleId',
   userScheduleParamsValidator,
   handleValidationErrors,
   scheduleController.deleteUserSchedule
+);
+
+router.get('/time-slots', 
+  authenticateToken, 
+  scheduleController.getGymTimeSlots
 );
 
 module.exports = router;
